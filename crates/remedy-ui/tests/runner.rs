@@ -39,6 +39,24 @@ fn the_apps_edition_reaches_every_window() {
     assert_eq!(AppConfig::new("No edition").edition, remedy_ui::Edition::FIRST);
 }
 
+#[test]
+fn the_app_sets_how_long_quitting_waits_for_keepalive_requests() {
+    assert_eq!(AppConfig::new("Default").keepalive_grace, Duration::from_secs(10));
+    assert_eq!(config().keepalive_grace(Duration::from_secs(45)).keepalive_grace, Duration::from_secs(45));
+    let c = config()
+        .single_instance_wait(Duration::from_secs(20))
+        .drop_waits(Duration::from_secs(8), Duration::ZERO);
+    assert_eq!(
+        (c.single_instance_wait, c.drop_waits),
+        (Duration::from_secs(20), (Duration::from_secs(8), Duration::ZERO))
+    );
+    let d = AppConfig::new("Default");
+    assert_eq!(
+        (d.single_instance_wait, d.drop_waits),
+        (Duration::from_secs(5), (Duration::from_secs(2), Duration::from_secs(10)))
+    );
+}
+
 fn press(x: f32, y: f32, phase: PointerPhase) -> PointerEvent {
     PointerEvent::new(phase, Point::new(x, y))
         .with_buttons(if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() })
@@ -2026,17 +2044,12 @@ fn a_finger_tap_on_a_field_opens_the_keyboard() {
     let b = field.bounds().unwrap_or_default();
     let (x, y) = ((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5);
     assert!(b.width() > 0.0 && b.height() > 0.0, "the field is laid out: {b:?}");
-    let finger = |phase| {
-        press(x, y, phase).with_id(1).with_kind(remedy_ui::input::PointerKind::Touch)
-    };
+    let finger = |phase| press(x, y, phase).with_id(1).with_kind(remedy_ui::input::PointerKind::Touch);
     host.send(HostEvent::Pointer(id, finger(PointerPhase::Down)));
     host.send(HostEvent::Pointer(id, finger(PointerPhase::Up)));
     host.run_frames(&mut runner, 1);
     assert!(field.is_focused(), "a tap focuses the field");
-    assert!(
-        host.window(id).is_some_and(|w| w.text_input().is_some()),
-        "focus opened a text-input session"
-    );
+    assert!(host.window(id).is_some_and(|w| w.text_input().is_some()), "focus opened a text-input session");
 }
 
 #[test]

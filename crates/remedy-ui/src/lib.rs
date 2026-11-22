@@ -309,11 +309,13 @@ impl std::error::Error for RunError {}
 pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), RunError> {
     // Keepalive requests (an app's last saves) finish as the app quits, as in a closing page.
     #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
-    let _keepalive = KeepaliveOnExit;
+    let _keepalive = KeepaliveOnExit(config.keepalive_grace);
     // On Android they also finish when the app goes out of sight: the process is kept from
     // being frozen until they end.
     #[cfg(all(feature = "net", target_os = "android"))]
     remedy_ui_services_net::on_keepalive(remedy_ui_bridge_android::hold_process);
+    #[cfg(target_os = "android")]
+    remedy_ui_bridge_android::set_held_grace(config.keepalive_grace);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
     remedy_ui_media_svg::install();
@@ -331,6 +333,10 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         })
         .map_err(|e| RunError::SingleInstance { reason: e.reason().to_owned() });
     }
+    #[cfg(windows)]
+    remedy_ui_bridge_windows::set_instance_wait(config.single_instance_wait);
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+    remedy_ui_bridge_linux::set_drop_waits(config.drop_waits.0, config.drop_waits.1);
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if !instance::claim(&config.name, &args, inbox.clone())
@@ -384,12 +390,12 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
 }
 
 #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
-struct KeepaliveOnExit;
+struct KeepaliveOnExit(std::time::Duration);
 
 #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
 impl Drop for KeepaliveOnExit {
     fn drop(&mut self) {
-        remedy_ui_services_net::finish_keepalive(std::time::Duration::from_secs(10));
+        remedy_ui_services_net::finish_keepalive(self.0);
     }
 }
 

@@ -120,6 +120,15 @@ pub struct AppConfig {
     /// ([`AppConfig::web`]). Not used on other platforms.
     #[cfg(feature = "web")]
     pub web: remedy_ui_bridge_web::WebConfig,
+    /// How long quitting waits for keepalive requests still under way, an app's last saves
+    /// (feature `net`; [`AppConfig::keepalive_grace`]). Default 10 s.
+    pub keepalive_grace: std::time::Duration,
+    /// How long a second launch keeps trying to reach the first (Windows;
+    /// [`AppConfig::single_instance_wait`]). Default 5 s.
+    pub single_instance_wait: std::time::Duration,
+    /// How long a drop from another app may take to read, and a drag out of the app serves
+    /// its data once released (Linux; [`AppConfig::drop_waits`]). Default 2 s and 10 s.
+    pub drop_waits: (std::time::Duration, std::time::Duration),
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -157,7 +166,38 @@ impl AppConfig {
             app_id: None,
             #[cfg(feature = "web")]
             web: remedy_ui_bridge_web::WebConfig::default(),
+            keepalive_grace: std::time::Duration::from_secs(10),
+            single_instance_wait: std::time::Duration::from_secs(5),
+            drop_waits: (std::time::Duration::from_secs(2), std::time::Duration::from_secs(10)),
         }
+    }
+
+    /// Sets how long quitting waits for keepalive requests still under way (an app's last
+    /// saves, `net::Request::keepalive`) before the app ends anyway: 10 s by default, as a
+    /// closing browser page lets them finish. On Android it is also how long the way out
+    /// waits for them. Longer keeps a quitting app's process around that much longer when a
+    /// server is slow; zero ends at once and may lose the saves.
+    pub fn keepalive_grace(mut self, grace: std::time::Duration) -> Self {
+        self.keepalive_grace = grace;
+        self
+    }
+
+    /// Sets how long a second launch of a [single instance](Self::single_instance) app keeps
+    /// trying to hand its arguments to the first, which may be starting up, before `run`
+    /// fails with `RunError::SingleInstance` (Windows; 5 s by default). Elsewhere the hand-off
+    /// does not wait.
+    pub fn single_instance_wait(mut self, wait: std::time::Duration) -> Self {
+        self.single_instance_wait = wait;
+        self
+    }
+
+    /// Sets how long a drop from another app may take to read (Wayland; 2 s by default) and
+    /// how long a drag out of the app serves its data once released (X11; 10 s by default),
+    /// on Linux. Each guards against an app that never answers: longer lets a slow app hand
+    /// over a large drop, at a drop that waits that long when the other app hangs.
+    pub fn drop_waits(mut self, read: std::time::Duration, finish: std::time::Duration) -> Self {
+        self.drop_waits = (read, finish);
+        self
     }
 
     /// Names the app by its reverse-domain id (`com.example.hearth`), the one its package
@@ -2061,7 +2101,12 @@ impl Runner {
         // own data folder's `cache` when the app names one).
         #[cfg(feature = "image")]
         remedy_ui_media_image::set_cache_dir(
-            config.data_dir.as_ref().map(|d| d.join("cache")).or_else(|| crate::geometry::cache_dir(&config.name)).map(|d| d.join("images")),
+            config
+                .data_dir
+                .as_ref()
+                .map(|d| d.join("cache"))
+                .or_else(|| crate::geometry::cache_dir(&config.name))
+                .map(|d| d.join("images")),
         );
         // What this machine's graphics backends did (passed their self-test, drew wrong,
         // hung presenting) is remembered with the app's data: tested once per driver, and a
