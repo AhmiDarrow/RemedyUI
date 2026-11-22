@@ -133,6 +133,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-embed-gpu", 5),
     ("remedy-ui-services-desktop", 5),
     ("remedy-ui-services-update", 5),
+    // The HTTP client: JSON, errors, uploads, keepalive and cancellation, natively and in a page.
+    ("remedy-ui-services-net", 5),
     ("remedy-ui-services-spell", 5),
     ("remedy-ui-services-i18n", 5),
     // Reads a web view's localStorage store (LevelDB) so apps moving off one keep their data.
@@ -208,6 +210,9 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-playback", "remedy-ui-services-desktop"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
+    // Feeds and signatures come through the shared HTTP client (the download keeps its own
+    // reader, for its progress).
+    ("remedy-ui-services-update", "remedy-ui-services-net"),
     // The spelling menu is built from the core menu widgets.
     ("remedy-ui-services-spell", "remedy-ui-widgets-core"),
     // The inspector and preview gallery are built from widgets, and previews render with
