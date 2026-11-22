@@ -17,13 +17,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   right-to-left text included; the "…" follows the text in logical order, so it lands on the
   line's visual end either way). Screen readers, copying and searching get the whole text;
   `widgets::full_text_tooltip(&el)` shows it on hover. `El::truncate()` is now `max_lines(1)`,
-  so a hard line break in truncated text ends its first line in "…" too.
+  so a hard line break in truncated text ends its first line in "…" too. A long text is laid
+  out only as far as its first lines reach (growing starts of it), so clamping 50,000
+  characters to 3 lines takes about 1 ms instead of 37 ms (release build).
 - **Text transforms (CSS `text-transform`).** `TextTransform::{None, Upper, Lower,
   Capitalize}` on `TextStyle::transform`, `TextStylePatch::transform(..)` for spans,
   `El::text_transform(..)`, and `Style::text_transform` / `StylePatch::text_transform` for
   style sheets (inherited, as in CSS). The text is cased at shaping time by the window's
   locale (Turkish and Azerbaijani dotted İ and dotless ı, German ß as SS in capitals and Ss in
-  title case, Greek final sigma, the dž lj nj dz title forms); the paragraph's offsets (hit
+  title case, Greek final sigma, Greek capitals without accents or breathings as ICU's Greek
+  upper case (dialytika kept, and added where a dropped accent broke a diphthong: άι → ΑΪ),
+  Dutch "IJsland", the dž lj nj dz title forms); the paragraph's offsets (hit
   tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
   selection, copying and screen readers get the original. The player's "Up next" label uses
   it instead of upper-casing its string in code.

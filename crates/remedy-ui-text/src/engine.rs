@@ -494,8 +494,8 @@ pub struct TextEngine {
     lcx: LayoutContext<u32>,
     /// The language text is in, unless a span says otherwise ([`TextEngine::set_locale`]).
     language: Option<parley::fontique::Language>,
-    /// The locale cases i the Turkish way (dotted İ, dotless ı): Turkish and Azerbaijani.
-    turkic: bool,
+    /// The casing rules of the locale ([`TextTransform`](crate::TextTransform)).
+    case_lang: crate::casing::Lang,
 }
 
 impl std::fmt::Debug for TextEngine {
@@ -590,7 +590,12 @@ impl Default for ParagraphOptions {
 impl TextEngine {
     /// An engine using `fonts`.
     pub fn new(fonts: FontCollection) -> Self {
-        TextEngine { fonts, lcx: LayoutContext::new(), language: None, turkic: false }
+        TextEngine {
+            fonts,
+            lcx: LayoutContext::new(),
+            language: None,
+            case_lang: crate::casing::Lang::Default,
+        }
     }
 
     /// The language text is in (a BCP 47 tag such as `ja` or `zh-Hans`; empty or invalid
@@ -600,11 +605,10 @@ impl TextEngine {
     /// Returns whether it changed (paragraphs laid out before should be laid out again).
     pub fn set_locale(&mut self, locale: &str) -> bool {
         let language = parley::fontique::Language::parse(locale).ok();
-        let primary = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
-        let turkic = matches!(primary.as_str(), "tr" | "az" | "crh" | "tt" | "ba");
-        let changed = language != self.language || turkic != self.turkic;
+        let case_lang = crate::casing::Lang::for_locale(locale);
+        let changed = language != self.language || case_lang != self.case_lang;
         self.language = language;
-        self.turkic = turkic;
+        self.case_lang = case_lang;
         changed
     }
 
@@ -637,7 +641,7 @@ impl TextEngine {
         if let Some(n) = options.max_lines {
             return self.clamped(text, base, ParagraphOptions { max_lines: None, ..options }, n.max(1));
         }
-        if let Some((cased, map)) = crate::casing::apply(text, base, self.turkic) {
+        if let Some((cased, map)) = crate::casing::apply(text, base, self.case_lang) {
             let mut p = self.layout_uncased(&cased, base, options);
             p.case = Some(map);
             return p;
@@ -653,14 +657,14 @@ impl TextEngine {
         options: ParagraphOptions,
         n: usize,
     ) -> Paragraph {
-        let full = self.layout(text, base, options);
-        let lines = full.lines();
-        let Some(last) = lines.get(n - 1).filter(|_| lines.len() > n) else { return full };
         let s = text.as_str();
-        let cut = |end: usize| {
-            let kept = s.get(..end).unwrap_or(s).trim_end();
+        // The start of `text` up to `end` (white space after it dropped when `trim`), then
+        // `suffix`, keeping the spans and objects there.
+        let head = |end: usize, trim: bool, suffix: &str| {
+            let kept = s.get(..end).unwrap_or(s);
+            let kept = if trim { kept.trim_end() } else { kept };
             let keep = kept.len();
-            let mut r = RichText::plain(format!("{kept}\u{2026}"));
+            let mut r = RichText::plain(format!("{kept}{suffix}"));
             for span in text.spans() {
                 let (a, b) = (span.range.start.min(keep), span.range.end.min(keep));
                 if a < b {
@@ -670,6 +674,26 @@ impl TextEngine {
             r.set_objects(text.objects().iter().filter(|(i, _)| *i < keep).copied().collect());
             r
         };
+        let cut = |end: usize| head(end, true, "\u{2026}");
+        // Lines break greedily, so the lines of a start of the text that reaches past line
+        // n + 1 are the whole text's up to there: lay out starts growing fourfold, not the
+        // whole of a long text.
+        let mut budget = 256 * (n + 2);
+        let (full, lines) = loop {
+            if budget >= s.len() {
+                let p = self.layout(text, base, options);
+                let l = p.lines();
+                break (p, l);
+            }
+            let end = (0..=budget).rev().find(|&i| s.is_char_boundary(i)).unwrap_or(0);
+            let p = self.layout(&head(end, false, ""), base, options);
+            let l = p.lines();
+            if l.len() > n + 1 {
+                break (p, l);
+            }
+            budget = budget.saturating_mul(4);
+        };
+        let Some(last) = lines.get(n - 1).filter(|_| lines.len() > n) else { return full };
         // Grapheme boundaries on the last visible line: a cut never splits a cluster. Text
         // past that line cannot fit beside the "…" (it was pushed to the next line already).
         let line = last.range.start..last.range.end.min(s.len());
@@ -711,7 +735,7 @@ impl TextEngine {
         base: &TextStyle,
         options: ParagraphOptions,
     ) -> Paragraph {
-        let cased = crate::casing::apply(text, base, self.turkic);
+        let cased = crate::casing::apply(text, base, self.case_lang);
         let shown = cased.as_ref().map_or(text, |(c, _)| c);
         self.fonts.load_needed(shown.as_str());
         let mut p = Paragraph::whole(self.layout_piece(shown, base, options, 0.0));
@@ -726,7 +750,7 @@ impl TextEngine {
             fonts: self.fonts.clone(),
             lcx: LayoutContext::new(),
             language: self.language,
-            turkic: self.turkic,
+            case_lang: self.case_lang,
         }
     }
 
@@ -778,7 +802,7 @@ impl TextEngine {
         options: ParagraphOptions,
     ) -> Paragraph {
         if before.case.is_none()
-            && crate::casing::apply(text, base, self.turkic).is_none()
+            && crate::casing::apply(text, base, self.case_lang).is_none()
             && let Some(p) = crate::lazy::Lazy::after_edit(&before.inner, text, base, options)
         {
             return Paragraph::lazy(p);
