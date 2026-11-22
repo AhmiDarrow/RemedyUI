@@ -705,6 +705,8 @@ pub(crate) struct Inner {
     /// Spatial navigation as the app chose it (`None` follows the system) and as the system
     /// suggests it ([`Ui::set_spatial_navigation`]).
     pub(crate) spatial: Option<bool>,
+    /// How far an arrow key scrolls ([`Ui::set_scroll_step`]).
+    pub(crate) scroll_step: f32,
     pub(crate) system_spatial: bool,
     /// The child each focus group last had focused ([`El::focus_group`]).
     pub(crate) group_memory: HashMap<ElementId, ElementId>,
@@ -975,6 +977,7 @@ impl Ui {
             platform: remedy_ui_input::Platform::Standard,
             focus_chain: Vec::new(),
             spatial: None,
+            scroll_step: crate::events::SCROLL_STEP,
             system_spatial: false,
             group_memory: HashMap::new(),
             spatial_tuning: crate::SpatialTuning::default(),

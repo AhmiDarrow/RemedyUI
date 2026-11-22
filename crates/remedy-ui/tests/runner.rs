@@ -2417,3 +2417,72 @@ fn a_relayout_keeps_the_snapped_card() {
     host.run_frames(&mut runner, 4);
     assert_eq!(ui.scroll_offset(row.id()).x, 500.0);
 }
+
+#[test]
+fn the_arrow_key_scroll_step_is_a_setting() {
+    let (mut runner, mut host, ui, row, cards) = shelf(remedy_ui::view::SnapStrictness::Proximity, false);
+    assert_eq!(ui.scroll_step(), remedy_ui::view::SCROLL_STEP);
+    // A step of 100 on a proximity shelf rests 100 along: no card start is within 90.
+    ui.set_scroll_step(100.0);
+    if let Some(c) = cards.first() {
+        c.focus();
+    }
+    host.run_frames(&mut runner, 2);
+    host.send(HostEvent::Key(first(&host), KeyEvent::press(Key::ArrowRight)));
+    host.run_frames(&mut runner, 90);
+    assert_eq!(ui.scroll_offset(row.id()).x, 100.0);
+}
+
+#[test]
+fn a_sticky_label_in_a_snapping_shelf_stays_while_cards_snap() {
+    type Got = Option<(remedy_ui::El, remedy_ui::El)>;
+    let got: Rc<std::cell::RefCell<Got>> = Rc::default();
+    let g2 = got.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let g3 = g2.clone();
+        app.open(WindowSpec::new("Shelf").size(300.0, 200.0), move |ui, _| {
+            let label = ui.el("label").sticky(remedy_ui::style::StickyInsets {
+                start: Some(0.0),
+                ..remedy_ui::style::StickyInsets::NONE
+            });
+            let label = label.layout(|l| {
+                l.width = Length::Px(50.0);
+                l.height = Length::Px(100.0);
+                l.shrink = 0.0;
+            });
+            let mut row = ui
+                .el("shelf")
+                .scroll()
+                .scroll_x()
+                .row()
+                .scroll_snap(remedy_ui::view::SnapAxis::X, remedy_ui::view::SnapStrictness::Mandatory)
+                // The label covers the first 50: cards line up after it.
+                .scroll_padding(remedy_ui_core::Insets { start: 50.0, ..Default::default() })
+                .layout(|l| {
+                    l.width = Length::Px(300.0);
+                    l.height = Length::Px(100.0);
+                })
+                .child(label.clone());
+            for _ in 0..5 {
+                row = row.child(ui.el("card").snap_align(remedy_ui::view::SnapAlign::Start).layout(|l| {
+                    l.width = Length::Px(400.0);
+                    l.height = Length::Px(100.0);
+                    l.shrink = 0.0;
+                }));
+            }
+            *g3.borrow_mut() = Some((row.clone(), label));
+            ui.root().child(row);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("a window"));
+    let (row, label) = got.borrow().clone().unwrap_or_else(|| unreachable!("the shelf"));
+    // Card starts at 50, 450, ...: less the padding, snap points 0, 400, ...
+    let seen = wheel_then_rest(&mut host, &mut runner, &ui, &row, 250.0);
+    assert_eq!(seen.last().copied(), Some(400.0), "{seen:?}");
+    // The label is still at the shelf's start on screen.
+    let at = ui.tree().bounds(label.id()).map(|b| b.min.x);
+    let shelf_at = ui.tree().bounds(row.id()).map(|b| b.min.x);
+    assert_eq!(at, shelf_at, "the label stuck");
+}
