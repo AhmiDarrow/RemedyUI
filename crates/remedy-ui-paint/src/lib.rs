@@ -26,7 +26,7 @@ pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
 pub use remedy_ui_core::ColorMatrix;
 pub use video::{
     Coefficients, CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuAdapter, GpuFrame,
-    GpuPicture, GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter,
+    GpuPicture, GpuTexture, PagePlacement, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter,
     gpu_video_dma_buf_modifiers, set_gpu_video_adapter, set_gpu_video_dma_buf_modifiers,
 };
 

@@ -33,6 +33,8 @@ pub trait CompositeTarget {
     fn pop_layer(&mut self);
     /// Fills `rect` with `color`.
     fn fill_color(&mut self, rect: &kurbo::Rect, color: Color);
+    /// Clears what is drawn inside `path` to transparent (a compositor hole).
+    fn clear(&mut self, path: &kurbo::BezPath);
     /// Fills `part` with the pixels of the tile `(layer, key)`, placed by `paint_transform`
     /// (sampled nearest when `exact`); nothing when the tile is not held.
     fn fill_tile(
@@ -90,7 +92,10 @@ fn filter_end(all: &[CompositeOp], at: usize) -> usize {
             CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => {
                 depth = depth.saturating_sub(1);
             }
-            CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
+            CompositeOp::Tile { .. }
+            | CompositeOp::Backdrop { .. }
+            | CompositeOp::Fill { .. }
+            | CompositeOp::Clear { .. } => {}
         }
     }
     all.len()
@@ -190,7 +195,10 @@ fn walk<T: CompositeTarget>(
                 | CompositeOp::PushOpacity(_)
                 | CompositeOp::PushFilter { .. } => skip += 1,
                 CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => skip -= 1,
-                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
+                CompositeOp::Tile { .. }
+            | CompositeOp::Backdrop { .. }
+            | CompositeOp::Fill { .. }
+            | CompositeOp::Clear { .. } => {}
             }
             continue;
         }
@@ -378,6 +386,11 @@ fn walk<T: CompositeTarget>(
                     target.fill_color(&krect(*rect), *color);
                     target.pop_clip();
                 }
+            }
+            CompositeOp::Clear { transform, rect, .. } if misses(transform.apply_rect(*rect), &areas) => {}
+            CompositeOp::Clear { transform, rect, radii } => {
+                target.set_transform(shift * kaffine(*transform));
+                target.clear(&rounded(*rect, *radii));
             }
             CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
                 if misses(transform.apply_rect(*part), &areas) {

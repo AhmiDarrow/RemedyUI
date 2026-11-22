@@ -3397,8 +3397,11 @@ impl Runner {
             #[cfg(feature = "gpu")]
             if gpu_wanted {
                 if let Some(gpu) = gpu_device(&mut self.gpu, &mut self.gpu_waiting, host, w.host) {
+                    // A page's canvas can show through: its elements (a playing `<video>`) show in the
+                    // holes the window leaves clear (`El::set_see_through`), the background stays opaque.
+                    let see_through = w.spec.options.transparent || cfg!(target_arch = "wasm32");
                     let surface = host.window_handles(w.host).ok().and_then(|hd| {
-                        gpu.create_surface_paced(hd, pw, ph, w.spec.options.transparent, vsync).ok()
+                        gpu.create_surface_paced(hd, pw, ph, see_through, vsync).ok()
                     });
                     if self.app.0.borrow().adapter.is_none() {
                         let a = gpu.adapter();

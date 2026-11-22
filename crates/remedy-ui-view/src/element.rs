@@ -601,6 +601,8 @@ pub(crate) struct ElData {
     pub(crate) loops: Vec<remedy_ui_compositor::AmbientLoop>,
     /// Its painter animates with [`PaintCx::ambient`]: it gets a layer of its own.
     pub(crate) ambient_layer: bool,
+    /// What is under the window shows through its box ([`El::set_see_through`]).
+    pub(crate) see_through: bool,
     /// When its painter last got an ambient tick.
     pub(crate) ambient_last: Option<std::time::Duration>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
@@ -2016,6 +2018,7 @@ impl ElData {
             isolate: None,
             loops: Vec::new(),
             ambient_layer: false,
+            see_through: false,
             ambient_last: None,
             data_text: false,
             keyboard_alternative: None,
@@ -3298,6 +3301,21 @@ impl El {
         }
         self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.collapsed = on);
         self.ui.0.borrow_mut().structure_changed = true;
+    }
+
+    /// With `on`, the element's box is a window onto what is under the app's window: it is
+    /// cleared to transparent (inside its corners) where its own painting would go, and
+    /// what is drawn after it (its children, siblings over it) draws over. A page's own
+    /// `<video>` placed under the canvas shows there, decoded and composited by the
+    /// browser as on any page, with nothing redrawn per frame. Holes clear the window's
+    /// picture only outside group opacity and filters around the element.
+    pub fn set_see_through(&self, on: bool) {
+        if self.ui.0.borrow().els.get(&self.id).is_none_or(|d| d.see_through == on) {
+            return;
+        }
+        self.edit(Dirty::PAINT, |d| d.see_through = on);
+        // Its children move into (or out of) a layer of their own, snapped there.
+        self.ui.0.borrow_mut().frame.bounds_stale = true;
     }
 
     /// Paints the element and everything inside it into a compositor layer of its own,
