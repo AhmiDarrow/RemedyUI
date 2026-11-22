@@ -4066,6 +4066,7 @@ dependencies = [
  "remedy-ui-secure",
  "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
+ "remedy-ui-services-net",
  "remedy-ui-services-spell",
  "remedy-ui-services-update",
  "remedy-ui-services-webstorage",
@@ -4085,6 +4086,8 @@ dependencies = [
  "remedy-ui-widgets-nav",
  "remedy-ui-widgets-stage",
  "remedy-ui-widgets-term",
+ "serde",
+ "serde_json",
  "x11rb",
 ]
 
@@ -4508,12 +4511,11 @@ dependencies = [
  "remedy-ui-layout",
  "remedy-ui-paint",
  "remedy-ui-reactive",
+ "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-trace",
  "remedy-ui-view",
- "rustls",
- "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4789,6 +4791,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-services-net"
+version = "1.0.0-rc.1"
+dependencies = [
+ "js-sys",
+ "remedy-ui-reactive",
+ "rustls",
+ "serde",
+ "serde_json",
+ "ureq",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "remedy-ui-services-spell"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4826,6 +4844,7 @@ dependencies = [
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-reactive",
+ "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-view",
@@ -5015,6 +5034,7 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-style",
  "remedy-ui-text",

@@ -16,19 +16,109 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   disk in the app's cache folder (256 MiB, least recently used dropped first; `remedy_ui::run`
   sets it, `set_cache_dir` changes it), following `Cache-Control` (`max-age`, `no-cache`,
   `no-store`) and revalidated with `ETag` and `Last-Modified`. In a page the browser's
-  HTTP cache does that. Natively the fetch uses ureq with rustls and the platform's
-  certificates (feature `http`, on by default). In a page it uses `fetch` with an
-  `AbortController`. An app can use its own client by implementing the `Fetch` trait and
+  HTTP cache does that. The fetch goes through `services-net` (feature `http`, on by
+  default): natively ureq with rustls and the platform's certificates, refusing plain `http`
+  beyond the loopback interface; in a page `fetch` with an `AbortController`. An app can use its own client by implementing the `Fetch` trait and
   installing it with `set_fetcher`. A failed fetch is `DecodeError::Network`.
 - **`image_ext` and `ImageOptions`** in `media-image`: the app's own `placeholder` while
   loading, a `fallback` built when the image cannot be shown (Portal's letter tile) that sizes
   the element when nothing else does, and `on_state`, whose `Sized` and `Ready` carry the
   image's real size, for framing wide or square art.
-- In a browser page, an image from another site shows only if its server sends CORS headers.
-  If not, the reason says so and the app should fetch it through its own proxy. The engine
-  does not lay a DOM `<img>` over the canvas, because that image could not be clipped,
-  rounded, layered under popups, faded or hit-tested with the rest of the UI.
+- In a browser page an image from another site is fetched with CORS. When its server does not
+  allow that, the engine tries once more through the app's own proxy if `set_web_proxy`
+  names one (`/image-proxy?url=` plus the encoded address). Otherwise the load fails with a
+  reason that says so and the element shows its fallback. The engine does not lay a DOM
+  `<img>` over the canvas, because that image could not be clipped, rounded, layered under
+  popups, faded or hit-tested with the rest of the UI.
+- **Input purposes.** `TextField::purpose(InputPurpose)` (on `text_input`, `secret_input`
+  and the forms' fields; `search` sets `Search`, `number_input` `Digits` or `Decimal`) tells
+  keyboards, input methods and password managers what a field holds: text, digits, a
+  decimal, a URL, an email address, a search, a username, the current or a new password, or
+  a one-time code. `TextInputState::purpose` carries it to every bridge. On the web, one-line
+  fields now edit in a hidden `<input>` carrying `type`, `inputmode`, `autocomplete` and
+  `enterkeyhint`, so password managers fill the username and current password; on Android it
+  sets `EditorInfo.inputType` and `imeOptions`; on Windows the touch keyboard's input scope
+  through TSF; on Linux winit's password purpose.
+- **Pointer capabilities.** `Ui::pointer_caps()` returns a `Signal<PointerCaps>` (`hover`,
+  `fine`): the web's `(hover: hover)` and `(pointer: fine)` media queries, followed live;
+  natively the pointer last used (mouse, finger or pen), so a convertible switching modes
+  updates it. `SystemSettings::pointer` carries what a platform reports.
 
+- **Tray menus with check marks, submenus and a bold default**, as Portal's launcher has
+  (Server submenu; Allow TVs, GPU encode and Start with Windows checked; Open Portal bold):
+  `TrayItem::Check { id, label, enabled, checked }`, `TrayItem::Submenu { label, items }` and
+  `TrayItem::Item`'s `default`, with `TrayItem::item`, `check`, `submenu`, `chosen_id` and
+  `label`. Windows builds them as native menus (`MF_CHECKED`, `MF_POPUP`,
+  `SetMenuDefaultItem`); Linux's StatusNotifierItem sends dbusmenu `toggle-type` checkmark
+  entries and submenus (and answers `GetLayout` for a submenu); the X11 tray's menu draws the
+  mark, the default in bold and a submenu's entries indented under it; macOS uses `setState`
+  and `setSubmenu` (macOS menus have no default item). The headless host records them.
+- **Notification urgency**: `Notification::urgency(Urgency::Warning)` (`Info`, the default,
+  `Warning`, `Error`). Linux sends the spec's urgency (critical for errors) with the stock
+  `dialog-warning` or `dialog-error` icon when the app gives no picture; Windows raises the
+  toast's priority, and an error is Windows 11's urgent toast; macOS asks for time-sensitive
+  delivery (macOS 12 and later); Android files it as `CATEGORY_ERROR`; a browser keeps it until
+  dismissed (`requireInteraction`).
+- **Autostart from the Windows Run key** in `services-desktop`:
+  `autostart::Entry::windows_run_key(true)` starts the app from its value under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`autostart::RUN_KEY`) rather than a
+  Startup-folder shortcut, as Portal does. Either way, a Run value already there (an
+  installer's) reads as enabled and is adopted rather than doubled with a shortcut, and turning
+  autostart on in one place removes the other, so the app never starts twice.
+  `enabled_at` and `set_at` take the folder and Run key to use (tests use their own).
+- **The installer's "Start when I sign in" choice**: `[windows] autostart_args` in
+  `remedy.toml` makes `cargo remedy package` add an unchecked task that writes that Run value
+  (removed on uninstall) and no Startup shortcut beside it, as Portal's installer does.
+
+- **Landmarks and the current item** in `a11y`: `Role::{Navigation, Main, Banner, Region,
+  Search, Article, ContentInfo, Complementary}` and `Semantics::current(Current::{Page, Step,
+  Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
+  platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
+  hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
+- **`remedy-ui-services-net`, an HTTP client for native apps and browser pages** (facade
+  feature `net`, `remedy_ui::net`, in `full`). `Http::new(base)` with default headers, a
+  timeout and natively an optional `CookieJar`; `Request::get/post/put/delete` with headers,
+  JSON, raw or `Multipart` bodies, a per-request timeout and `keepalive()` for a last save
+  that must finish while the page or app closes (`fetch` keepalive in a page; natively
+  `finish_keepalive`, which `remedy_ui::run` calls on the way out). `Http::send` and
+  `send_json::<T>` never block; a status outside 200-299 is `NetError::Http(HttpError {
+  status, body, detail })`, `detail` read from a JSON body's `detail` field.
+  `Http::resource` is a reactive `Resource` whose fetch is a request: a new key aborts the
+  old one (`AbortController` in a page). Natively ureq on rustls with the platform verifier
+  (the updater's stack, no new crates), refusing plain `http` beyond loopback; in a page,
+  `fetch` with same-origin cookies. Tested against a loopback server natively and in
+  headless Firefox (`tools/web-test.sh`).
+- **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
+  `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
+  browser page. `Resource::with_executor` is built on it.
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
@@ -832,6 +922,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **`TrayItem` has two more kinds and `Item` one more field** (a major change of the host
+  contract, which is exhaustive on purpose). What to do: write `TrayItem::item(id, label)`
+  (or add `default: false` to a `TrayItem::Item { .. }` literal), and give a `match` on
+  `TrayItem` arms for `Check` and `Submenu` (`TrayItem::chosen_id` and `TrayItem::label`
+  cover most of them). Not mechanical, so not in the migration table. A bridge outside this
+  repository must show both kinds.
+- `autostart::Entry` has a `run_key` field: add `run_key: false` to a struct literal, or use
+  `Entry::current`. `enabled` and `set` now also see the Run key on Windows; `enabled_in` and
+  `set_in` still see only the folder.
+- `services-update` reads its feeds, signatures and checksum files through
+  `remedy-ui-services-net` (same 60-second timeout, headers and https-only rule); the
+  download keeps its own reader for its progress.
+
 - `media-playback`: an HLS stream's decoders are kept by the player's host for the next
   stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
   Windows the H.264 transform always, the sound one for the same config; on Android the
@@ -952,6 +1055,29 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- **The Windows tray icon answers the keyboard and opens its menu where asked**: the icon
+  is set to `NOTIFYICON_VERSION_4`, so Win+B then Enter or Space (`NIN_KEYSELECT`) activates it,
+  and the menu opens at the point the shell names, for Shift+F10 and the menu key as well as a
+  right-click, not at the mouse pointer. A double-click activates once, not twice: selects
+  within the double-click time count as one, as Portal's launcher debounces them. The
+  tooltip still shows (`NIF_SHOWTIP`).
+
+- **An image's remembered size is never another image's** (`media-image`). Byte sources are
+  keyed by address and length; the size and decode caches now hold a `Weak` to the bytes, so
+  the address cannot be reused by a new download while an entry exists, and drop the entry
+  once the bytes are freed. `probe` checks a file's size and modification time (off the UI
+  thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
+  least recently used first (`known_sizes()` counts them).
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
+- **On Android, underlined keyboard text is kept when you leave a field, Save, or tap another control.** Words still being composed (the last underlined word, like “bar” in “Lavender bar”) were dropped because a field end, a restart, or a tap on another control finished the input session before the composition was committed. The input method now commits that text first (`commitCompositionIfAny` on end and update; a pointer-down flush of the runner’s preedit, without a second commit from `finishComposition`).
 
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for

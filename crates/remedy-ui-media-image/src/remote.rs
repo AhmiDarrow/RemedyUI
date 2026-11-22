@@ -10,19 +10,22 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
+
+use remedy_ui_reactive::Cancel;
 
 use crate::decode::DecodeError;
 
-/// Fetches the bytes at an address. The engine has its own (natively HTTPS through ureq and
-/// rustls with the platform's certificates, in a page the browser's `fetch`); an app sets
-/// another with [`set_fetcher`] (its own HTTP client, with its cookies or auth headers).
+/// Fetches the bytes at an address. The engine has its own (`remedy-ui-services-net`:
+/// natively HTTPS through ureq and rustls with the platform's certificates, in a page the
+/// browser's `fetch`); an app sets another with [`set_fetcher`] (its own HTTP client, with
+/// its cookies or auth headers).
 pub trait Fetch: Send + Sync {
     /// Starts fetching `request` and calls `done` once with the server's reply (any status:
-    /// a `304` answers a request with validators), from any thread. Once `cancelled` is set
-    /// nobody waits for the reply any more: stop early, and `done` may be dropped uncalled.
-    fn fetch(&self, request: FetchRequest, cancelled: Arc<AtomicBool>, done: FetchDone);
+    /// a `304` answers a request with validators), from any thread. Once `cancel` is
+    /// cancelled nobody waits for the reply any more: stop early, and `done` may be dropped
+    /// uncalled.
+    fn fetch(&self, request: FetchRequest, cancel: Cancel, done: FetchDone);
 }
 
 /// What a [`Fetch`] calls with its answer: the reply, or why there is none.
@@ -70,6 +73,7 @@ const DISK_LIMIT: u64 = 256 * 1024 * 1024;
 
 static FETCHER: RwLock<Option<Arc<dyn Fetch>>> = RwLock::new(None);
 static DISK: RwLock<Option<PathBuf>> = RwLock::new(None);
+static PROXY: RwLock<Option<String>> = RwLock::new(None);
 
 /// Fetches images from addresses with `fetcher` instead of the engine's own (`None`: the
 /// engine's own again).
@@ -82,6 +86,15 @@ pub fn set_fetcher(fetcher: Option<Arc<dyn Fetch>>) {
 /// HTTP cache.
 pub fn set_cache_dir(dir: Option<PathBuf>) {
     *DISK.write().unwrap_or_else(PoisonError::into_inner) = dir;
+}
+
+/// In a browser page, fetches an image from another site whose server does not allow it (no
+/// CORS headers, so the page may not read it) once more through `prefix` followed by its
+/// percent-encoded address: a proxy on the app's own server, such as `/image-proxy?url=`
+/// (`None`: no proxy, and such an image fails with [`DecodeError::Network`], showing the
+/// element's fallback). Natively nothing needs it and it is not used.
+pub fn set_web_proxy(prefix: Option<String>) {
+    *PROXY.write().unwrap_or_else(PoisonError::into_inner) = prefix;
 }
 
 fn fetcher() -> Arc<dyn Fetch> {
@@ -311,7 +324,7 @@ type Got = Result<Arc<[u8]>, DecodeError>;
 
 /// Finds the bytes at `url`, from disk or the server, and calls `done` with them (on any
 /// thread). Do this off the UI thread.
-fn resolve(url: String, cancelled: Arc<AtomicBool>, done: impl FnOnce(Got) + Send + 'static) {
+fn resolve(url: String, cancel: Cancel, done: impl FnOnce(Got) + Send + 'static) {
     if !url.contains("://") && !cfg!(target_arch = "wasm32") {
         return done(Err(DecodeError::Network(format!("not an absolute address: {url}"))));
     }
@@ -327,7 +340,60 @@ fn resolve(url: String, cancelled: Arc<AtomicBool>, done: impl FnOnce(Got) + Sen
         if_none_match: disk.as_ref().and_then(|d| d.etag.clone()),
         if_modified_since: disk.as_ref().and_then(|d| d.last_modified.clone()),
     };
-    fetcher().fetch(request, cancelled, Box::new(move |reply| done(answer(&url, disk, reply))));
+    let c2 = cancel.clone();
+    fetcher().fetch(
+        request,
+        cancel,
+        Box::new(move |reply| {
+            let why = match reply {
+                Err(why) => why,
+                ok => return done(answer(&url, disk, ok)),
+            };
+            let Some(via) = proxied(&url) else { return done(answer(&url, disk, Err(hint(&url, why)))) };
+            // Refused across sites (in a page): once more through the app's own proxy.
+            fetcher().fetch(
+                FetchRequest { url: via, ..FetchRequest::default() },
+                c2,
+                Box::new(move |r| {
+                    done(answer(&url, None, r.map_err(|e| format!("{why}; through the proxy: {e}"))))
+                }),
+            );
+        }),
+    );
+}
+
+/// In a page, what a failed fetch of an address on another site most likely means (the
+/// browser does not tell the page).
+fn hint(url: &str, why: String) -> String {
+    if cfg!(target_arch = "wasm32") && url.contains("://") {
+        format!(
+            "{why} (an image from another site is shown in a page only when its server allows it with CORS headers, or through the app's own proxy: set_web_proxy)"
+        )
+    } else {
+        why
+    }
+}
+
+/// `url` through the proxy [`set_web_proxy`] names, in a page, for an absolute address.
+fn proxied(url: &str) -> Option<String> {
+    if !cfg!(target_arch = "wasm32") || !url.contains("://") {
+        return None;
+    }
+    let prefix = PROXY.read().unwrap_or_else(PoisonError::into_inner).clone()?;
+    Some(format!("{prefix}{}", encode(url)))
+}
+
+/// Percent-encodes everything but the unreserved characters, for a query value.
+fn encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 fn answer(url: &str, disk: Option<OnDisk>, reply: Result<FetchReply, String>) -> Got {
@@ -365,7 +431,7 @@ pub(crate) fn blocking(url: &str) -> Got {
         )));
     }
     let (tx, rx) = std::sync::mpsc::channel();
-    resolve(url.to_owned(), Arc::default(), move |r| {
+    resolve(url.to_owned(), Cancel::new(), move |r| {
         let _ = tx.send(r);
     });
     rx.recv().unwrap_or_else(|_| Err(DecodeError::Network(String::from("the fetch ended without an answer"))))
@@ -376,7 +442,7 @@ type Waiter = Box<dyn FnOnce(Got)>;
 struct Flight {
     generation: u64,
     waiters: Vec<(u64, Waiter)>,
-    cancelled: Arc<AtomicBool>,
+    cancel: Cancel,
 }
 
 #[derive(Default)]
@@ -419,7 +485,7 @@ impl Drop for Fetching {
         });
         // Dropped outside the borrow: a waiter may own a `Fetching` of its own.
         if let Ok(Some(fl)) = gone {
-            fl.cancelled.store(true, Ordering::Relaxed);
+            fl.cancel.cancel();
         }
     }
 }
@@ -435,14 +501,13 @@ pub(crate) fn fetch(url: &str, done: impl FnOnce(Got) + 'static) -> Fetching {
             fl.waiters.push((id, Box::new(done)));
             return (id, None);
         }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let flight =
-            Flight { generation: id, waiters: vec![(id, Box::new(done))], cancelled: cancelled.clone() };
+        let cancel = Cancel::new();
+        let flight = Flight { generation: id, waiters: vec![(id, Box::new(done))], cancel: cancel.clone() };
         f.by_url.insert(url.to_owned(), flight);
-        (id, Some(cancelled))
+        (id, Some(cancel))
     });
     let me = Fetching { url: url.to_owned(), id, detached: false };
-    let Some(cancelled) = start else { return me };
+    let Some(cancel) = start else { return me };
     let url = url.to_owned();
     let Ok(waker) = remedy_ui_reactive::waker() else {
         // No runtime to answer through: wait here.
@@ -450,9 +515,9 @@ pub(crate) fn fetch(url: &str, done: impl FnOnce(Got) + 'static) -> Fetching {
         land(&url, id, got);
         return me;
     };
-    let c2 = cancelled.clone();
-    crate::load::spawn_job(cancelled, move || {
-        resolve(url.clone(), c2, move |got| {
+    // On a worker: the disk is read there; the fetch itself does not wait.
+    crate::load::spawn_job(Arc::default(), move || {
+        resolve(url.clone(), cancel, move |got| {
             let _ = waker.post(move || land(&url, id, got));
         });
     });
@@ -475,200 +540,36 @@ fn land(url: &str, generation: u64, got: Got) {
 
 // ---------- the engine's own fetcher ----------
 
+/// The engine's HTTP client (`remedy-ui-services-net`): natively ureq with rustls, refusing
+/// plain `http` beyond the loopback interface; in a page the browser's `fetch`.
 struct Own;
 
-/// Longest a fetch may take.
-#[cfg(any(feature = "http", target_arch = "wasm32"))]
-const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
-mod native {
-    use std::io::Read;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-
-    use ureq::RequestExt;
-
-    use super::{FetchDone, FetchReply, FetchRequest, TIMEOUT};
-
-    /// Largest image body read.
-    const MAX_BODY: usize = 128 * 1024 * 1024;
-
-    fn agent() -> &'static ureq::Agent {
-        static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-        AGENT.get_or_init(|| {
-            // ring is the TLS provider; installing it twice is harmless.
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            let tls =
-                ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
-            ureq::Agent::config_builder()
-                .tls_config(tls)
-                .http_status_as_error(false)
-                .timeout_global(Some(TIMEOUT))
-                .user_agent("RemedyUI")
-                .build()
-                .into()
-        })
-    }
-
-    fn run(req: &FetchRequest, cancelled: &AtomicBool) -> Result<FetchReply, String> {
-        let lower = req.url.to_ascii_lowercase();
-        if !lower.starts_with("https://") && !lower.starts_with("http://") {
-            return Err(format!("not a web address: {}", req.url));
-        }
-        let mut b = ureq::http::Request::builder().uri(&req.url);
-        if let Some(e) = &req.if_none_match {
-            b = b.header("If-None-Match", e);
-        }
-        if let Some(m) = &req.if_modified_since {
-            b = b.header("If-Modified-Since", m);
-        }
-        let mut res =
-            b.body(()).map_err(|e| e.to_string())?.with_agent(agent()).run().map_err(|e| e.to_string())?;
-        let status = res.status().as_u16();
-        let headers = res
-            .headers()
-            .iter()
-            .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
-            .collect();
-        let mut reader = res.body_mut().with_config().limit(MAX_BODY as u64).reader();
-        let mut body = Vec::new();
-        let mut chunk = vec![0; 64 * 1024];
-        loop {
-            // Let go mid-body (closing the connection) once nobody wants it.
-            if cancelled.load(Ordering::Relaxed) {
-                return Err(String::from("cancelled"));
-            }
-            match reader.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or_default()),
-                Err(e) => return Err(e.to_string()),
-            }
-        }
-        Ok(FetchReply { status, headers, body })
-    }
-
-    pub(super) fn fetch(request: FetchRequest, cancelled: Arc<AtomicBool>, done: FetchDone) {
-        // Shared so a failed spawn can still answer.
-        let slot = Arc::new(Mutex::new(Some(done)));
-        let s2 = slot.clone();
-        // A thread per fetch: a slow server holds no image worker.
-        let spawned = std::thread::Builder::new().name("remedy-image-fetch".into()).spawn(move || {
-            let out = run(&request, &cancelled);
-            if let Some(done) = s2.lock().unwrap_or_else(PoisonError::into_inner).take() {
-                done(out);
-            }
-        });
-        if let Err(e) = spawned
-            && let Some(done) = slot.lock().unwrap_or_else(PoisonError::into_inner).take()
+impl Fetch for Own {
+    fn fetch(&self, request: FetchRequest, cancel: Cancel, done: FetchDone) {
+        #[cfg(feature = "http")]
         {
-            done(Err(format!("no thread for the fetch: {e}")));
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mod web {
-    use std::cell::Cell;
-    use std::rc::Rc;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    use js_sys::{Array, Promise, Uint8Array};
-    use wasm_bindgen::{JsCast, JsValue};
-    use wasm_bindgen_futures::JsFuture;
-
-    use super::{FetchDone, FetchReply, FetchRequest, TIMEOUT};
-
-    async fn sleep(ms: f64) {
-        let p = Promise::new(&mut |resolve, _| {
-            let set = js_sys::Reflect::get(&js_sys::global(), &"setTimeout".into())
-                .ok()
-                .and_then(|f| f.dyn_into::<js_sys::Function>().ok());
-            if let Some(set) = set {
-                let _ = set.call2(&JsValue::NULL, &resolve, &JsValue::from_f64(ms));
+            use remedy_ui_services_net::{Http, NetError, Request};
+            let mut r = Request::get(request.url);
+            if let Some(e) = request.if_none_match {
+                r = r.header("If-None-Match", e);
             }
-        });
-        let _ = JsFuture::from(p).await;
-    }
-
-    fn message(e: &JsValue) -> String {
-        js_sys::Reflect::get(e, &"message".into())
-            .ok()
-            .and_then(|m| m.as_string())
-            .or_else(|| e.as_string())
-            .unwrap_or_else(|| format!("{e:?}"))
-    }
-
-    pub(super) fn fetch(request: FetchRequest, cancelled: Arc<AtomicBool>, done: FetchDone) {
-        wasm_bindgen_futures::spawn_local(async move { done(run(request, cancelled).await) });
-    }
-
-    async fn run(req: FetchRequest, cancelled: Arc<AtomicBool>) -> Result<FetchReply, String> {
-        let win = web_sys::window().ok_or("no browser window")?;
-        let abort = web_sys::AbortController::new().map_err(|e| message(&e))?;
-        let init = web_sys::RequestInit::new();
-        init.set_signal(Some(&abort.signal()));
-        // The browser's own cache revalidates; the page's cookies go only to its own origin.
-        init.set_credentials(web_sys::RequestCredentials::SameOrigin);
-        let finished = Rc::new(Cell::new(false));
-        {
-            let (finished, abort) = (finished.clone(), abort.clone());
-            let (started, limit) = (js_sys::Date::now(), TIMEOUT.as_secs_f64() * 1000.0);
-            wasm_bindgen_futures::spawn_local(async move {
-                while !finished.get() {
-                    if cancelled.load(Ordering::Relaxed) || js_sys::Date::now() - started > limit {
-                        abort.abort();
-                        return;
-                    }
-                    sleep(25.0).await;
-                }
+            if let Some(m) = request.if_modified_since {
+                r = r.header("If-Modified-Since", m);
+            }
+            Http::new("").send(r, &cancel, move |out| {
+                done(match out {
+                    Ok(res) => Ok(FetchReply { status: res.status, headers: res.headers, body: res.body }),
+                    // shortcut: an error status (a `304` too) carries no headers through the client, so
+                    // a `304` keeps the copy's old validators and is asked again next time; upgrade
+                    // if the client starts returning headers with `HttpError`.
+                    Err(NetError::Http(e)) => Ok(FetchReply::new(e.status, Vec::new(), e.body.into_bytes())),
+                    Err(e) => Err(e.to_string()),
+                });
             });
         }
-        let got = async {
-            let resp: web_sys::Response = JsFuture::from(win.fetch_with_str_and_init(&req.url, &init))
-                .await
-                .map_err(|e| {
-                    let origin = win.location().origin().unwrap_or_default();
-                    let foreign = req.url.contains("://") && !req.url.starts_with(&format!("{origin}/"));
-                    if foreign {
-                        // The usual reason, which the browser does not tell the page.
-                        format!(
-                            "{} (an image from another site is shown only when its server allows it with CORS headers, or through the app's own proxy)",
-                            message(&e)
-                        )
-                    } else {
-                        message(&e)
-                    }
-                })?
-                .unchecked_into();
-            let mut headers = Vec::new();
-            if let Ok(Some(entries)) = js_sys::try_iter(&resp.headers()) {
-                for pair in entries.flatten() {
-                    let pair: Array = pair.unchecked_into();
-                    if let (Some(k), Some(v)) = (pair.get(0).as_string(), pair.get(1).as_string()) {
-                        headers.push((k, v));
-                    }
-                }
-            }
-            let buf = JsFuture::from(resp.array_buffer().map_err(|e| message(&e))?).await.map_err(|e| message(&e))?;
-            Ok(FetchReply { status: resp.status(), headers, body: Uint8Array::new(&buf).to_vec() })
-        }
-        .await;
-        finished.set(true);
-        got
-    }
-}
-
-impl Fetch for Own {
-    fn fetch(&self, request: FetchRequest, cancelled: Arc<AtomicBool>, done: FetchDone) {
-        #[cfg(target_arch = "wasm32")]
-        web::fetch(request, cancelled, done);
-        #[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
-        native::fetch(request, cancelled, done);
-        #[cfg(all(not(target_arch = "wasm32"), not(feature = "http")))]
+        #[cfg(not(feature = "http"))]
         {
-            let _ = (request, cancelled);
+            let _ = (request, cancel);
             done(Err(String::from("built without the `http` feature: set a fetcher with set_fetcher")));
         }
     }

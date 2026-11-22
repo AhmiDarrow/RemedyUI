@@ -3,7 +3,6 @@
 //! is set for the whole process.
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -11,17 +10,18 @@ use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
 use remedy_ui_media_image::*;
+use remedy_ui_reactive::Cancel;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 
-type Asked = Arc<Mutex<Vec<(FetchRequest, Arc<AtomicBool>, Option<FetchDone>)>>>;
+type Asked = Arc<Mutex<Vec<(FetchRequest, Cancel, Option<FetchDone>)>>>;
 
 struct Held(Asked);
 
 impl Fetch for Held {
-    fn fetch(&self, request: FetchRequest, cancelled: Arc<AtomicBool>, done: FetchDone) {
+    fn fetch(&self, request: FetchRequest, cancel: Cancel, done: FetchDone) {
         if let Ok(mut a) = self.0.lock() {
-            a.push((request, cancelled, Some(done)));
+            a.push((request, cancel, Some(done)));
         }
     }
 }
@@ -80,9 +80,9 @@ fn an_apps_fetcher_supplies_the_bytes_and_hears_cancellation() {
     ui.root().child(slow.clone());
     assert!(pump(&ui, || count() == 2));
     let flag = asked.lock().ok().and_then(|a| a.get(1).map(|x| x.1.clone())).unwrap_or_default();
-    assert!(!flag.load(Ordering::Relaxed));
+    assert!(!flag.is_cancelled());
     slow.remove();
-    assert!(flag.load(Ordering::Relaxed), "cancelled with the element");
+    assert!(flag.is_cancelled(), "cancelled with the element");
     assert_eq!(fetching(), 0);
 
     // An error reply is a failure, shown as one.

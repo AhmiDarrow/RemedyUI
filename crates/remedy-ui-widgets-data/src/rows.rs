@@ -7,6 +7,9 @@ use std::rc::Rc;
 use remedy_ui_layout::Length;
 use remedy_ui_view::{El, Ui};
 
+/// How far beyond the viewport tall rows (poster cards) stay built on each side.
+const OVERSCAN_PX: f32 = 400.0;
+
 /// Builds the element for row `i`.
 pub(crate) type RowBuilder = Rc<dyn Fn(usize) -> El>;
 
@@ -19,7 +22,8 @@ pub(crate) struct Rows {
     count: usize,
     build: RowBuilder,
     mounted: BTreeMap<usize, El>,
-    /// Rows beyond the viewport kept built on each side, so a flick does not show gaps.
+    /// Rows beyond the viewport kept built on each side, so a flick does not show gaps (fewer
+    /// for tall rows: about [`OVERSCAN_PX`] of them).
     overscan: usize,
 }
 
@@ -64,9 +68,9 @@ impl Rows {
     /// Builds the rows a viewport at `offset_y` of `viewport_h` shows, keeping the ones
     /// already built.
     pub(crate) fn show(&mut self, offset_y: f32, viewport_h: f32) {
-        let first = self.index_at(offset_y).saturating_sub(self.overscan);
-        let last =
-            (self.index_at(offset_y + viewport_h.max(self.row_height)) + 1 + self.overscan).min(self.count);
+        let over = self.overscan.min(((OVERSCAN_PX / self.row_height).ceil() as usize).max(1));
+        let first = self.index_at(offset_y).saturating_sub(over);
+        let last = (self.index_at(offset_y + viewport_h.max(self.row_height)) + 1 + over).min(self.count);
         let first = first.min(last);
         let gone: Vec<usize> = self.mounted.keys().copied().filter(|i| *i < first || *i >= last).collect();
         for i in gone {

@@ -13,10 +13,9 @@ categories.workspace = true
 
 [features]
 default = ["png", "jpeg", "gif", "webp", "bmp", "ico", "http"]
-## Images from `https://` and `http://` addresses natively through the engine's own client
-## (ureq with rustls, the updater's). Without it an app fetches them with `set_fetcher`; a
-## browser page always has `fetch`.
-http = ["dep:ureq", "dep:rustls"]
+## Images from addresses through the engine's HTTP client (`remedy-ui-services-net`: ureq with
+## rustls natively, `fetch` in a page). Without it an app fetches them with `set_fetcher`.
+http = ["dep:remedy-ui-services-net"]
 png = ["image/png"]
 jpeg = ["image/jpeg"]
 gif = ["image/gif"]
@@ -33,18 +32,9 @@ remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 image = { version = "=0.25.10", default-features = false }
 moxcms = { version = "=0.8.1" }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"], optional = true }
-rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"], optional = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = { version = "=0.3.107" }
-wasm-bindgen = { version = "=0.2.130" }
-wasm-bindgen-futures = { version = "=0.4.80" }
-web-sys = { version = "=0.3.107", features = ["AbortController", "AbortSignal", "Headers", "Location", "Request", "RequestCredentials", "RequestInit", "Response", "Window"] }
 
 [dev-dependencies]
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
@@ -54,8 +44,11 @@ remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = { version = "=0.3.107" }
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
 wasm-bindgen-test = { version = "=0.3.80" }
-web-sys = { version = "=0.3.107", features = ["console"] }
+web-sys = { version = "=0.3.107", features = ["console", "Response", "Window"] }
 
 [lints]
 workspace = true
