@@ -138,6 +138,10 @@ export function closeOpened() {
   (window.__opened || []).forEach(w => { if (w) w.close(); });
   window.__opened = [];
 }
+export function insertText(text) {
+  // As automation, a paste from the context menu or a password manager inserts: no keys.
+  return document.execCommand('insertText', false, text);
+}
 export function hidePage() {
   window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
 }
@@ -166,6 +170,9 @@ extern "C" {
     /// What the browser sends as the page is put away (and before a reload).
     #[wasm_bindgen(js_name = hidePage)]
     fn hide_page();
+    /// Text inserted into the focused field without key presses; false if the browser refused.
+    #[wasm_bindgen(js_name = insertText)]
+    fn insert_text(text: &str) -> bool;
     fn key(target: &web_sys::EventTarget, kind: &str, key: &str, code: &str, ctrl: bool) -> bool;
     fn composition(target: &web_sys::EventTarget, kind: &str, data: &str);
     fn clipboard(target: &web_sys::EventTarget, kind: &str, text: Option<String>) -> String;
@@ -255,6 +262,8 @@ struct Seen {
     typed: RefCell<String>,
     app: RefCell<Option<App>>,
     caps: Cell<Option<remedy_ui::reactive::Signal<remedy_ui::PointerCaps>>>,
+    /// The username and password fields, for text inserted without keys.
+    login: RefCell<Option<(remedy_ui::TextField, remedy_ui::TextField)>>,
 }
 
 fn start(config: AppConfig, seen: Rc<Seen>) {
@@ -269,7 +278,9 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
             let field = field.on_change(move || *s3.typed.borrow_mut() = f2.value());
             s2.caps.set(Some(ui.pointer_caps()));
             let purposed = |label: &str, p| w::text_input(ui, label).purpose(p).el().height(32.0);
-            let secret = |label: &str, p| w::secret_input(ui, label).purpose(p).el().height(32.0);
+            let user = w::text_input(ui, "User").purpose(InputPurpose::Username).enter_key(remedy_ui::EnterKey::Next);
+            let pass = w::secret_input(ui, "Pass").purpose(InputPurpose::CurrentPassword);
+            *s2.login.borrow_mut() = Some((user.clone(), pass.clone()));
             let s4 = s2.clone();
             // Shown, so a press changes what is drawn.
             let shown = remedy_ui::reactive::Signal::new(0u32);
@@ -282,14 +293,8 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
                 }))
                 .child(ui.el("label").text(move || format!("Taps: {}", shown.get())))
                 .child(field.el())
-                .child(
-                    w::text_input(ui, "User")
-                        .purpose(InputPurpose::Username)
-                        .enter_key(remedy_ui::EnterKey::Next)
-                        .el()
-                        .height(32.0),
-                )
-                .child(secret("Pass", InputPurpose::CurrentPassword))
+                .child(user.el().height(32.0))
+                .child(pass.el().height(32.0))
                 .child(purposed("Code", InputPurpose::OneTimeCode))
                 .child(purposed("Site", InputPurpose::Url))
                 .child(purposed("Find", InputPurpose::Search))
@@ -518,6 +523,22 @@ async fn an_app_runs_in_the_page() {
         assert!(ok, "{label}: the hidden {sel} took focus");
         let got = attrs(&query(&hidden).must("the hidden field"));
         assert_eq!(got, want, "{label}: type inputmode autocomplete enterkeyhint autocapitalize");
+        // Text inserted without keys (automation, a paste from the browser's menu, a password
+        // manager filling the form) reaches plain and secret fields alike.
+        if matches!(label, "User" | "Pass") {
+            assert!(insert_text("ab1"), "{label}: the browser inserted the text");
+            let (user, pass) = seen.login.borrow().clone().must("the login fields");
+            let field = if label == "User" { user } else { pass };
+            assert!(until(30, || field.len() == 3).await, "{label}: inserted text reached the field");
+            if label == "Pass" {
+                assert_eq!(field.take_secret().expose(), "ab1", "the secret holds the inserted text");
+                let cleared = until(30, || query(&hidden).is_some_and(|h| {
+                    h.dyn_ref::<web_sys::HtmlInputElement>().is_some_and(|i| i.value().is_empty())
+                }))
+                .await;
+                assert!(cleared, "the hidden password field does not keep the secret");
+            }
+        }
     }
     key(&target, "keydown", "Escape", "Escape", false);
     key(&target, "keyup", "Escape", "Escape", false);
