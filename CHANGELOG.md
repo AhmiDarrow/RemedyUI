@@ -14,6 +14,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   at `at` (where the device was), an optional `StageStatus` shown as the app's polite status
   (not a failure or an alert), waiting for Play, which seeks there and plays (through
   `on_seek_outside` outside the stream). `set_remote(None)` is unchanged.
+- **`Player::replace_subtitles(i, track)`, `replace_subtitles_stream(i, track)` and
+  `remove_subtitles(i)`**: the app's caption tracks can be swapped in place or taken away
+  (later tracks move down one; the shown track and the captions pick follow). The media's own
+  tracks are refused (`false`).
+- **`Player::replace_work(source, timeline)`**: another title in place of the current one;
+  the app's caption tracks and the caption delay go with the old one (`replace_source` keeps
+  them, for more of the same work).
+- **Player widget**: a long caption track name on the captions button ends in "…" as the
+  bar runs out of room, at most the theme's `player-captions-max-width` wide (none by default).
 - **Per-corner radii**: `StylePatch::corners(CornerRadii)` and `Style::corners(top_start,
   top_end, bottom_end, bottom_start)` round each corner on its own (CSS
   `border-radius: 16px 16px 0 0`); a `radius` set over them rounds every corner alike again.
@@ -1460,6 +1469,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Popovers** give focus back to what had it when Escape closes them.
+- **Web**: a menu or list box closing with focus inside it no longer leaves the page's focus
+  on the body (keys stopped reaching the app); focus goes back to its trigger's mirror.
 - **A page no longer freezes while the browser starts WebGL**: `getContext("webgl2")` blocks
   the page's thread until the browser's GL is up, which headless Firefox on Windows took
   minutes to do (eight on a loaded machine, ANGLE starting over Direct3D 11), so Portal's
