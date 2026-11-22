@@ -236,7 +236,7 @@ struct WebDecoder {
 // `atomics` does not compile, above), so the decoder never leaves the thread that made it.
 unsafe impl Send for WebDecoder {}
 
-fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Picture, MediaError> {
+fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Arc<[u8]>) -> Result<Picture, MediaError> {
     let rect = frame.visible_rect();
     let width = get(&rect, "width").as_f64().unwrap_or(0.0) as u32;
     let height = get(&rect, "height").as_f64().unwrap_or(0.0) as u32;
@@ -266,7 +266,11 @@ fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Pictu
                 }
             }
             let stride = width as usize * 4;
-            (PixelFormat::Rgba, [Plane { offset: 0, stride }, Plane::default(), Plane::default()], rgba)
+            (
+                PixelFormat::Rgba,
+                [Plane { offset: 0, stride }, Plane::default(), Plane::default()],
+                Arc::from(rgba),
+            )
         }
         other => {
             return Err(MediaError::Decode(format!(
@@ -274,7 +278,7 @@ fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Pictu
             )));
         }
     };
-    Ok(Picture { width, height, format, planes, matrix, full_range, data: Arc::from(data), gpu: None })
+    Ok(Picture { width, height, format, planes, matrix, full_range, data, gpu: None })
 }
 
 /// The most decoded frames handed over on the GPU at once. A browser's decoder has a pool
@@ -392,10 +396,7 @@ fn video_output(out: &Shared, frame: VideoFrame) {
     wasm_bindgen_futures::spawn_local(async move {
         let copied = async {
             let size = frame.allocation_size().map_err(|e| js_error("sizing a picture", &e))?;
-            let buf = Uint8Array::new_with_length(size);
-            let promise = frame.copy_to(&buf).map_err(|e| js_error("copying a picture", &e))?;
-            let layout = JsFuture::from(promise).await.map_err(|e| js_error("copying a picture", &e))?;
-            picture(&frame, &layout, buf.to_vec()).map_err(|e| e.to_string())
+            copy_out(&frame, size).await
         }
         .await;
         frame.close_frame();
@@ -421,6 +422,38 @@ fn video_output(out: &Shared, frame: VideoFrame) {
         }
         o.wake();
     });
+}
+
+/// For measurements: a `VideoFrame` copied out as the decoder copies each picture.
+pub(crate) async fn copy_frame(frame: &JsValue) -> Result<Picture, String> {
+    let frame: &VideoFrame = frame.unchecked_ref();
+    let size = frame.allocation_size().map_err(|e| js_error("sizing a picture", &e))?;
+    copy_out(frame, size).await
+}
+
+/// `frame`'s `size` bytes copied once, by `copyTo`, straight into the picture's own buffer in
+/// wasm memory (was: into a JS array, out of it into a `Vec`, and the `Vec` into the
+/// picture's `Arc`: three copies).
+async fn copy_out(frame: &VideoFrame, size: u32) -> Result<Picture, String> {
+    let copying = |e: JsValue| js_error("copying a picture", &e);
+    let len = size as usize;
+    // SAFETY: zeroed bytes are valid `u8`s.
+    let mut data: Arc<[u8]> = unsafe { Arc::<[u8]>::new_zeroed_slice(len).assume_init() };
+    let Some(bytes) = Arc::get_mut(&mut data) else { unreachable!("a new Arc is not shared") };
+    // SAFETY: a view over `data`'s bytes, which nothing reads or writes until the copy has
+    // resolved; `data` outlives it.
+    let view = unsafe { Uint8Array::view_mut_raw(bytes.as_mut_ptr(), len) };
+    let layout = JsFuture::from(frame.copy_to(&view).map_err(copying)?).await.map_err(copying)?;
+    // Memory that grew while the copy ran detaches the view's buffer, and what was copied
+    // after may be lost: copied again into a JS array, then into the picture.
+    if view.byte_length() as usize != len {
+        let buf = Uint8Array::new_with_length(size);
+        let layout = JsFuture::from(frame.copy_to(&buf).map_err(copying)?).await.map_err(copying)?;
+        let Some(bytes) = Arc::get_mut(&mut data) else { unreachable!("not shared yet") };
+        buf.copy_to(bytes);
+        return picture(frame, &layout, data).map_err(|e| e.to_string());
+    }
+    picture(frame, &layout, data).map_err(|e| e.to_string())
 }
 
 fn audio_output(out: &Shared, data: &AudioData) -> Result<(), MediaError> {

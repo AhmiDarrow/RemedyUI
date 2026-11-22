@@ -41,6 +41,8 @@ struct Codec {
     output_done: bool,
     /// It has given output (a format or a buffer): a flush keeps its setup from then on.
     began: bool,
+    /// Counted while it lives (debug builds).
+    _live: super::super::Live,
 }
 
 impl Drop for Codec {
@@ -79,7 +81,14 @@ fn open(
         (ndk.format_delete)(f);
         codec?
     };
-    Some(Codec { ndk, codec, input_done: false, output_done: false, began: false })
+    Some(Codec {
+        ndk,
+        codec,
+        input_done: false,
+        output_done: false,
+        began: false,
+        _live: super::super::Live::new(),
+    })
 }
 
 /// A parameter set with its Annex B start code, as MediaCodec takes `csd-0` and `csd-1`.
