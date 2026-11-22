@@ -120,6 +120,43 @@ pub(crate) type Spare = std::sync::Arc<SpareSlot>;
 /// What a [`Spare`] holds.
 pub(crate) type SpareSlot = std::sync::Mutex<Option<Box<dyn Elementary>>>;
 
+/// HLS decoders made (not taken from a [`Spare`]) since the process started: tests tell
+/// reuse from it.
+static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) fn decoders_made() -> usize {
+    MADE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Set once an engine is done with its decoder (dropped on both its workers): an HLS
+/// stream's decoders are then back in the host's [`Spare`] for the stream after it.
+#[derive(Default)]
+pub(crate) struct Retired {
+    gone: std::sync::Mutex<bool>,
+    ring: std::sync::Condvar,
+}
+
+impl Retired {
+    pub(crate) fn retire(&self) {
+        *self.gone.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.ring.notify_all();
+    }
+
+    /// Waits up to `up_to` for it; whether it came.
+    fn wait(&self, up_to: Duration) -> bool {
+        let gone = self.gone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (gone, _) = self
+            .ring
+            .wait_timeout_while(gone, up_to, |g| !*g)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *gone
+    }
+}
+
+/// How long a stream waits, once its decoders are wanted, for the one it replaces to hand
+/// its own back (that one's workers end on their own threads, within a read).
+const HANDBACK: Duration = Duration::from_millis(500);
+
 /// No decoders: before configuring, and once handed back.
 impl Elementary for () {
     fn configure(&mut self, _: Option<&VideoConfig>, _: Option<&AudioConfig>) -> Result<(), MediaError> {
@@ -919,18 +956,25 @@ thread_local! {
     /// The stop flag of the open running on this thread ([opening_until]).
     static OPEN_STOP: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
         const { std::cell::RefCell::new(None) };
+    /// The engine the open running on this thread replaces ([opening_until]).
+    static OPEN_AFTER: std::cell::RefCell<Option<std::sync::Arc<Retired>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Runs open (a host's) with stop as the stop flag of any HLS stream it opens: once set,
 /// an open still fetching gives up within a fetch watchdog's tick, and the stream's fetching
-/// thread stops.
+/// thread stops. `after` is the engine it replaces: an HLS stream waits briefly for its
+/// decoders to come back before making its own.
 pub(crate) fn opening_until<R>(
     stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    after: Option<std::sync::Arc<Retired>>,
     open: impl FnOnce() -> R,
 ) -> R {
     let before = OPEN_STOP.with(|s| s.replace(Some(stop.clone())));
+    let before_after = OPEN_AFTER.with(|a| a.replace(after));
     let r = open();
     OPEN_STOP.with(|s| *s.borrow_mut() = before);
+    OPEN_AFTER.with(|a| *a.borrow_mut() = before_after);
     r
 }
 
@@ -996,10 +1040,21 @@ fn open_with(
     }
     // Taken now, not on opening: the stream this one replaces has had the playlist's and the
     // first segment's fetch to hand its decoders back.
+    if spare.is_some()
+        && let Some(after) = OPEN_AFTER.with(|a| a.borrow().clone())
+    {
+        // A slice at a time, so a close meanwhile is heard.
+        let until = std::time::Instant::now() + HANDBACK;
+        while !after.wait(WAIT_SLICE.min(until.saturating_duration_since(std::time::Instant::now())))
+            && !d.stop.load(std::sync::atomic::Ordering::Relaxed)
+            && std::time::Instant::now() < until
+        {}
+    }
     let kept = spare.and_then(|s| s.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
     d.es = match kept.and_then(|mut es| es.configure(d.hls.video(), d.hls.audio()).map(|()| es).ok()) {
         Some(es) => es,
         None => {
+            MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let mut es = make()?;
             es.configure(d.hls.video(), d.hls.audio())?;
             es
