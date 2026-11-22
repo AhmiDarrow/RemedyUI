@@ -80,6 +80,31 @@ fn pages_follow_the_route_and_back_keys_go_back() {
     assert_eq!(router.route_untracked().path(), "/home");
 }
 
+/// Presses and releases the mouse's `button` (back or forward) over the page.
+fn mouse_button(app: &mut TestApp, button: Buttons) {
+    let window = app.runner().app().windows().first().cloned().must();
+    let p = remedy_ui::core::Point::new(200.0, 200.0);
+    window.send_pointer(PointerEvent::new(PointerPhase::Move, p));
+    window.send_pointer(PointerEvent::new(PointerPhase::Down, p).with_buttons(button));
+    window.send_pointer(PointerEvent::new(PointerPhase::Up, p).with_buttons(Buttons::default()));
+    app.frames(2);
+}
+
+#[test]
+fn the_mouse_back_and_forward_buttons_move_one_entry_each_press() {
+    let (mut app, router, _) = app();
+    let router = router.borrow().clone().must();
+    router.push("/browse");
+    router.push("/settings/audio");
+    app.frames(1);
+    mouse_button(&mut app, Buttons::BACK);
+    assert_eq!(router.route_untracked().path(), "/browse");
+    mouse_button(&mut app, Buttons::BACK);
+    assert_eq!(router.route_untracked().path(), "/home");
+    mouse_button(&mut app, Buttons::FORWARD);
+    assert_eq!(router.route_untracked().path(), "/browse");
+}
+
 #[test]
 fn links_carry_their_address_for_screen_readers() {
     let (app, _, _) = app();
