@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | `remedy-sans-ui` (default) | Remedy Sans UI: the interface face | Light, Semilight, Regular, Semibold, Bold |
 //! | `remedy-sans` | Remedy Sans: the RemedyOS display face | Regular, Bold |
-//! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Regular, Bold |
+//! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Light, Semilight, Regular, Semibold, Bold |
 //! | `ahmi-pixel` | Ahmi Pixel: pixel face | Regular, Bold |
 //! | `remedy-symbols` (default) | Remedy Symbols: interface symbols the text faces lack, for fallback (9 KB) | Regular |
 //! | `noto-arabic` | Noto Sans Arabic: Arabic, Persian and Urdu letters, digits and marks, for fallback | Regular, Bold |
@@ -113,7 +113,10 @@ macro_rules! fallback_face {
             style: Style::Normal,
             data: &[],
             file: $file,
-            source: $crate::asset_mark!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
+            source: $crate::asset_mark!(
+                concat!("fonts/", $file),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)
+            ),
         };
         face
     }};
@@ -145,10 +148,15 @@ pub const REMEDY_SANS_UI: &[Face] = &[
 pub const REMEDY_SANS: &[Face] =
     &[face!("Remedy Sans", 400, "RemedySans-Regular.ttf"), face!("Remedy Sans", 700, "RemedySans-Bold.ttf")];
 
-/// AhmiPrint, the hand-printed face with same-width figures.
+/// AhmiPrint, the hand-printed face with same-width figures, in five weights.
 #[cfg(feature = "ahmi-print")]
-pub const AHMI_PRINT: &[Face] =
-    &[face!("AhmiPrint", 400, "AhmiPrint-Regular.ttf"), face!("AhmiPrint", 700, "AhmiPrint-Bold.ttf")];
+pub const AHMI_PRINT: &[Face] = &[
+    face!("AhmiPrint", 300, "AhmiPrint-Light.ttf"),
+    face!("AhmiPrint", 350, "AhmiPrint-Semilight.ttf"),
+    face!("AhmiPrint", 400, "AhmiPrint-Regular.ttf"),
+    face!("AhmiPrint", 600, "AhmiPrint-Semibold.ttf"),
+    face!("AhmiPrint", 700, "AhmiPrint-Bold.ttf"),
+];
 
 /// Ahmi Pixel, the pixel face.
 #[cfg(feature = "ahmi-pixel")]
