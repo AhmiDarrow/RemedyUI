@@ -10,6 +10,27 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Text in at most n lines (CSS `line-clamp`).** `El::max_lines(n)`, `Style::max_lines(n)`
+  and `StylePatch::max_lines(n)` for style sheets, and `ParagraphOptions::max_lines(n)` in
+  `remedy-ui-text`: text that would take more lines ends the last one in "…", cut at the last
+  grapheme boundary that fits as the shaper measures it (letter spacing, every alignment and
+  right-to-left text included; the "…" follows the text in logical order, so it lands on the
+  line's visual end either way). Screen readers, copying and searching get the whole text;
+  `widgets::full_text_tooltip(&el)` shows it on hover. `El::truncate()` is now `max_lines(1)`,
+  so a hard line break in truncated text ends its first line in "…" too. A long text is laid
+  out only as far as its first lines reach (growing starts of it), so clamping 50,000
+  characters to 3 lines takes about 1 ms instead of 37 ms (release build).
+- **Text transforms (CSS `text-transform`).** `TextTransform::{None, Upper, Lower,
+  Capitalize}` on `TextStyle::transform`, `TextStylePatch::transform(..)` for spans,
+  `El::text_transform(..)`, and `Style::text_transform` / `StylePatch::text_transform` for
+  style sheets (inherited, as in CSS). The text is cased at shaping time by the window's
+  locale (Turkish and Azerbaijani dotted İ and dotless ı, German ß as SS in capitals and Ss in
+  title case, Greek final sigma, Greek capitals without accents or breathings as ICU's Greek
+  upper case (dialytika kept, and added where a dropped accent broke a diphthong: άι → ΑΪ),
+  Dutch "IJsland", the dž lj nj dz title forms); the paragraph's offsets (hit
+  tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
+  selection, copying and screen readers get the original. The player's "Up next" label uses
+  it instead of upper-casing its string in code.
 - **Input purposes.** `TextField::purpose(InputPurpose)` (on `text_input`, `secret_input`
   and the forms' fields; `search` sets `Search`, `number_input` `Digits` or `Decimal`) tells
   keyboards, input methods and password managers what a field holds: text, digits, a
