@@ -274,6 +274,47 @@ pub trait Decoder: Send {
     fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
         None
     }
+    /// For a source that plays by itself (a browser's media element, which plays its own
+    /// sound and keeps its own clock): what plays it. The player asks once, when the decoder
+    /// is ready, and then takes its clock from the [`Playout`] and sends play, pause, seeks,
+    /// volume and speed to it instead of opening a sound output; the decoder hands out the
+    /// pictures as they show (and no sound), and ends when the playout reaches the end.
+    /// `None` (the default) for a decoder that hands out sound to play.
+    fn playout(&mut self) -> Option<Box<dyn Playout>> {
+        None
+    }
+}
+
+/// What plays a source that plays by itself ([`Decoder::playout`]): its clock and controls.
+/// It starts paused.
+pub trait Playout: Send {
+    /// Where it is in the media now: the clock pictures show against.
+    fn position(&mut self) -> Duration;
+    /// Plays from where it is.
+    fn play(&mut self);
+    /// Stops where it is.
+    fn pause(&mut self);
+    /// Moves to `to` (the decoder is told too, through [`Decoder::seek`]).
+    fn seek(&mut self, to: Duration);
+    /// Sets the loudness: a linear gain, 0 to 1.
+    fn set_volume(&mut self, gain: f32);
+    /// Sets the speed (1 is normal), pitch kept.
+    fn set_speed(&mut self, speed: f64);
+    /// Whether it is waiting for data while asked to play.
+    fn waiting(&mut self) -> bool;
+    /// Whether it can show its picture in the system's own picture-in-picture window (a
+    /// browser's, for its media element).
+    fn can_pip(&mut self) -> bool {
+        false
+    }
+    /// Opens (`true`) or closes its picture-in-picture window.
+    fn set_pip(&mut self, on: bool) {
+        let _ = on;
+    }
+    /// Whether its picture-in-picture window is open.
+    fn in_pip(&mut self) -> bool {
+        false
+    }
 }
 
 /// `ranges` sorted, with those that touch or overlap joined and empty ones dropped, each cut

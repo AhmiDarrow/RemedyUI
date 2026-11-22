@@ -100,7 +100,9 @@ pub(crate) fn process_threads() -> Vec<(String, String)> {
     }
 }
 
-pub(crate) fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
+pub(crate) fn platform_host(backend: crate::WebBackend) -> Result<Arc<dyn MediaHost>, MediaError> {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    let _ = backend;
     #[cfg(windows)]
     {
         windows::host()
@@ -119,7 +121,7 @@ pub(crate) fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
     }
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
-        web::host()
+        web::host(backend)
     }
     #[cfg(any(
         target_os = "ios",

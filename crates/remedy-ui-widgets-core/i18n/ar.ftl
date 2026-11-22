@@ -86,6 +86,7 @@ icon-exit-full-screen = إنهاء ملء الشاشة
 icon-theater-mode = وضع المسرح
 icon-cast = بث
 icon-casting = جارٍ البث
+icon-picture-in-picture = صورة داخل صورة
 icon-captions = الترجمة المصاحبة
 icon-back-10 = رجوع 10 ثوانٍ
 icon-forward-10 = تقديم 10 ثوانٍ
