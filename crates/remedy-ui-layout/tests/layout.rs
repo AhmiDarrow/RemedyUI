@@ -296,8 +296,10 @@ fn poster_grid(repeat: Repeat, width: f32, n: usize) -> Result<Vec<f32>, LayoutE
         let mut v_ = LayoutStyle::default();
         v_.display = Display::Grid;
         // Portal's `repeat(auto-fill, minmax(180px, 1fr))`.
-        v_.columns =
-            vec![Track::Repeat(repeat, vec![Track::MinMax(Box::new(Track::Px(180.0)), Box::new(Track::Fr(1.0)))])];
+        v_.columns = vec![Track::Repeat(
+            repeat,
+            vec![Track::MinMax(Box::new(Track::Px(180.0)), Box::new(Track::Fr(1.0)))],
+        )];
         v_.gap = (10.0, 10.0);
         v_
     })?;
