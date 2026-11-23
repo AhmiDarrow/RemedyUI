@@ -349,6 +349,7 @@ OutputDir={out}
 OutputBaseFilename={base}
 SetupIconFile={ico}
 UninstallDisplayIcon={{app}}\{exe_name}
+UninstallDisplayName={name}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -516,6 +517,7 @@ mod tests {
             "notes_1.2.3_x64-setup",
         );
         assert!(iss.contains("AppId=app.remedy.notes") && iss.contains("PrivilegesRequired=lowest"), "{iss}");
+        assert!(iss.contains("UninstallDisplayName=Notes, \"\"Plus\"\""), "the name as installed apps list it: {iss}");
         assert!(
             iss.contains("{localappdata}") && iss.contains("{cm:LaunchProgram,Notes%2c \"Plus\"}"),
             "{iss}"
