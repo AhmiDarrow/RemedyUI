@@ -730,12 +730,12 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(8.0, 21.0)).line_to(p(16.0, 21.0));
         }
         Icon::Paperclip => {
-            // A single-loop clip, starting at the inner end.
-            s.move_to(p(17.0, 6.0)).line_to(p(17.0, 16.0));
-            arc(&mut s, p(12.0, 16.0), 5.0, 0.0, PI);
-            s.line_to(p(7.0, 7.0));
-            arc(&mut s, p(12.0, 7.0), 5.0, PI, 2.0 * PI);
-            s.line_to(p(17.0, 14.0));
+            // Inner tip, up the inner wire, tight top, down, wider bottom, up the outer wire.
+            s.move_to(p(15.0, 15.5)).line_to(p(15.0, 7.0));
+            arc(&mut s, p(12.0, 7.0), 3.0, 0.0, -PI);
+            s.line_to(p(9.0, 17.0));
+            arc(&mut s, p(13.0, 17.0), 4.0, PI, 2.0 * PI);
+            s.line_to(p(17.0, 6.5));
         }
         Icon::Stop => {
             // A rounded square, distinct from the sharp Maximize box.
