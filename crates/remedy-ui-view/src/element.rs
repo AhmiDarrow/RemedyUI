@@ -784,6 +784,8 @@ pub(crate) struct Inner {
     /// The element that took the current press: it gets the moves and the release, wherever
     /// the pointer goes, until the button comes up.
     pub(crate) captured: Option<ElementId>,
+    /// Middle-button drag on a scroll container: the scroller and the last pointer position.
+    pub(crate) middle_scroll: Option<(ElementId, remedy_ui_core::Point)>,
     /// The element a touchpad pinch started on keeps it until the pinch ends.
     pub(crate) pinching: Option<ElementId>,
     /// The drag under way, and a press that may become one.
@@ -1040,6 +1042,7 @@ impl Ui {
             consumed: false,
             wake: None,
             captured: None,
+            middle_scroll: None,
             pinching: None,
             drag: None,
             drag_pending: None,
