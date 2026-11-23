@@ -308,6 +308,11 @@ impl Request {
         Request::new("PUT", path)
     }
 
+    /// A `PATCH` to `path`.
+    pub fn patch(path: impl Into<String>) -> Self {
+        Request::new("PATCH", path)
+    }
+
     /// A `DELETE` of `path`.
     pub fn delete(path: impl Into<String>) -> Self {
         Request::new("DELETE", path)
