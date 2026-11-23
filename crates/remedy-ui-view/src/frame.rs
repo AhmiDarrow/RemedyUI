@@ -216,27 +216,27 @@ fn record(
             (a - margin)..(b + margin)
         });
         slot.painted = band.clone().map(|b| (b, p.height()));
+        let origin = Point::new(x, content.min.y);
+        // A span's fill sits under its highlight, so a selection stays visible on a chip.
+        match &band {
+            Some(band) => span_backgrounds_in(&mut list, &p, origin, band.clone()),
+            None => span_backgrounds(&mut list, &p, origin),
+        }
         // Marked and selected text show their highlights under the glyphs.
         let tokens = theme.derive();
         for r in &d.marks {
             for rect in p.selection_rects(r.clone()) {
-                list.fill_rect(
-                    rect.translate(remedy_ui_core::Vec2::new(x, content.min.y)),
-                    Brush::Solid(tokens.mark),
-                );
+                list.fill_rect(rect.translate(origin.to_vec2()), Brush::Solid(tokens.mark));
             }
         }
         if let Some(r) = d.sel.clone() {
             for rect in p.selection_rects(r) {
-                list.fill_rect(
-                    rect.translate(remedy_ui_core::Vec2::new(x, content.min.y)),
-                    Brush::Solid(tokens.selected),
-                );
+                list.fill_rect(rect.translate(origin.to_vec2()), Brush::Solid(tokens.selected));
             }
         }
         match &band {
-            Some(band) => glyphs_in(&mut list, &p, Point::new(x, content.min.y), s.foreground, band.clone()),
-            None => glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground),
+            Some(band) => glyphs_in(&mut list, &p, origin, s.foreground, band.clone()),
+            None => glyphs(&mut list, &p, origin, s.foreground),
         }
         // Pictures in the text, in their objects' boxes.
         if !d.inline_images.is_empty() {
@@ -353,6 +353,36 @@ thread_local! {
 
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
     draw_runs(list, p.glyph_runs(), origin, default);
+}
+
+/// Draws the filled backgrounds of `p`'s spans at `origin`, under any highlight.
+pub(crate) fn span_backgrounds(list: &mut DisplayList, p: &Paragraph, origin: Point) {
+    paint_backgrounds(list, p.glyph_runs(), origin);
+}
+
+/// The span backgrounds of the lines of `p` that reach into `ys`.
+pub(crate) fn span_backgrounds_in(
+    list: &mut DisplayList,
+    p: &Paragraph,
+    origin: Point,
+    ys: std::ops::Range<f32>,
+) {
+    paint_backgrounds(list, p.glyph_runs_in(ys), origin);
+}
+
+fn paint_backgrounds(list: &mut DisplayList, runs: Vec<remedy_ui_text::GlyphRunInfo>, origin: Point) {
+    for run in runs {
+        let Some(bg) = run.background else { continue };
+        if bg.color.a <= 0.0 {
+            continue;
+        }
+        let rect = bg.rect.translate(origin.to_vec2());
+        if rect.is_empty() {
+            continue;
+        }
+        let radii = CornerRadii::all(bg.radius).fit(rect.size());
+        list.fill_rounded(rect, radii, Brush::Solid(bg.color));
+    }
 }
 
 /// Draws the lines of `p` that reach into the band `ys` of its own y: for a huge paragraph

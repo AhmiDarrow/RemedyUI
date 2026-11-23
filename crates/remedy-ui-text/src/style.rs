@@ -63,6 +63,9 @@ pub struct TextStyle {
     pub strikethrough: bool,
     /// OpenType features.
     pub features: Vec<Feature>,
+    /// Filled background behind the whole paragraph. A span's own background replaces it
+    /// on that span.
+    pub background: Option<SpanBackground>,
 }
 
 impl Default for TextStyle {
@@ -79,7 +82,83 @@ impl Default for TextStyle {
             underline: false,
             strikethrough: false,
             features: Vec::new(),
+            background: None,
         }
+    }
+}
+
+/// A length in logical pixels. Negative, NaN and infinite values become zero.
+pub(crate) fn finite_px(v: f32) -> f32 {
+    if v.is_finite() && v > 0.0 { v } else { 0.0 }
+}
+
+/// A filled background painted behind a span, the way an inline code chip is drawn.
+///
+/// Horizontal padding is laid out: the span is wider by twice [`Self::padding_inline`], and
+/// the fill covers that room, so the chip does not sit on the words beside it. Vertical
+/// padding is painted above the ascent and below the descent and does not change the line
+/// height.
+///
+/// ```
+/// use remedy_ui_core::Color;
+/// use remedy_ui_text::{SpanBackground, TextStyle, TextStylePatch};
+///
+/// let chip = SpanBackground::chip(Color::rgb8(40, 40, 48), 14.0);
+/// assert_eq!(chip.padding_inline, 14.0 * 0.4);
+/// assert_eq!(chip.padding_block, 14.0 * 0.12);
+/// assert_eq!(chip.radius, 4.0);
+/// let patch = TextStylePatch::background(chip);
+/// assert_eq!(patch.apply(&TextStyle::default()).background, Some(chip));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct SpanBackground {
+    /// Fill color.
+    pub color: Color,
+    /// Extra room on the inline start and on the inline end, in logical pixels.
+    pub padding_inline: f32,
+    /// Extra room above the ascent and below the descent, in logical pixels.
+    pub padding_block: f32,
+    /// Corner radius, in logical pixels.
+    pub radius: f32,
+}
+
+impl SpanBackground {
+    /// A flat fill, no padding, square corners.
+    pub fn new(color: Color) -> Self {
+        SpanBackground { color, padding_inline: 0.0, padding_block: 0.0, radius: 0.0 }
+    }
+
+    /// The compact chip Remedy Desktop draws around inline code, at font size `size`:
+    /// `0.12em` above and below, `0.4em` on each side, corners of 4.
+    pub fn chip(color: Color, size: f32) -> Self {
+        let size = finite_px(size);
+        SpanBackground { color, padding_inline: size * 0.4, padding_block: size * 0.12, radius: 4.0 }
+    }
+
+    /// Sets the inline padding (logical pixels on the start and on the end).
+    pub fn padding_inline(mut self, v: f32) -> Self {
+        self.padding_inline = finite_px(v);
+        self
+    }
+
+    /// Sets the block padding (logical pixels above the ascent and below the descent).
+    pub fn padding_block(mut self, v: f32) -> Self {
+        self.padding_block = finite_px(v);
+        self
+    }
+
+    /// Sets both paddings: `inline` on the start and end, `block` above and below.
+    pub fn padding(mut self, inline: f32, block: f32) -> Self {
+        self.padding_inline = finite_px(inline);
+        self.padding_block = finite_px(block);
+        self
+    }
+
+    /// Sets the corner radius, in logical pixels.
+    pub fn radius(mut self, v: f32) -> Self {
+        self.radius = finite_px(v);
+        self
     }
 }
 
@@ -109,6 +188,8 @@ pub struct TextStylePatch {
     pub features: Vec<Feature>,
     /// Marks the span as a link with this id; hit tests report it.
     pub link: Option<u64>,
+    /// Filled background behind the span. `None` keeps the background around it.
+    pub background: Option<SpanBackground>,
 }
 
 impl TextStylePatch {
@@ -142,6 +223,11 @@ impl TextStylePatch {
         TextStylePatch { strikethrough: Some(true), ..Self::default() }
     }
 
+    /// A filled background behind the span ([`SpanBackground`]), such as an inline code chip.
+    pub fn background(bg: SpanBackground) -> Self {
+        TextStylePatch { background: Some(bg), ..Self::default() }
+    }
+
     /// Applies this patch over `base`.
     pub fn apply(&self, base: &TextStyle) -> TextStyle {
         let mut s = base.clone();
@@ -171,6 +257,9 @@ impl TextStylePatch {
         }
         if let Some(v) = self.strikethrough {
             s.strikethrough = v;
+        }
+        if let Some(v) = self.background {
+            s.background = Some(v);
         }
         s.features.extend(self.features.iter().copied());
         s

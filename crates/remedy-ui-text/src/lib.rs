@@ -32,6 +32,7 @@ mod rich;
 mod rich_edit;
 mod rich_html;
 mod safety;
+mod span_pad;
 mod style;
 
 /// True for locales written right to left (Arabic, Hebrew, Persian, Urdu, …). A script
@@ -85,7 +86,7 @@ pub use editing::{
 };
 pub use engine::{
     Affinity, DEFAULT_SYMBOL_FALLBACKS, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo,
-    Paragraph, ParagraphOptions, PositionedGlyph, RunFont, TextEngine, TextPosition,
+    Paragraph, ParagraphOptions, PositionedGlyph, RunBackground, RunFont, TextEngine, TextPosition,
 };
 pub use lazy::{
     LAZY_CHUNK_BYTES, LAZY_KEPT_PIECES, LAZY_MIN_BYTES, LazyLimits, lazy_limits, set_lazy_limits,
@@ -99,4 +100,6 @@ pub use rich_edit::{
 };
 pub use rich_html::{from_html, to_html};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
-pub use style::{Align, Direction, Feature, LineHeight, TextStyle, TextStylePatch, TextTransform};
+pub use style::{
+    Align, Direction, Feature, LineHeight, SpanBackground, TextStyle, TextStylePatch, TextTransform,
+};

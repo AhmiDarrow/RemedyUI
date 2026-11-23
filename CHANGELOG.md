@@ -14,6 +14,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Filled span backgrounds**: `SpanBackground` (color, inline and block padding, corner radius)
+  paints behind a span, the way an inline code chip does. Set it with
+  `TextStylePatch::background` or `TextStyle::background`. Inline padding is laid out, so the
+  chip is wider than its glyphs and does not cover the words beside it; block padding is
+  painted and does not change the line height. `SpanBackground::chip(color, font_size)` is the
+  compact chip (0.4em on each side, 0.12em above and below, corners of 4).
+
 - **AhmiPrint Light, Semilight and Semibold**: `remedy-ui-fonts` ships all five weights of AhmiPrint (Light, Semilight, Regular, Semibold, Bold), the same hinted TrueType builds already in the family repo, so code and monospace text can use the lighter and semibold faces the Regular and Bold pair did not cover.
 
 - **Tauri `latest.json` feeds**: `Feed::Json` reads the multi-platform document Tauri publishes (`platforms.windows-x86_64.url` and the rest, including the usual aliases) as well as the existing flat `{version,url,signature}` form, so one file can serve a last Tauri build and a RemedyUI app. An empty platform signature is refused. `Apply::RunInstaller` already takes installer arguments (a silent Windows NSIS update passes `/S /UPDATE`); the app stops its own sidecars before apply.
