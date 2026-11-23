@@ -9,7 +9,7 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_style::States;
 use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
-use crate::menus::{MenuItem, menu};
+use crate::menus::{menu, MenuItem};
 
 fn labeled(ui: &Ui, control: El, text: Prop<String>) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
@@ -44,9 +44,16 @@ pub fn check(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
             brush: Brush::Solid(cx.style.foreground),
         });
     });
-    let row = labeled(ui, mark.clone(), text.clone()).on_click(move || value.update(|v| *v = !*v));
-    row.bind(move || mark.state(States::CHECKED, value.get())).semantics(move || {
-        Semantics::new(Role::Check).label(text.get()).checked(value.get()).action(Action::Click)
+    let row = labeled(ui, mark.clone(), text.clone()).on_click(move || {
+        let _ = value.try_update(|v| *v = !*v);
+    });
+    row.bind(move || {
+        let Ok(on) = value.try_get() else { return };
+        mark.state(States::CHECKED, on);
+    })
+    .semantics(move || {
+        let on = value.try_get().unwrap_or(false);
+        Semantics::new(Role::Check).label(text.get()).checked(on).action(Action::Click)
     })
 }
 
@@ -66,9 +73,16 @@ pub fn switch(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
             Brush::Solid(cx.style.foreground),
         );
     });
-    let row = labeled(ui, track.clone(), text.clone()).on_click(move || value.update(|v| *v = !*v));
-    row.bind(move || track.state(States::CHECKED, value.get())).semantics(move || {
-        Semantics::new(Role::Switch).label(text.get()).checked(value.get()).action(Action::Click)
+    let row = labeled(ui, track.clone(), text.clone()).on_click(move || {
+        let _ = value.try_update(|v| *v = !*v);
+    });
+    row.bind(move || {
+        let Ok(on) = value.try_get() else { return };
+        track.state(States::CHECKED, on);
+    })
+    .semantics(move || {
+        let on = value.try_get().unwrap_or(false);
+        Semantics::new(Role::Switch).label(text.get()).checked(on).action(Action::Click)
     })
 }
 
@@ -93,11 +107,14 @@ pub fn radio_group(ui: &Ui, label: impl Into<String>, options: &[&str], selected
             }
         });
         let text = (*opt).to_owned();
-        let row = labeled(ui, dot.clone(), Prop::Value(text.clone())).on_click(move || selected.set(i));
+        let row = labeled(ui, dot.clone(), Prop::Value(text.clone())).on_click(move || {
+            let _ = selected.try_set(i);
+        });
         let r2 = row.clone();
         let row = row
             .bind(move || {
-                let on = selected.get() == i;
+                let Ok(sel) = selected.try_get() else { return };
+                let on = sel == i;
                 dot.state(States::CHECKED, on);
                 let _ = r2.clone().semantics(
                     Semantics::new(Role::Radio)
@@ -142,7 +159,7 @@ fn arrows_skipping(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: us
         Key::End => step(0, false),
         _ => return false,
     };
-    selected.set(next);
+    let _ = selected.try_set(next);
     true
 }
 
@@ -179,13 +196,20 @@ pub fn segmented_unavailable(
             .align(Align::Center)
             .child(ui.el("segment_label").text(remedy_ui_view::RichText::plain(text.clone())).nowrap())
             .on_key(move |e| arrows_skipping(e, selected, n, &sk));
-        let seg = if off { seg.disabled(true) } else { seg.on_click(move || selected.set(i)) };
+        let seg = if off {
+            seg.disabled(true)
+        } else {
+            seg.on_click(move || {
+                let _ = selected.try_set(i);
+            })
+        };
         if let Some(why) = &why {
             crate::tooltip(&seg, why.clone());
         }
         let s2 = seg.clone();
         b.child(seg.bind(move || {
-            let on = selected.get() == i;
+            let Ok(sel) = selected.try_get() else { return };
+            let on = sel == i;
             s2.state(States::SELECTED, on);
             let mut sem = Semantics::new(Role::Tab).label(text.clone()).selected(on).set_position(i + 1, n);
             sem = match &why {
@@ -224,7 +248,11 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
         let items = opts
             .iter()
             .enumerate()
-            .map(|(i, o)| MenuItem::option(o.clone(), now == Some(i), move || selected.set(i)))
+            .map(|(i, o)| {
+                MenuItem::option(o.clone(), now == Some(i), move || {
+                    let _ = selected.try_set(i);
+                })
+            })
             .collect();
         open.set(true);
         let _ = menu(&ui2, &a, items).on_removed(move || open.set(false));
@@ -240,7 +268,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
     let b2 = b.clone();
     let typed = options.clone();
     b.bind(move || {
-        let i = selected.get();
+        let Ok(i) = selected.try_get() else { return };
         let v = opts2.get(i).cloned().unwrap_or_default();
         let _ = shown.clone().text(remedy_ui_view::RichText::plain(v.clone()));
         let _ = b2.clone().semantics(
@@ -248,7 +276,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
                 .label(label.get())
                 .value(v)
                 .has_popup(remedy_ui_a11y::Popup::ListBox)
-                .expanded(open.get())
+                .expanded(open.try_get().unwrap_or(false))
                 .action(Action::Click),
         );
     })
@@ -265,7 +293,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
                 .map(|k| (start + k) % n)
                 .find(|&i| typed.get(i).is_some_and(|o| o.to_lowercase().starts_with(&lower)));
             if let Some(i) = found {
-                selected.set(i);
+                let _ = selected.try_set(i);
                 return true;
             }
         }
@@ -281,9 +309,16 @@ pub fn chip(ui: &Ui, text: impl IntoProp<String>, selected: Signal<bool>) -> El 
         .row()
         .align(Align::Center)
         .child(ui.el("chip_label").text(text.clone().map(remedy_ui_view::RichText::plain)).nowrap())
-        .on_click(move || selected.update(|v| *v = !*v));
+        .on_click(move || {
+            let _ = selected.try_update(|v| *v = !*v);
+        });
     let c2 = c.clone();
-    c.bind(move || c2.state(States::SELECTED, selected.get())).semantics(move || {
-        Semantics::new(Role::Check).label(text.get()).checked(selected.get()).action(Action::Click)
+    c.bind(move || {
+        let Ok(on) = selected.try_get() else { return };
+        c2.state(States::SELECTED, on);
+    })
+    .semantics(move || {
+        let on = selected.try_get().unwrap_or(false);
+        Semantics::new(Role::Check).label(text.get()).checked(on).action(Action::Click)
     })
 }
