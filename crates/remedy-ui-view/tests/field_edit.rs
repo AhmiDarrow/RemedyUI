@@ -108,7 +108,8 @@ fn a_url_field_selects_all_on_first_click_or_focus_and_later_clicks_place_the_ca
     field.set_value("https://example.com/path");
     other.set_value("other");
     frame(&ui);
-    let b = field.el().bounds().unwrap();
+    let b = field.el().bounds().unwrap_or_default();
+    assert!(b.width() > 0.0, "the URL field should be laid out");
     let (x, y) = (b.min.x + 12.0, b.min.y + b.height() / 2.0);
 
     other.el().focus();

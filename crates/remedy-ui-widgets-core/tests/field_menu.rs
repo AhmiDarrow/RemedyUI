@@ -52,7 +52,8 @@ fn a_text_input_offers_cut_copy_paste_and_select_all_from_the_context_menu() {
     t.frame();
     field.set_value("hello world");
     t.frame();
-    let b = field.el().bounds().unwrap();
+    let b = field.el().bounds().unwrap_or_default();
+    assert!(b.width() > 0.0 && b.height() > 0.0, "the field should be laid out");
     let at = Point::new(b.min.x + 16.0, b.min.y + b.height() / 2.0);
     t.right_click(at);
     let names: Vec<String> =
@@ -67,9 +68,11 @@ fn a_text_input_offers_cut_copy_paste_and_select_all_from_the_context_menu() {
         t.ui.reader_view()
             .into_iter()
             .find(|n| n.role == Role::MenuItem && n.name.as_deref() == Some("Select All"))
-            .and_then(|n| t.ui.element_by_node_id(n.id))
-            .expect("Select All item");
-    let ab = all.bounds().unwrap();
+            .and_then(|n| t.ui.element_by_node_id(n.id));
+    assert!(all.is_some(), "Select All item");
+    let Some(all) = all else { return };
+    let ab = all.bounds().unwrap_or_default();
+    assert!(ab.height() > 0.0, "Select All should be laid out");
     let click = Point::new(ab.min.x + 8.0, ab.min.y + ab.height() / 2.0);
     let _ = t.ui.pointer(
         &PointerEvent::new(PointerPhase::Down, click)
@@ -96,23 +99,24 @@ fn a_secret_fields_context_menu_disables_cut_and_copy() {
     t.frame();
     field.select_all();
     t.frame();
-    let b = field.el().bounds().unwrap();
+    let b = field.el().bounds().unwrap_or_default();
+    assert!(b.width() > 0.0 && b.height() > 0.0, "the field should be laid out");
     t.right_click(Point::new(b.min.x + 16.0, b.min.y + b.height() / 2.0));
-    let cut =
-        t.ui.reader_view()
-            .into_iter()
-            .find(|n| n.role == Role::MenuItem && n.name.as_deref() == Some("Cut"))
-            .expect("Cut item");
-    let copy =
-        t.ui.reader_view()
-            .into_iter()
-            .find(|n| n.role == Role::MenuItem && n.name.as_deref() == Some("Copy"))
-            .expect("Copy item");
-    assert!(cut.states.iter().any(|s| *s == "disabled"), "secrets are never cut: {cut:?}");
-    assert!(copy.states.iter().any(|s| *s == "disabled"), "secrets are never copied: {copy:?}");
+    let items: Vec<_> = t.ui.reader_view().into_iter().filter(|n| n.role == Role::MenuItem).collect();
+    let cut = items.iter().find(|n| n.name.as_deref() == Some("Cut"));
+    let copy = items.iter().find(|n| n.name.as_deref() == Some("Copy"));
+    assert!(
+        cut.is_some_and(|n| n.states.iter().any(|s| *s == "disabled")),
+        "secrets are never cut: {items:?}"
+    );
+    assert!(
+        copy.is_some_and(|n| n.states.iter().any(|s| *s == "disabled")),
+        "secrets are never copied: {items:?}"
+    );
+    let copy_id = copy.map(|n| n.id);
     // Choosing Copy must not request a clipboard write.
     let _ = t.ui.take_requests();
-    if let Some(el) = t.ui.element_by_node_id(copy.id) {
+    if let Some(el) = copy_id.and_then(|id| t.ui.element_by_node_id(id)) {
         if let Some(cb) = el.bounds() {
             let click = Point::new(cb.min.x + 8.0, cb.min.y + cb.height() / 2.0);
             let _ = t.ui.pointer(
