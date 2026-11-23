@@ -19,6 +19,12 @@ menu-title-keys = F10 キー、または Alt キーと下線付きの文字で�
 escape-closes = Esc キーで閉じます
 context-menu-keys = Shift+F10 キーまたはメニュー キーで同じメニューを開きます
 
+## Text field edit menu.
+edit-cut = 切り取り
+edit-copy = コピー
+edit-paste = 貼り付け
+edit-select-all = すべて選択
+
 ## The trusted permission prompt.
 prompt-deny = 拒否
 prompt-allow = 許可
