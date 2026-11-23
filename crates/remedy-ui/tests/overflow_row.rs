@@ -95,3 +95,43 @@ fn overflow_row_keeps_a_flex_child_and_clips_to_its_box() {
     assert!(names.iter().any(|n| n == "More"), "trailing actions overflow at 240 px: {names:?}");
     assert!(max_x(&app) <= 241.0, "nothing may paint past the 240 px bar, max_x={}", max_x(&app));
 }
+
+#[test]
+fn overflow_row_collapsed_slots_do_not_force_a_more_menu() {
+    // Two 80 px buttons fit in 200 px. Two collapsed slots must not reserve
+    // MIN_TARGET each and push a button into the More menu.
+    let mut app = TestApp::new(AppConfig::new("overflow-maybe"), move |app: &App| {
+        app.open(WindowSpec::new("overflow-maybe").size(200.0, 80.0), move |ui, _| {
+            let collapsed = ui.el("collapsed").layout(|l| {
+                l.width = Length::Px(0.0);
+                l.max_width = Length::Px(0.0);
+                l.min_width = Length::Px(0.0);
+                l.height = Length::Px(0.0);
+            });
+            let collapsed2 = ui.el("collapsed-2").layout(|l| {
+                l.width = Length::Px(0.0);
+                l.max_width = Length::Px(0.0);
+                l.min_width = Length::Px(0.0);
+                l.height = Length::Px(0.0);
+            });
+            let bar = w::overflow_row(ui)
+                .gap(4.0)
+                .child("Alpha", w::button(ui, "Alpha", || {}))
+                .child_maybe("Hidden", collapsed)
+                .child_maybe("Hidden 2", collapsed2)
+                .child("Bravo", w::button(ui, "Bravo", || {}))
+                .el();
+            ui.root().child(bar.layout(|l| {
+                l.width = Length::Px(200.0);
+                l.min_width = Length::Px(0.0);
+                l.max_width = Length::Px(200.0);
+            }));
+        });
+    });
+    app.frames(4);
+    let names = button_names(&app);
+    assert!(names.iter().any(|n| n == "Alpha"), "{names:?}");
+    assert!(names.iter().any(|n| n == "Bravo"), "collapsed slots must not hide Bravo: {names:?}");
+    assert!(names.iter().all(|n| n != "More"), "collapsed slots must not force More: {names:?}");
+    assert!(max_x(&app) <= 201.0, "nothing may paint past the 200 px bar, max_x={}", max_x(&app));
+}
