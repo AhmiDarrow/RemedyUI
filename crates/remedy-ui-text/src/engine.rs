@@ -16,7 +16,7 @@ use parley::{
 use remedy_ui_core::{Color, Point, Rect};
 
 use crate::rich::RichText;
-use crate::style::{Align, Direction, LineHeight, TextStyle};
+use crate::style::{Align, Direction, LineHeight, SpanBackground, TextStyle, finite_px};
 
 /// A font could not be added.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -529,6 +529,7 @@ struct RunStyle {
     color: Color,
     link: Option<u64>,
     range: Range<usize>,
+    background: Option<SpanBackground>,
 }
 
 /// Lays out paragraphs. Keep one per UI thread and reuse it: it holds scratch space and the
@@ -807,31 +808,45 @@ impl TextEngine {
         options: ParagraphOptions,
         y0: f64,
     ) -> Piece {
-        let segments = flatten(text, base);
-        let first = self.build(text, base, &segments, options, &[], y0);
-        if self.fonts.symbols.is_empty() {
-            return first;
-        }
-        let missing = first.missing_glyphs(text.as_str());
-        if missing.is_empty() {
-            return first;
-        }
-        let symbols = family_names(self.fonts.symbols.iter().map(String::as_str));
-        let overrides: Vec<(Range<usize>, Vec<FontFamilyName<'static>>)> = missing
-            .into_iter()
-            .map(|range| {
-                let style =
-                    segments.iter().find(|s| s.range.contains(&range.start)).map_or(base, |s| &s.style);
-                let mut families = self.fonts.stack(&style.families);
-                for f in &symbols {
-                    if !families.contains(f) {
-                        families.push(f.clone());
-                    }
-                }
-                (range, families)
-            })
-            .collect();
-        self.build(text, base, &segments, options, &overrides, y0)
+        // Side room on a chip is laid out as inline boxes. The piece maps shaped offsets
+        // back, so everything above here still speaks the caller's text.
+        let prepared = crate::span_pad::apply(text, base);
+        let pad = prepared.as_ref().map(|(_, map)| map.clone());
+        let used: &RichText = match &prepared {
+            Some((rich, _)) => rich,
+            None => text,
+        };
+        let segments = flatten(used, base);
+        let first = self.build(used, base, &segments, options, &[], y0);
+        let mut piece = if self.fonts.symbols.is_empty() {
+            first
+        } else {
+            let missing = first.missing_glyphs(used.as_str());
+            if missing.is_empty() {
+                first
+            } else {
+                let symbols = family_names(self.fonts.symbols.iter().map(String::as_str));
+                let overrides: Vec<(Range<usize>, Vec<FontFamilyName<'static>>)> = missing
+                    .into_iter()
+                    .map(|range| {
+                        let style = segments
+                            .iter()
+                            .find(|s| s.range.contains(&range.start))
+                            .map_or(base, |s| &s.style);
+                        let mut families = self.fonts.stack(&style.families);
+                        for f in &symbols {
+                            if !families.contains(f) {
+                                families.push(f.clone());
+                            }
+                        }
+                        (range, families)
+                    })
+                    .collect();
+                self.build(used, base, &segments, options, &overrides, y0)
+            }
+        };
+        piece.pad = pad;
+        piece
     }
 
     /// Lays out `text`, the edited text of `before` (laid out with the same style and
@@ -879,11 +894,21 @@ impl TextEngine {
         });
         push_style(&mut b, base, base_stack, None, 0);
         b.push_default(StyleProperty::Locale(self.language));
-        run_styles.push(RunStyle { color: base.color, link: None, range: 0..content.len() });
+        run_styles.push(RunStyle {
+            color: base.color,
+            link: None,
+            range: 0..content.len(),
+            background: base.background,
+        });
         for ((i, seg), stack) in segments.iter().enumerate().zip(stacks) {
             let brush = u32::try_from(i + 1).unwrap_or(u32::MAX);
             push_style(&mut b, &seg.style, stack, Some(seg.range.clone()), brush);
-            run_styles.push(RunStyle { color: seg.style.color, link: seg.link, range: seg.range.clone() });
+            run_styles.push(RunStyle {
+                color: seg.style.color,
+                link: seg.link,
+                range: seg.range.clone(),
+                background: seg.style.background,
+            });
         }
         // Pushed after the spans, so they win on their ranges; every other property stays.
         for (range, list) in families {
@@ -914,8 +939,25 @@ impl TextEngine {
         // Parley aligns while it breaks lines: set the alignment first.
         layout.set_alignment(alignment, AlignmentOptions::default());
         break_lines(&mut layout, options.max_width.map(|w| w * scale), y0);
-        Piece { layout, run_styles, align: alignment, wrap: options.max_width, scale, y0 }
+        Piece { layout, run_styles, align: alignment, wrap: options.max_width, scale, y0, pad: None }
     }
+}
+
+/// Each resolved piece of `text` and the background it paints, covering the whole text when
+/// it has spans (and the one piece `0..len` when a paragraph background is set and it has
+/// none). Empty when there is nothing to paint a background on.
+pub(crate) fn resolved_backgrounds(
+    text: &RichText,
+    base: &TextStyle,
+) -> Vec<(Range<usize>, Option<SpanBackground>)> {
+    let segments = flatten(text, base);
+    if segments.is_empty() {
+        if text.is_empty() || base.background.is_none() {
+            return Vec::new();
+        }
+        return vec![(0..text.len(), base.background)];
+    }
+    segments.into_iter().map(|s| (s.range, s.style.background)).collect()
 }
 
 struct Segment {
@@ -1142,6 +1184,21 @@ pub struct GlyphRunInfo {
     pub underline: Option<Rect>,
     /// The line through the run, if it has one.
     pub strikethrough: Option<Rect>,
+    /// The filled background behind this run, if its span has one. The box is already padded
+    /// and is in the paragraph's coordinates; draw it before the glyphs.
+    pub background: Option<RunBackground>,
+}
+
+/// The filled background behind one glyph run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct RunBackground {
+    /// Fill color.
+    pub color: Color,
+    /// The box to fill, from the paragraph's top-left, padding included.
+    pub rect: Rect,
+    /// Corner radius, in logical pixels.
+    pub radius: f32,
 }
 
 /// One laid-out piece of text: a whole paragraph, or one piece of a lazy one (in the piece's
@@ -1158,6 +1215,9 @@ pub(crate) struct Piece {
     pub(crate) scale: f32,
     /// Where its first line's top is, in device pixels before rounding.
     y0: f64,
+    /// Set when horizontal padding was inserted before shaping. Maps the shaped text back
+    /// to the text the piece was asked to lay out.
+    pad: Option<crate::span_pad::PadMap>,
 }
 
 /// Breaks `layout`'s lines at `max_advance`, its first line's top at `y0`: parley rounds each
@@ -1309,8 +1369,9 @@ impl Piece {
         let line = self.layout.get(i)?;
         let m = line.metrics();
         let s = self.scale;
+        let range = line.text_range();
         Some(LineInfo {
-            range: line.text_range(),
+            range: self.pad_out(range.start)..self.pad_out(range.end),
             baseline: m.baseline / s,
             top: m.block_min_coord / s,
             bottom: m.block_max_coord / s,
@@ -1324,6 +1385,18 @@ impl Piece {
         let s = self.scale;
         let mut out = Vec::new();
         for line in self.layout.lines().skip(lines.start).take(lines.len()) {
+            // Side pads are inline boxes on this line. A chip's box grows to whichever of
+            // them touches the run, so a wrapped span keeps its start pad on the first
+            // fragment and its end pad on the last.
+            let pads: Vec<(f32, f32)> = line
+                .items()
+                .filter_map(|item| match item {
+                    PositionedLayoutItem::InlineBox(b) if b.id == crate::span_pad::SPAN_PAD_ID => {
+                        Some((b.x, b.width))
+                    }
+                    _ => None,
+                })
+                .collect();
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else { continue };
                 let style = run.style();
@@ -1363,7 +1436,7 @@ impl Piece {
                     }
                     for g in c.glyphs() {
                         advances.push(g.advance / s);
-                        clusters.push(start);
+                        clusters.push(self.pad_out(start));
                     }
                 }
                 if advances.len() != glyphs.len() {
@@ -1371,6 +1444,33 @@ impl Piece {
                     advances.clear();
                     clusters.clear();
                 }
+                let range = self.pad_out(range.start)..self.pad_out(range.end);
+                if range.is_empty() && glyphs.is_empty() {
+                    continue;
+                }
+                let background = rs.background.map(|bg| {
+                    let block = finite_px(bg.padding_block) * s;
+                    let mut left = x;
+                    let mut right = x + width;
+                    for &(px, pw) in &pads {
+                        if (px + pw - left).abs() <= 1.0 {
+                            left = left.min(px);
+                        }
+                        if (px - right).abs() <= 1.0 {
+                            right = right.max(px + pw);
+                        }
+                    }
+                    RunBackground {
+                        color: bg.color,
+                        rect: Rect::new(
+                            left / s,
+                            (baseline - metrics.ascent - block) / s,
+                            right / s,
+                            (baseline + metrics.descent.abs() + block) / s,
+                        ),
+                        radius: finite_px(bg.radius),
+                    }
+                });
                 out.push(GlyphRunInfo {
                     font: RunFont { data: font.data.clone(), index: font.index },
                     size: r.font_size() / s,
@@ -1383,10 +1483,33 @@ impl Piece {
                     clusters,
                     underline,
                     strikethrough,
+                    background,
                 });
             }
         }
         out
+    }
+
+    /// A shaped offset as the caller's offset.
+    fn pad_out(&self, i: usize) -> usize {
+        match &self.pad {
+            Some(map) => map.to_original(i),
+            None => i,
+        }
+    }
+
+    /// A caller's offset as the shaped offset, on the side `affinity` belongs to.
+    fn pad_in(&self, i: usize, affinity: Affinity) -> usize {
+        match &self.pad {
+            Some(map) => map.to_padded(i, affinity == Affinity::Upstream),
+            None => i,
+        }
+    }
+
+    /// `range` in the shaped text. The start is downstream (after a chip's opening pad) and
+    /// the end is upstream (before its closing pad), which is how a selection is drawn.
+    fn pad_in_range(&self, range: Range<usize>) -> Range<usize> {
+        self.pad_in(range.start, Affinity::Downstream)..self.pad_in(range.end, Affinity::Upstream)
     }
 
     /// Inline objects with their boxes, by the ids the caller gave them.
@@ -1400,6 +1523,9 @@ impl Piece {
         for line in self.layout.lines().skip(lines.start).take(lines.len()) {
             for item in line.items() {
                 if let PositionedLayoutItem::InlineBox(b) = item {
+                    if b.id == crate::span_pad::SPAN_PAD_ID {
+                        continue;
+                    }
                     let s = self.scale;
                     out.push((b.id, Rect::new(b.x / s, b.y / s, (b.x + b.width) / s, (b.y + b.height) / s)));
                 }
@@ -1411,7 +1537,7 @@ impl Piece {
     /// The text position nearest `point` (from the paragraph's top-left).
     pub fn hit_test(&self, point: Point) -> TextPosition {
         let c = Cursor::from_point(&self.layout, point.x * self.scale, point.y * self.scale);
-        TextPosition { index: c.index(), affinity: to_affinity(c.affinity()) }
+        TextPosition { index: self.pad_out(c.index()), affinity: to_affinity(c.affinity()) }
     }
 
     /// The link under `point`, if the point is on linked text.
@@ -1439,12 +1565,25 @@ impl Piece {
 
     /// The caret's rectangle at `pos`, `width` logical pixels wide.
     pub fn caret(&self, pos: TextPosition, width: f32) -> Rect {
-        let c = Cursor::from_byte_index(&self.layout, pos.index, from_affinity(pos.affinity));
+        let c = Cursor::from_byte_index(
+            &self.layout,
+            self.pad_in(pos.index, pos.affinity),
+            from_affinity(pos.affinity),
+        );
         bbox(c.geometry(&self.layout, width * self.scale), self.scale)
     }
 
     /// Rectangles covering `range`, one or more per line, in visual order.
     pub fn selection_rects(&self, range: Range<usize>) -> Vec<Rect> {
+        if range.start >= range.end {
+            return Vec::new();
+        }
+        let range = self.pad_in_range(range);
+        // A caret on a chip's edge maps the two affinities to opposite sides of the pad.
+        // An empty range must not highlight that pad.
+        if range.start >= range.end {
+            return Vec::new();
+        }
         let anchor = Cursor::from_byte_index(&self.layout, range.start, PAffinity::Downstream);
         let focus = Cursor::from_byte_index(&self.layout, range.end, PAffinity::Upstream);
         Selection::new(anchor, focus)
@@ -1456,23 +1595,48 @@ impl Piece {
 
     /// The word around `point`, as a byte range.
     pub fn word_at(&self, point: Point) -> Range<usize> {
-        Selection::word_from_point(&self.layout, point.x * self.scale, point.y * self.scale).text_range()
+        let range =
+            Selection::word_from_point(&self.layout, point.x * self.scale, point.y * self.scale).text_range();
+        self.pad_out(range.start)..self.pad_out(range.end)
     }
 
     /// The position one character to the visual right (or left) of `pos`, as the arrow keys
     /// move in mixed-direction text.
     pub fn move_visual(&self, pos: TextPosition, rightward: bool) -> TextPosition {
-        let c = Cursor::from_byte_index(&self.layout, pos.index, from_affinity(pos.affinity));
-        let n = if rightward { c.next_visual(&self.layout) } else { c.previous_visual(&self.layout) };
-        TextPosition { index: n.index(), affinity: to_affinity(n.affinity()) }
+        self.step_over_pads(pos, rightward, true)
     }
 
     /// The position one word to the visual right (or left) of `pos`.
     pub fn move_word(&self, pos: TextPosition, rightward: bool) -> TextPosition {
-        let c = Cursor::from_byte_index(&self.layout, pos.index, from_affinity(pos.affinity));
-        let n =
-            if rightward { c.next_visual_word(&self.layout) } else { c.previous_visual_word(&self.layout) };
-        TextPosition { index: n.index(), affinity: to_affinity(n.affinity()) }
+        self.step_over_pads(pos, rightward, false)
+    }
+
+    /// One visual step. A chip's side padding is an inline box, so the shaper has a cluster
+    /// the caller never typed; that cluster maps back to the same place, and the step keeps
+    /// going until the caller's position changes (or the shaper stops).
+    fn step_over_pads(&self, pos: TextPosition, rightward: bool, by_cluster: bool) -> TextPosition {
+        let mut c = Cursor::from_byte_index(
+            &self.layout,
+            self.pad_in(pos.index, pos.affinity),
+            from_affinity(pos.affinity),
+        );
+        for _ in 0..8 {
+            let n = match (by_cluster, rightward) {
+                (true, true) => c.next_visual(&self.layout),
+                (true, false) => c.previous_visual(&self.layout),
+                (false, true) => c.next_visual_word(&self.layout),
+                (false, false) => c.previous_visual_word(&self.layout),
+            };
+            if n == c {
+                break;
+            }
+            c = n;
+            let out = TextPosition { index: self.pad_out(c.index()), affinity: to_affinity(c.affinity()) };
+            if out != pos {
+                return out;
+            }
+        }
+        TextPosition { index: self.pad_out(c.index()), affinity: to_affinity(c.affinity()) }
     }
 }
 

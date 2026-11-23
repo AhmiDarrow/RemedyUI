@@ -553,6 +553,16 @@ impl Field {
         // Nothing of the text draws outside the box; the caret may sit on its side edges.
         let clip = Rect::new(content.min.x - 2.0, content.min.y, content.max.x + 2.0, content.max.y);
         list.push_clip(clip, remedy_ui_core::CornerRadii::ZERO);
+        // The chip sits under the selection, so the highlight stays visible on it.
+        if !text.is_empty() {
+            if p.is_lazy() {
+                let margin = content.height().max(600.0);
+                let band = self.scroll.y - margin..self.scroll.y + content.height() + margin;
+                crate::frame::span_backgrounds_in(list, &p, o, band);
+            } else {
+                crate::frame::span_backgrounds(list, &p, o);
+            }
+        }
         if focused {
             for r in p.selection_rects(self.display_selection()) {
                 list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));

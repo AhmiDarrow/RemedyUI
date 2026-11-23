@@ -134,6 +134,30 @@ fn scroll_containers_give_the_compositor_their_scroll_bars() {
 }
 
 #[test]
+fn an_inline_code_chip_fills_pixels_behind_its_word() {
+    use remedy_ui_text::{SpanBackground, TextStylePatch};
+    let ui = ui();
+    let green = Color::rgb8(0, 180, 40);
+    let chip = SpanBackground::chip(green, 16.0);
+    let line = remedy_ui_view::RichText::new()
+        .text("use ")
+        .styled("code", TextStylePatch::background(chip))
+        .text(" here");
+    ui.root().child(ui.el("text").text(line).style(Style::new().text_size(16.0).foreground(Color::WHITE)));
+    let (_, frame) = draw(&ui);
+    let mut green_px = 0;
+    for y in 0..48 {
+        for x in 0..200 {
+            let p = frame.pixel(x, y).unwrap_or([0; 4]);
+            if p[1] > 140 && p[0] < 40 && p[2] < 80 {
+                green_px += 1;
+            }
+        }
+    }
+    assert!(green_px > 20, "the chip fills pixels behind the word: {green_px}");
+}
+
+#[test]
 fn ch_lengths_are_advances_of_zero_in_the_elements_font() {
     let ui = ui();
     let zero = ui.el("text").text("0").nowrap().style(Style::new().text_size(20.0));
