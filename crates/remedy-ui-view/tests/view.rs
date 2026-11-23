@@ -1896,10 +1896,8 @@ fn a_text_field_is_as_tall_as_the_themes_text_makes_it() {
     field.set_value("Name");
     ui.root().child(ui.el("column").column().child(label.clone()).child(field.el()));
     let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
-    let (l, f) = (
-        label.bounds().unwrap_or_default().height(),
-        field.el().bounds().unwrap_or_default().height(),
-    );
+    let (l, f) =
+        (label.bounds().unwrap_or_default().height(), field.el().bounds().unwrap_or_default().height());
     assert!(l > 28.0, "the label is a line of 24 px text: {l}");
     assert!((f - l).abs() < 1.0, "the field's text is the theme's size too: {f} beside {l}");
 }

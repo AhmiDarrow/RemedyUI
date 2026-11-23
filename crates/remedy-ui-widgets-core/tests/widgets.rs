@@ -513,7 +513,8 @@ fn a_disclosure_opens_and_closes_from_its_head_and_says_which() {
     t.ui.root().child(d.clone());
     t.frame();
     assert!(body.bounds().is_none_or(|b| b.height() == 0.0), "closed: the body takes no room");
-    let head = d.child_elements().into_iter().next().unwrap_or_else(|| unreachable!("a disclosure has a head"));
+    let head =
+        d.child_elements().into_iter().next().unwrap_or_else(|| unreachable!("a disclosure has a head"));
     let s = head.composed_semantics().unwrap_or_else(|| unreachable!("the head has semantics"));
     assert_eq!((s.name(), s.expanded_state()), (Some("I have an invite"), Some(false)));
     head.focus();

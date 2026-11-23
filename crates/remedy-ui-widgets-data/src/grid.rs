@@ -55,7 +55,13 @@ impl<T> Tiles<T> {
         draw: impl Fn(&Ui, &T) -> El + 'static,
     ) -> Self {
         let (w, a, e) = (min_width.max(1.0), aspect.max(0.0), extra_height.max(0.0));
-        Tiles { size: Size::new(w, w * a + e), fluid: Some((a, e)), draw: Rc::new(draw), gap: None, variant: "" }
+        Tiles {
+            size: Size::new(w, w * a + e),
+            fluid: Some((a, e)),
+            draw: Rc::new(draw),
+            gap: None,
+            variant: "",
+        }
     }
 
     /// `gap` logical pixels between tiles, instead of the theme's spacing: a grid of cards
