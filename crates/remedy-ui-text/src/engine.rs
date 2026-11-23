@@ -742,9 +742,12 @@ impl TextEngine {
             budget = budget.saturating_mul(4);
         };
         let Some(last) = lines.get(n - 1).filter(|_| lines.len() > n) else { return full };
-        // Grapheme boundaries on the last visible line: a cut never splits a cluster. Text
-        // past that line cannot fit beside the "…" (it was pushed to the next line already).
-        let line = last.range.start..last.range.end.min(s.len());
+        // Grapheme boundaries on the last visible line and the one after it: a cut never
+        // splits a cluster. A word too long for what was left of the line was pushed to the
+        // next one whole (a path, a file name, a link), yet its start fits beside the "…";
+        // nothing past that next line can.
+        let next_end = lines.get(n).map_or(last.range.end, |l| l.range.end);
+        let line = last.range.start..next_end.min(s.len());
         let ends: Vec<usize> = icu_segmenter::GraphemeClusterSegmenter::new()
             .segment_str(s.get(line.clone()).unwrap_or(""))
             .map(|b| b + line.start)
