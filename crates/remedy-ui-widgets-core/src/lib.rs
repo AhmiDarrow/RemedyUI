@@ -7,7 +7,7 @@
 //! `docs/design/15-widgets-and-media.md`.
 //!
 //! - Containers: [`column()`], [`row`], [`overflow_row`], [`wrap`], [`stack`], [`spacer`], [`divider`],
-//!   [`card`], [`section`], [`disclosure`], [`scroll`], [`split`]
+//!   [`card`], [`section`], [`disclosure`], [`scroll`], [`split`], [`dock`]
 //! - Lists: [`for_each`], [`list`], [`virtual_list`]
 //! - Text: [`text`] (with a variant: `.variant("muted")`), [`heading`], [`link`]
 //! - Actions: [`button`], [`button_dyn`], [`icon_button`], [`toggle_button`], [`menu_button`]
@@ -51,6 +51,7 @@ pub(crate) fn tr(ui: &remedy_ui_view::Ui, id: &'static str) -> String {
 mod actions;
 mod choices;
 mod containers;
+mod dock;
 mod feedback;
 mod icons;
 mod inputs;
@@ -69,6 +70,7 @@ pub use actions::button_dyn;
 pub use actions::{button, icon_button, menu_button, toggle_button};
 pub use choices::{check, chip, radio_group, segmented, segmented_unavailable, select, switch};
 pub use containers::{card, column, disclosure, divider, row, scroll, section, spacer, split, stack, wrap};
+pub use dock::{DockSide, DockSpec, DockState, dock};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast, toast_at};
 pub use icons::{Icon, avatar, canvas, icon, image, pixel_image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_edit_menu, text_input};
