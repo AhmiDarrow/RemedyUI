@@ -32,14 +32,17 @@ impl std::error::Error for FontError {}
 
 /// The families a [`FontCollection`] reaches for a symbol that the chosen font and its
 /// script's fallback fonts lack, in order: the bundled Remedy Symbols (`remedy-ui-fonts`),
-/// then each platform's symbol, math and emoji fonts, then the system's emoji family. Families
-/// the collection does not have are skipped.
+/// the bundled Twemoji Mozilla color emoji face, then each platform's symbol, math and
+/// emoji fonts, then the system's emoji family. Families the collection does not have are
+/// skipped. The bundled emoji face is tried before the system's so a machine with Noto
+/// Color Emoji (a CBDT face) and one without paint the same glyphs from the same font.
 ///
 /// Font fallback goes by script, and symbols such as ✦ ◆ ⚠ ☰ ⌕ ⇄ belong to no script
 /// (Unicode's Common script): they take the script of the text around them, whose fallback
 /// fonts rarely have them. These families are where they live.
 pub const DEFAULT_SYMBOL_FALLBACKS: &[&str] = &[
     "Remedy Symbols",
+    "Twemoji Mozilla",
     // Windows.
     "Segoe UI Symbol",
     "Segoe UI Emoji",

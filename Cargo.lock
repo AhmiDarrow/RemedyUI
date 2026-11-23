@@ -4861,6 +4861,7 @@ dependencies = [
  "parley",
  "parley_data",
  "parley_engine",
+ "png",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",

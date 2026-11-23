@@ -4,8 +4,10 @@
 //! SIMD) for shapes, paths, gradients, clips and layers, and RemedyUI's own hinted glyph
 //! coverage for text: each glyph is rasterized once at its device size and subpixel bin,
 //! cached as an alpha image, and drawn tinted with the run's color, in order with everything
-//! else so clips and layers apply. It is the floor every machine can run, and the reference
-//! renderer for golden-image tests. See `docs/design/04-rendering.md`.
+//! else so clips and layers apply. Color glyphs (COLR, CBDT, sbix) are cached as
+//! premultiplied RGBA and drawn with only the run's alpha, so the emoji's own colors stay.
+//! It is the floor every machine can run, and the reference renderer for golden-image tests.
+//! See `docs/design/04-rendering.md`.
 //!
 //! Corner radii in display lists are physical (`top_start` is top-left): widgets resolve
 //! right-to-left before they paint.
@@ -86,6 +88,9 @@ struct GlyphKey {
     /// For a run drawn turned, skewed, mirrored or stretched unevenly: its transform's linear
     /// part in 1/4096ths, and the vertical subpixel bin (`bin` is the horizontal one).
     turn: Option<([i32; 4], u8)>,
+    /// Packed RGBA of the run's color, only for color glyphs that may use the foreground
+    /// palette entry. Zero for coverage glyphs so one cache entry serves every text color.
+    fg: u32,
 }
 
 struct CachedGlyph {
@@ -95,6 +100,8 @@ struct CachedGlyph {
     image: Arc<Pixmap>,
     left: i32,
     top: i32,
+    /// Premultiplied RGBA color glyph: tint only with the run's alpha, not its RGB.
+    color: bool,
 }
 
 /// Draws display lists onto any [`Surface`], caching glyph coverage and image pixmaps between
@@ -966,14 +973,24 @@ impl Painter {
         let mask_tint = vello_cpu::Tint { color: color(run.color), mode: vello_cpu::TintMode::AlphaMask };
         for (id, origin) in &run.glyphs {
             let dev = t.apply(*origin);
+            let color_glyph = GlyphRasterizer::is_color_glyph(&run.font, *id);
             let hinting = if upright { run.hinting } else { Hinting::None };
-            let bin = subpixel_bin(dev.x, hinting);
+            let bin = if color_glyph { 0 } else { subpixel_bin(dev.x, hinting) };
             let bins = f32::from(remedy_ui_text::SUBPIXEL_BINS);
-            let turn = (!upright).then(|| {
+            let turn = (!upright && !color_glyph).then(|| {
                 let q = |v: f32| (v * 4096.0).round() as i32;
                 let ybin = ((dev.y - dev.y.floor()) * bins).floor().clamp(0.0, bins - 1.0) as u8;
                 ([q(a), q(b), q(c), q(d)], ybin)
             });
+            // Color glyphs skip LCD; their cache key includes the run color when the glyph
+            // may use the foreground palette entry.
+            let lcd = if color_glyph { None } else { lcd };
+            let fg = if color_glyph {
+                let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+                q(r) << 24 | q(g) << 16 | q(bl) << 8 | q(al)
+            } else {
+                0
+            };
             let key = GlyphKey {
                 font: run.font.id(),
                 face: run.font.index(),
@@ -983,24 +1000,45 @@ impl Painter {
                 hinting,
                 lcd,
                 turn,
+                fg,
             };
             if !self.glyphs.contains_key(&key) {
                 let aa = lcd.map_or(Antialias::Grayscale, |bgr| Antialias::Lcd { bgr });
                 let img = match turn {
                     // The run's size in logical pixels, mapped by the whole linear part.
-                    Some((_, ybin)) => self.raster.rasterize_transformed(
+                    Some((_, ybin)) => self.raster.rasterize_transformed_foreground(
                         &run.font,
                         *id,
                         run.size,
                         [a, b, c, d],
                         (f32::from(bin) / bins, f32::from(ybin) / bins),
+                        run.color,
                     ),
-                    None => self.raster.rasterize(&run.font, *id, px_size, bin, hinting, aa),
+                    None if color_glyph && !upright => self.raster.rasterize_transformed_foreground(
+                        &run.font,
+                        *id,
+                        run.size,
+                        [a, b, c, d],
+                        (dev.x - dev.x.floor(), dev.y - dev.y.floor()),
+                        run.color,
+                    ),
+                    None => {
+                        self.raster.rasterize_foreground(&run.font, *id, px_size, bin, hinting, aa, run.color)
+                    }
                 };
                 let id = self.next_glyph;
                 self.next_glyph += 2;
                 let cached = img.and_then(|g| {
-                    if lcd.is_some() {
+                    if g.is_color() {
+                        pixmap_from(g.width, g.height, g.data).map(|p| CachedGlyph {
+                            id,
+                            color_pass: None,
+                            image: Arc::new(p),
+                            left: g.left,
+                            top: g.top,
+                            color: true,
+                        })
+                    } else if lcd.is_some() {
                         let px = g.data.as_chunks::<3>().0;
                         let multiply: Vec<u8> = px
                             .iter()
@@ -1019,6 +1057,7 @@ impl Painter {
                             image: Arc::new(first),
                             left: g.left,
                             top: g.top,
+                            color: false,
                         })
                     } else {
                         let rgba: Vec<u8> = g.data.iter().flat_map(|&v| [v, v, v, v]).collect();
@@ -1028,6 +1067,7 @@ impl Painter {
                             image: Arc::new(p),
                             left: g.left,
                             top: g.top,
+                            color: false,
                         })
                     }
                 });
@@ -1036,7 +1076,8 @@ impl Painter {
             let Some(Some(gl)) = self.glyphs.get(&key) else { continue };
             let x = (dev.x.floor() as i32 + gl.left) as f64;
             // A turned glyph's image already holds the origin's vertical fraction.
-            let base_y = if turn.is_some() { dev.y.floor() } else { dev.y.round() };
+            let base_y =
+                if turn.is_some() || (color_glyph && !upright) { dev.y.floor() } else { dev.y.round() };
             let y = (base_y as i32 - gl.top) as f64;
             let rect =
                 kurbo::Rect::new(x, y, x + f64::from(gl.image.width()), y + f64::from(gl.image.height()));
@@ -1055,6 +1096,9 @@ impl Painter {
                     let plus = peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus);
                     draw(ctx, ImageKey::Glyph(gl.id), &gl.image, alpha_tint, multiply);
                     draw(ctx, ImageKey::Glyph(*add_id), add, color_tint, plus);
+                }
+                None if gl.color => {
+                    draw(ctx, ImageKey::Glyph(gl.id), &gl.image, alpha_tint, peniko::BlendMode::default())
                 }
                 None => draw(ctx, ImageKey::Glyph(gl.id), &gl.image, mask_tint, peniko::BlendMode::default()),
             }

@@ -20,6 +20,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Color emoji actually paints**: the rasterizer draws COLRv0/v1, CBDT/CBLC and sbix
+  glyphs as premultiplied RGBA (it previously tried to hint an outline, so a thumbs-up
+  from Noto Color Emoji or Twemoji was a blank gap even when the text was in the tree).
+  The CPU and GPU renderers keep the glyph's own colours and only apply the run's alpha.
+  A bundled **Twemoji Mozilla** COLRv0 face (v0.7.0, CC-BY-4.0 artwork) is the default
+  emoji fallback in `remedy-ui-fonts` (`twemoji`, on by default), tried ahead of the
+  system's emoji font so a machine with no color emoji font, and one with a CBDT face,
+  paint the same glyphs.
+
 - **Filled span backgrounds**: `SpanBackground` (color, inline and block padding, corner radius)
   paints behind a span, the way an inline code chip does. Set it with
   `TextStylePatch::background` or `TextStyle::background`. Inline padding is laid out, so the
