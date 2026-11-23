@@ -19,6 +19,12 @@ menu-title-keys = 按 F10，或按 Alt 键加带下划线的字母，即可打�
 escape-closes = 按 Esc 键关闭
 context-menu-keys = 按 Shift+F10 或菜单键可打开同一菜单
 
+## Text field edit menu.
+edit-cut = 剪切
+edit-copy = 复制
+edit-paste = 粘贴
+edit-select-all = 全选
+
 ## The trusted permission prompt.
 prompt-deny = 拒绝
 prompt-allow = 允许
