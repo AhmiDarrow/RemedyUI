@@ -93,3 +93,7 @@ icon-forward-10 = تقديم 10 ثوانٍ
 icon-home = الصفحة الرئيسية
 icon-image = صورة
 icon-selected = محدد
+icon-microphone = ميكروفون
+icon-paperclip = مشبك ورق
+icon-stop = إيقاف
+icon-star = نجمة
