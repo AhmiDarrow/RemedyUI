@@ -1,7 +1,7 @@
 //! Text inputs.
 
 use remedy_ui_layout::Align;
-use remedy_ui_view::{El, FieldKind, TextField, Ui};
+use remedy_ui_view::{El, FieldKind, IntoProp, TextField, Ui};
 
 /// A one-line text input. Its value is read with [`TextField::value`]; Enter calls
 /// `on_submit`.
@@ -80,13 +80,13 @@ pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
 
 /// A labeled form field: the label above `control`, and an optional hint or error below.
 #[track_caller]
-pub fn field(ui: &Ui, label: impl Into<String>, control: El) -> El {
+pub fn field(ui: &Ui, label: impl IntoProp<String>, control: El) -> El {
     let gap = ui.theme().spacing.unit;
     ui.el("form_field")
         .column()
         .gap(gap)
         .fill_width()
-        .child(ui.el("field").text(remedy_ui_view::RichText::plain(label.into())))
+        .child(ui.el("field").text(label.into_prop().map(remedy_ui_view::RichText::plain)))
         .child(control)
 }
 

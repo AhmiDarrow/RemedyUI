@@ -21,6 +21,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   painted and does not change the line height. `SpanBackground::chip(color, font_size)` is the
   compact chip (0.4em on each side, 0.12em above and below, corners of 4).
 
+- **Web view script, user agent and DevTools**: `WebView::eval` runs a script and calls back
+  once with JSON text (WebView2's `ExecuteScript` shape; WebKitGTK is wrapped so the text
+  matches, `undefined` included). `WebView::set_user_agent` sets the page's user agent, and
+  an empty string restores the engine default. `WebView::devtools` calls a Chrome DevTools
+  protocol method on WebView2; WebKitGTK reports that the protocol is not available. A
+  callback is invoked with an error when the view is missing or closed, including a command
+  that was still queued while the view started. The page still cannot call any of these.
+
 - **AhmiPrint Light, Semilight and Semibold**: `remedy-ui-fonts` ships all five weights of AhmiPrint (Light, Semilight, Regular, Semibold, Bold), the same hinted TrueType builds already in the family repo, so code and monospace text can use the lighter and semibold faces the Regular and Bold pair did not cover.
 
 - **Tauri `latest.json` feeds**: `Feed::Json` reads the multi-platform document Tauri publishes (`platforms.windows-x86_64.url` and the rest, including the usual aliases) as well as the existing flat `{version,url,signature}` form, so one file can serve a last Tauri build and a RemedyUI app. An empty platform signature is refused. `Apply::RunInstaller` already takes installer arguments (a silent Windows NSIS update passes `/S /UPDATE`); the app stops its own sidecars before apply.
