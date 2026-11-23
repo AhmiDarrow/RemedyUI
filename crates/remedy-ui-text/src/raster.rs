@@ -1,10 +1,13 @@
-//! Glyph rasterization: hinted outlines to coverage bitmaps.
+//! Glyph rasterization: hinted outlines to coverage bitmaps, and color glyphs to RGBA.
 //!
 //! Outlines come from skrifa, hinted at the exact pixel size (TrueType bytecode where the
 //! font has it, the autohinter where it does not). Coverage is computed by exact-area
 //! accumulation (the signed-area method used by font-rs): every pixel gets the true fraction
 //! of its area inside the outline, with no supersampling. LCD output renders at three times
 //! the horizontal resolution and applies FreeType's default five-tap filter.
+//!
+//! Color fonts (COLRv0/v1, CBDT/CBLC and sbix) have no useful outline: they are painted by
+//! [`crate::color_glyph`] into a premultiplied RGBA [`GlyphImage`].
 
 use std::collections::HashMap;
 
@@ -12,6 +15,9 @@ use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target};
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
+use remedy_ui_core::Color;
+
+use crate::color_glyph;
 use crate::engine::RunFont;
 
 /// How outlines are fitted to the pixel grid.
@@ -51,6 +57,17 @@ impl Antialias {
     }
 }
 
+/// How a [`GlyphImage`] stores its pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GlyphImageFormat {
+    /// Coverage, `Antialias::bytes_per_pixel` bytes per pixel (1 grayscale, 3 LCD).
+    #[default]
+    Coverage,
+    /// Premultiplied sRGB RGBA, 4 bytes per pixel. Color fonts (COLR, CBDT, sbix).
+    Color,
+}
+
 /// A rasterized glyph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlyphImage {
@@ -62,8 +79,17 @@ pub struct GlyphImage {
     pub left: i32,
     /// Offset from the baseline up to the image's top edge, in pixels.
     pub top: i32,
-    /// Coverage, row by row, `bytes_per_pixel` bytes per pixel.
+    /// How `data` is packed.
+    pub format: GlyphImageFormat,
+    /// Pixels, row by row, `format`'s bytes per pixel.
     pub data: Vec<u8>,
+}
+
+impl GlyphImage {
+    /// True when this is a premultiplied RGBA color glyph, not coverage to tint.
+    pub fn is_color(&self) -> bool {
+        self.format == GlyphImageFormat::Color
+    }
 }
 
 /// The number of horizontal subpixel positions used when hinting allows them.
@@ -112,8 +138,9 @@ impl GlyphRasterizer {
     }
 
     /// Rasterizes `glyph` of `font` at `size` pixels, with its origin moved right by the
-    /// subpixel bin's offset. Returns `None` for a glyph with no outline (a space) or a font
-    /// that cannot be read.
+    /// subpixel bin's offset. Color glyphs are painted first (the foreground is black when
+    /// the glyph asks for the text color). Returns `None` for a glyph with no outline and no
+    /// color image (a space) or a font that cannot be read.
     pub fn rasterize(
         &mut self,
         font: &RunFont,
@@ -123,7 +150,25 @@ impl GlyphRasterizer {
         hinting: Hinting,
         aa: Antialias,
     ) -> Option<GlyphImage> {
+        self.rasterize_foreground(font, glyph, size, bin, hinting, aa, Color::BLACK)
+    }
+
+    /// [`Self::rasterize`], passing `foreground` to color glyphs that use the text color
+    /// (COLR palette index `0xFFFF`).
+    pub fn rasterize_foreground(
+        &mut self,
+        font: &RunFont,
+        glyph: u32,
+        size: f32,
+        bin: u8,
+        hinting: Hinting,
+        aa: Antialias,
+        foreground: Color,
+    ) -> Option<GlyphImage> {
         let font_ref = FontRef::from_index(font.bytes(), font.index()).ok()?;
+        if let Some(img) = color_glyph::rasterize(&font_ref, glyph, size, foreground) {
+            return Some(img);
+        }
         let outlines = font_ref.outline_glyphs();
         let outline = outlines.get(GlyphId::new(glyph))?;
         let lcd = matches!(aa, Antialias::Lcd { .. });
@@ -177,7 +222,26 @@ impl GlyphRasterizer {
         linear: [f32; 4],
         offset: (f32, f32),
     ) -> Option<GlyphImage> {
+        self.rasterize_transformed_foreground(font, glyph, size, linear, offset, Color::BLACK)
+    }
+
+    /// [`Self::rasterize_transformed`], passing `foreground` to color glyphs that use the
+    /// text color.
+    pub fn rasterize_transformed_foreground(
+        &mut self,
+        font: &RunFont,
+        glyph: u32,
+        size: f32,
+        linear: [f32; 4],
+        offset: (f32, f32),
+        foreground: Color,
+    ) -> Option<GlyphImage> {
         let font_ref = FontRef::from_index(font.bytes(), font.index()).ok()?;
+        if let Some(img) =
+            color_glyph::rasterize_transformed(&font_ref, glyph, size, linear, offset, foreground)
+        {
+            return Some(img);
+        }
         let outlines = font_ref.outline_glyphs();
         let outline = outlines.get(GlyphId::new(glyph))?;
         let mut path = PathRecorder::default();
@@ -190,6 +254,13 @@ impl GlyphRasterizer {
     /// Drops cached hinting instances (for example under memory pressure).
     pub fn clear(&mut self) {
         self.instances.clear();
+    }
+
+    /// True when `glyph` of `font` should be painted as a color image (COLR, CBDT or sbix).
+    pub fn is_color_glyph(font: &RunFont, glyph: u32) -> bool {
+        FontRef::from_index(font.bytes(), font.index())
+            .ok()
+            .is_some_and(|f| color_glyph::is_color_glyph(&f, glyph))
     }
 }
 
@@ -241,7 +312,7 @@ impl PathRecorder {
         p
     }
 
-    fn points(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
+    pub(crate) fn points(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
         self.segs.iter().flat_map(|s| {
             let v: Vec<(f32, f32)> = match *s {
                 Seg::Move(x, y) | Seg::Line(x, y) => vec![(x, y)],
@@ -363,6 +434,7 @@ impl PathRecorder {
             height: h as u32,
             left: left as i32,
             top: -top as i32,
+            format: GlyphImageFormat::Coverage,
             data: r.coverage(),
         })
     }
@@ -491,7 +563,14 @@ fn lcd_filter(img: &GlyphImage, bgr: bool) -> GlyphImage {
     }
     // The 3x image's left edge was at `left` subpixels; one padding pixel moves it left.
     let left = img.left.div_euclid(3) - 1;
-    GlyphImage { width: out_w as u32, height: img.height, left, top: img.top, data }
+    GlyphImage {
+        width: out_w as u32,
+        height: img.height,
+        left,
+        top: img.top,
+        format: GlyphImageFormat::Coverage,
+        data,
+    }
 }
 
 #[cfg(test)]

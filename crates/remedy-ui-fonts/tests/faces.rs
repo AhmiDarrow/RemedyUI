@@ -39,7 +39,11 @@ fn every_face_matches_its_metadata() -> Result<(), Box<dyn std::error::Error>> {
 ))]
 #[test]
 fn all_features_give_all_faces() {
-    assert_eq!(remedy_ui_fonts::all().len(), 21);
+    let mut n = 21;
+    if cfg!(feature = "twemoji") {
+        n += 1;
+    }
+    assert_eq!(remedy_ui_fonts::all().len(), n);
 }
 
 /// Remedy Symbols has every character `SYMBOL_CHARS` lists and nothing else but the space,
@@ -94,5 +98,22 @@ fn script_faces_cover_their_scripts() -> Result<(), Box<dyn std::error::Error>> 
             assert!(font.gsub().is_ok() && font.gpos().is_ok(), "{family} keeps its shaping tables");
         }
     }
+    Ok(())
+}
+
+/// The bundled Twemoji face is a COLRv0 color font and covers the reactions Remedy uses.
+#[cfg(feature = "twemoji")]
+#[test]
+fn twemoji_is_colr_v0_and_covers_reactions() -> Result<(), Box<dyn std::error::Error>> {
+    let face = remedy_ui_fonts::TWEMOJI_MOZILLA.first().ok_or("no twemoji face")?;
+    assert!(face.data.len() > 1_000_000, "full repertoire, not a subset");
+    let font = FontRef::new(face.data)?;
+    let cmap = font.cmap()?;
+    for c in ['👍', '👎', '❤', '💔', '😀'] {
+        assert!(cmap.map_codepoint(c).is_some_and(|g| g.to_u32() != 0), "Twemoji Mozilla lacks {c:?}");
+    }
+    let colr = font.colr()?;
+    assert_eq!(colr.version(), 0, "the bundled face is COLRv0");
+    assert!(font.cpal().is_ok());
     Ok(())
 }
