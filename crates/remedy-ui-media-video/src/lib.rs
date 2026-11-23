@@ -221,6 +221,35 @@ impl VideoSink {
     }
 }
 
+/// A picture shown by its page element, for one surface ([`GpuPicture::shows_itself`]).
+#[derive(Default)]
+struct PageShown {
+    picture: RefCell<Option<GpuFrame>>,
+    /// The surface's box and the part of it that shows, while any does.
+    at: std::cell::Cell<Option<(Rect, Rect)>>,
+    background: std::cell::Cell<remedy_ui_core::Color>,
+    el: RefCell<Option<El>>,
+}
+
+impl PageShown {
+    /// Puts the element where the surface is now (or hides it while the surface is unseen).
+    fn place(&self) {
+        let Some(g) = self.picture.borrow().clone() else { return };
+        let at = self.at.get().map(|(bounds, visible)| remedy_ui_paint::PagePlacement {
+            bounds,
+            visible,
+            background: self.background.get(),
+        });
+        g.0.place(at);
+    }
+
+    fn hide(&self) {
+        if let Some(g) = self.picture.borrow().clone() {
+            g.0.place(None);
+        }
+    }
+}
+
 /// An element showing the frames pushed into the returned sink. `label` says what it shows
 /// for screen readers ("Alex's screen"); the element reads as an image with that name.
 #[track_caller]
@@ -238,13 +267,39 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
     });
     // The frame drawn now, read by the painter: a new one repaints only this element.
     let current: Signal<Option<VideoFrame>> = Signal::new(None);
+    // A picture its page element shows by itself (a page's `<video>`): the element is placed
+    // under the window at the surface's box, which is left clear, and nothing repaints per
+    // frame. Held here with the surface's last placement and background.
+    let page = Rc::new(PageShown::default());
     let take = {
-        let shared = shared.clone();
+        let (shared, page) = (shared.clone(), page.clone());
         move || {
             shared.woken.store(false, Ordering::Release);
             let next = shared.pending.lock().unwrap_or_else(PoisonError::into_inner).take();
-            if let Some(f) = next {
-                current.set(Some(f));
+            let Some(f) = next else { return };
+            match f.gpu.clone().filter(|g| g.0.shows_itself()) {
+                Some(g) => {
+                    // Shown by the page as it comes: counted here, painted never again.
+                    shared.shown.fetch_add(1, Ordering::Relaxed);
+                    let first = page.picture.borrow_mut().replace(g).is_none();
+                    if first {
+                        page.place();
+                        if let Some(el) = page.el.borrow().as_ref() {
+                            el.set_see_through(true);
+                        }
+                        current.set(Some(f));
+                    }
+                }
+                None => {
+                    if page.picture.borrow().is_some() {
+                        page.hide();
+                        page.picture.borrow_mut().take();
+                        if let Some(el) = page.el.borrow().as_ref() {
+                            el.set_see_through(false);
+                        }
+                    }
+                    current.set(Some(f));
+                }
             }
         }
     };
@@ -256,6 +311,7 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
     let closing = shared.clone();
     // The last frame drawn: a repaint for another reason does not count as showing a frame.
     let last_shown = std::cell::Cell::new(0u64);
+    let (placed, painted, gone) = (page.clone(), page.clone(), page.clone());
     let el = ui
         .el("video_surface")
         .grow(1.0)
@@ -264,10 +320,23 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
         .on_removed(move || {
             closing.closed.store(true, Ordering::Release);
             SURFACES.with(|s| s.borrow_mut().remove(&closing.stream));
+            gone.hide();
+            gone.el.borrow_mut().take();
             drop(take);
+        })
+        .on_placed(move |p| {
+            placed.at.set(p.map(|p| (p.bounds, p.visible)));
+            placed.place();
         })
         .paint(move |cx| {
             let Some(frame) = current.get() else { return };
+            if frame.gpu.as_ref().is_some_and(|g| g.0.shows_itself()) {
+                // The page shows it under the clear box; the bars are the page element's.
+                if painted.background.replace(cx.style.background) != cx.style.background {
+                    painted.place();
+                }
+                return;
+            }
             let frame_id = frame.id;
             let (w, h) = (cx.size.width, cx.size.height);
             let (fw, fh) = (frame.width as f32, frame.height as f32);
@@ -293,5 +362,6 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
                 counted.shown.fetch_add(1, Ordering::Relaxed);
             }
         });
+    *page.el.borrow_mut() = Some(el.clone());
     (el, VideoSink { shared, waker })
 }

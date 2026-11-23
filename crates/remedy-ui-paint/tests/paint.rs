@@ -176,3 +176,34 @@ fn nested_filters_share_one_bound() {
     let (nan, left) = FilterBudget::FULL.limit(&shadow(f32::NAN, f32::INFINITY, f32::NAN), 1.0);
     assert_eq!((offset(nan), nan.std_dev(), left), (Vec2::ZERO, 0.0, FilterBudget::FULL));
 }
+
+#[test]
+fn changed_area_bounds_the_run_that_differs_in_whole_groups() {
+    let list = |x: f32, angle: f32| {
+        let mut l = DisplayList::new();
+        l.fill_rect(Rect::new(0.0, 0.0, 500.0, 500.0), Brush::Solid(Color::BLACK));
+        l.push(Item::PushTransform(Affine::translate(remedy_ui_core::Vec2::new(100.0, 100.0))));
+        l.push(Item::PushTransform(Affine::scale(angle, angle)));
+        l.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Brush::Solid(Color::WHITE));
+        l.push(Item::PopTransform);
+        l.push(Item::PopTransform);
+        l.fill_rect(Rect::new(x, 0.0, x + 5.0, 5.0), Brush::Solid(Color::WHITE));
+        l
+    };
+    let a = list(0.0, 1.0);
+    assert_eq!(DisplayList::changed_area(&a, &a), Some(Rect::ZERO), "nothing changed");
+    // The inner transform changes: the run widens to its group and is placed by the outer one.
+    assert_eq!(DisplayList::changed_area(&a, &list(0.0, 2.0)), Some(Rect::new(100.0, 100.0, 120.0, 120.0)));
+    // A last item moving: its old and new boxes.
+    assert_eq!(DisplayList::changed_area(&a, &list(10.0, 1.0)), Some(Rect::new(0.0, 0.0, 15.0, 5.0)));
+    // Inside a filter group, or under glass, it cannot be bounded.
+    let mut f = DisplayList::new();
+    f.push_filter(Filter::Blur { radius: 4.0 });
+    f.extend(&a);
+    f.pop_filter();
+    let mut g = DisplayList::new();
+    g.push_filter(Filter::Blur { radius: 4.0 });
+    g.extend(&list(10.0, 1.0));
+    g.pop_filter();
+    assert_eq!(DisplayList::changed_area(&f, &g), None);
+}

@@ -601,7 +601,7 @@ impl Walk<'_> {
         let layer_filters = !d.scroll && !own_filters.is_empty() && self.layers_below(id);
         let isolate = d
             .isolate
-            .or(d.ambient_layer.then_some(Affine::IDENTITY))
+            .or((d.ambient_layer || d.see_through).then_some(Affine::IDENTITY))
             .or((glass > 0.0 || layer_filters).then_some(Affine::IDENTITY));
         if let Some(transform) = isolate.filter(|_| !d.scroll) {
             // A layer of its own: a clip at the element's box, and inside it the element's
@@ -647,6 +647,7 @@ impl Walk<'_> {
             if faded {
                 outer.opacity = opacity;
             }
+            outer.hole = d.see_through;
             b.children.push(outer);
             b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
             self.focus_ring(b, id, Rect::from_origin_size(Point::ZERO, size));
@@ -681,6 +682,7 @@ impl Walk<'_> {
                     && (d.scroll
                         || d.isolate.is_some()
                         || d.ambient_layer
+                        || d.see_through
                         || d.resolved.backdrop_blur > 0.0
                         || crate::deep::deeper(|| self.layers_below(k)))
             })
@@ -1250,7 +1252,7 @@ impl Ui {
             // An element drawn in a compositor layer of its own puts its children in that
             // layer, which the compositor places on whole device pixels.
             let own_layer =
-                d.scroll || d.isolate.is_some() || d.ambient_layer || d.resolved.backdrop_blur > 0.0;
+                d.scroll || d.isolate.is_some() || d.ambient_layer || d.see_through || d.resolved.backdrop_blur > 0.0;
             let pad = if i.layout.is_rtl(d.node) { pad.mirrored() } else { pad };
             let own = Rect::from_origin_size(Point::ZERO, r.size()).deflate(pad);
             if i.frame.bounds_stale {

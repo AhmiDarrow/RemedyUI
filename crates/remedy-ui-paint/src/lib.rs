@@ -26,7 +26,7 @@ pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
 pub use remedy_ui_core::ColorMatrix;
 pub use video::{
     Coefficients, CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuAdapter, GpuFrame,
-    GpuPicture, GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter,
+    GpuPicture, GpuTexture, PagePlacement, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter,
     gpu_video_dma_buf_modifiers, set_gpu_video_adapter, set_gpu_video_dma_buf_modifiers,
 };
 
@@ -654,6 +654,36 @@ impl Item {
     }
 }
 
+/// How an item changes the group depth: a push opens one, a pop closes one.
+fn depth_step(item: &Item) -> i32 {
+    match item {
+        Item::PushClip { .. } | Item::PushLayer { .. } | Item::PushFilter(_) | Item::PushTransform(_) => 1,
+        Item::PopClip | Item::PopLayer | Item::PopFilter | Item::PopTransform => -1,
+        _ => 0,
+    }
+}
+
+/// `items[start..end]` widened to whole groups: back to the pushes of the pops it holds,
+/// on to the pops of the pushes it holds.
+fn whole_groups(items: &[Item], mut start: usize, mut end: usize) -> (usize, usize) {
+    let (mut depth, mut low) = (0, 0);
+    for item in items.get(start..end).unwrap_or(&[]) {
+        depth += depth_step(item);
+        low = low.min(depth);
+    }
+    let mut need = -low;
+    while need > 0 && start > 0 {
+        start -= 1;
+        need -= items.get(start).map_or(0, depth_step);
+    }
+    let mut open = depth - low;
+    while open > 0 && end < items.len() {
+        open += items.get(end).map_or(0, depth_step);
+        end += 1;
+    }
+    (start, end)
+}
+
 /// A list of drawing commands.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DisplayList {
@@ -730,6 +760,67 @@ impl DisplayList {
     /// Ends a filter group.
     pub fn pop_filter(&mut self) {
         self.push(Item::PopFilter);
+    }
+
+    /// Where `new` draws differently from `old`, in the lists' space: the area the run of
+    /// items between what both share at the start and at the end draws to, in either list,
+    /// widened to whole groups so the shared items around it draw as before. An empty rect
+    /// when they draw the same. `None` when the change cannot be bounded: it sits inside a
+    /// filter group, or a backdrop at or after it reads what changed.
+    ///
+    /// A spinner or a video frame changing in a list that fills a window changes only its
+    /// own box, so only the tiles there need drawing again.
+    pub fn changed_area(old: &DisplayList, new: &DisplayList) -> Option<Rect> {
+        let (a, b) = (old.items(), new.items());
+        let mut p = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+        let most = a.len().min(b.len()) - p;
+        let mut s = a.iter().rev().zip(b.iter().rev()).take(most).take_while(|(x, y)| x == y).count();
+        // Prefix and suffix are shared, so widening one list widens the other alike; repeat
+        // until both runs are whole groups.
+        loop {
+            let (pa, ea) = whole_groups(a, p, a.len() - s);
+            let (pb, eb) = whole_groups(b, p, b.len() - s);
+            let (np, ns) = (pa.min(pb), (a.len() - ea).min(b.len() - eb));
+            if (np, ns) == (p, s) {
+                break;
+            }
+            (p, s) = (np, ns);
+        }
+        let area = |items: &[Item], end: usize| -> Option<Option<Rect>> {
+            if items.get(p..).unwrap_or(&[]).iter().any(|i| matches!(i, Item::Backdrop { .. })) {
+                return None;
+            }
+            // The transform and clips the run is drawn under, from the shared prefix.
+            let mut transforms = vec![Affine::IDENTITY];
+            let mut clips: Vec<Option<Rect>> = Vec::new();
+            let mut filters = 0usize;
+            for item in items.get(..p).unwrap_or(&[]) {
+                let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
+                match item {
+                    Item::PushClip { rect, .. } => clips.push(Some(t.apply_rect(*rect))),
+                    Item::PushLayer { .. } => clips.push(None),
+                    Item::PopClip | Item::PopLayer => drop(clips.pop()),
+                    Item::PushTransform(m) => transforms.push(m.then(t)),
+                    Item::PopTransform if transforms.len() > 1 => drop(transforms.pop()),
+                    Item::PushFilter(_) => filters += 1,
+                    Item::PopFilter => filters = filters.saturating_sub(1),
+                    _ => {}
+                }
+            }
+            if filters > 0 {
+                return None;
+            }
+            let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
+            let run = items.get(p..end).unwrap_or(&[]);
+            Some(DisplayList::bounds_of(run).map(|r| {
+                clips.iter().flatten().fold(t.apply_rect(r), |r, c| r.intersect(*c).unwrap_or(Rect::ZERO))
+            }))
+        };
+        let (x, y) = (area(a, a.len() - s)?, area(b, b.len() - s)?);
+        Some(match (x, y) {
+            (Some(x), Some(y)) => x.union(y),
+            (r, None) | (None, r) => r.unwrap_or(Rect::ZERO),
+        })
     }
 
     /// The area the list can draw to, without transforms' rotation (transforms are applied

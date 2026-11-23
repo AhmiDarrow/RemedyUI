@@ -69,7 +69,6 @@ pub(crate) struct Win {
     pub(crate) listeners: RefCell<Vec<Listener>>,
     drag: RefCell<Option<DragState>>,
     resolution: RefCell<Option<Listener>>,
-    transparent: bool,
     pub(crate) visible: Cell<bool>,
     pub(crate) minimized: Cell<bool>,
     pub(crate) maximized: Cell<bool>,
@@ -272,7 +271,6 @@ impl Win {
                 listeners: RefCell::new(Vec::new()),
                 drag: RefCell::new(None),
                 resolution: RefCell::new(None),
-                transparent: options.transparent,
                 visible: Cell::new(options.visible),
                 minimized: Cell::new(false),
                 maximized: Cell::new(false),
@@ -483,7 +481,9 @@ impl Win {
             return Ok(c.clone());
         }
         let opts = js_sys::Object::new();
-        let _ = js_sys::Reflect::set(&opts, &"alpha".into(), &JsValue::from_bool(self.transparent));
+        // Always with alpha: the page's elements show in the holes the window leaves clear (a
+        // playing `<video>` under the canvas); an opaque window draws its background itself.
+        let _ = js_sys::Reflect::set(&opts, &"alpha".into(), &JsValue::from_bool(true));
         let ctx = self
             .cpu
             .get_context_with_context_options("2d", &opts)
