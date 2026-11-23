@@ -888,6 +888,10 @@ impl Ui {
             i.history = crate::history::History::default();
             i.interceptor = None;
             i.wake = None;
+            // The native window is let go: the platform destroys it when its last handle
+            // drops, and a Ui the app still holds (in a closure, a signal) must not keep a
+            // closed window on screen, frozen, with nothing drawing it.
+            i.window_handles = None;
             i.requests.clear();
             i.rich_clip = None;
             match i.els.get_mut(&root) {
