@@ -8,7 +8,7 @@ use remedy_ui_core::{Point, Vec2};
 /// How far an arrow key scrolls by default ([`Ui::set_scroll_step`]), in logical pixels.
 pub const SCROLL_STEP: f32 = 40.0;
 use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
 use remedy_ui_style::States;
 use remedy_ui_tree::{Dirty, ElementId};
 
@@ -200,6 +200,10 @@ impl Ui {
         // A wrapped link's further lines are that link too.
         let hit = self.link_at(hit, e.position).or(hit);
         if self.drag_pointer(e, hit) {
+            self.0.borrow_mut().consumed = true;
+            return true;
+        }
+        if self.middle_scroll(e, hit) {
             self.0.borrow_mut().consumed = true;
             return true;
         }
@@ -590,6 +594,44 @@ impl Ui {
     /// How far an arrow key scrolls ([`Ui::set_scroll_step`]).
     pub fn scroll_step(&self) -> f32 {
         self.0.borrow().scroll_step
+    }
+
+    /// Middle-button drag pans the scroll container under the pointer (or the one the drag
+    /// started on). Wheel and keyboard scrolling stay as they are.
+    fn middle_scroll(&self, e: &PointerEvent, hit: Option<ElementId>) -> bool {
+        match e.phase {
+            PointerPhase::Down if e.buttons.contains(Buttons::MIDDLE) => {
+                let tree = self.tree();
+                let mut cur = hit;
+                while let Some(p) = cur {
+                    if self.0.borrow().els.get(&p).is_some_and(|d| d.scroll) {
+                        self.0.borrow_mut().middle_scroll = Some((p, e.position));
+                        return true;
+                    }
+                    cur = tree.parent(p);
+                }
+                false
+            }
+            PointerPhase::Move => {
+                let Some((id, last)) = self.0.borrow().middle_scroll else {
+                    return false;
+                };
+                let dx = last.x - e.position.x;
+                let dy = last.y - e.position.y;
+                self.0.borrow_mut().middle_scroll = Some((id, e.position));
+                if dx == 0.0 && dy == 0.0 {
+                    return true;
+                }
+                let off = self.scroll_offset(id);
+                self.request(Request::ScrollTo {
+                    scroller: id,
+                    offset: Vec2::new((off.x + dx).max(0.0), (off.y + dy).max(0.0)),
+                });
+                true
+            }
+            PointerPhase::Up | PointerPhase::Cancel => self.0.borrow_mut().middle_scroll.take().is_some(),
+            _ => false,
+        }
     }
 
     /// Pages or steps the scroll container around `from` (else under the pointer) that can
