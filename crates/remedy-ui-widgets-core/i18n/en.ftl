@@ -19,6 +19,12 @@ menu-title-keys = F10, or Alt and its underlined letter, opens it
 escape-closes = Escape closes it
 context-menu-keys = Shift+F10 or the Menu key opens the same menu
 
+## Text field edit menu.
+edit-cut = Cut
+edit-copy = Copy
+edit-paste = Paste
+edit-select-all = Select All
+
 ## The trusted permission prompt.
 prompt-deny = Deny
 prompt-allow = Allow

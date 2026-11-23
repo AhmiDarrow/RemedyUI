@@ -242,13 +242,20 @@ impl Ui {
             return true;
         }
         match e.phase {
-            PointerPhase::Down if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
+            PointerPhase::Down
+                if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+                    || e.buttons.contains(remedy_ui_input::Buttons::SECONDARY) =>
+            {
+                let primary = e.buttons.contains(remedy_ui_input::Buttons::PRIMARY);
                 let target = chain.iter().copied().find(|id| self.clickable(*id));
-                if let Some(t) = target {
-                    self.set_state(t, States::PRESSED, true);
+                if primary {
+                    if let Some(t) = target {
+                        self.set_state(t, States::PRESSED, true);
+                    }
+                    self.0.borrow_mut().pressed = target.or(hit);
                 }
-                self.0.borrow_mut().pressed = target.or(hit);
                 let focusable = chain.iter().copied().find(|id| tree.is_focusable(*id));
+                let already_focused = focusable.is_some_and(|f| tree.focused() == Some(f));
                 let keeps = chain.iter().any(|id| self.0.borrow().els.get(id).is_some_and(|d| d.keeps_focus));
                 match focusable {
                     _ if keeps => {}
@@ -259,10 +266,11 @@ impl Ui {
                     }
                     // A click on empty space blurs, except inside the scope holding focus (a
                     // modal keeps focus while you click its background).
-                    None if tree.focused().is_some_and(|f| {
-                        let scope = tree.focus_scope(f);
-                        scope == tree.root() || !chain.contains(&scope)
-                    }) =>
+                    None if primary
+                        && tree.focused().is_some_and(|f| {
+                            let scope = tree.focus_scope(f);
+                            scope == tree.root() || !chain.contains(&scope)
+                        }) =>
                     {
                         tree.blur();
                         focus_changed(self);
@@ -274,19 +282,38 @@ impl Ui {
                 {
                     let b = tree.bounds(f).unwrap_or_default();
                     let local = Point::new(e.position.x - b.min.x, e.position.y - b.min.y);
+                    let select_on_focus = !already_focused && field.borrow().selects_all_on_focus();
+                    if !primary {
+                        // A right click focuses (and may select all) but leaves the caret.
+                        if select_on_focus {
+                            field.borrow_mut().select_all();
+                            self.mark(f, Dirty::PAINT | Dirty::SEMANTICS);
+                            field::notify_caret(&field);
+                            field::request_session(self, &field, b);
+                        }
                     // Alt+click adds a cursor in a code field.
-                    if e.modifiers.alt && field.borrow_mut().add_cursor_at(local) {
+                    } else if e.modifiers.alt && field.borrow_mut().add_cursor_at(local) {
                         self.mark(f, Dirty::PAINT);
+                    } else if select_on_focus && clicks <= 1 && !e.modifiers.shift {
+                        // First click on a URL bar selects the whole address; later clicks
+                        // place the caret. Double- and triple-clicks still pick a word or all.
+                        field.borrow_mut().select_all();
+                        self.mark(f, Dirty::PAINT | Dirty::SEMANTICS);
+                        field::notify_caret(&field);
+                        field::request_session(self, &field, b);
                     } else {
-                        self.place_caret(f, &field, e.position, false);
+                        self.place_field(f, &field, e.position, e.modifiers.shift, clicks);
                     }
                 }
             }
             PointerPhase::Move if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
-                if let Some(p) = self.0.borrow().pressed.filter(|_| true)
+                // Copy `pressed` out first: place_field marks (and may request a frame),
+                // which mutably borrows the same cell.
+                let pressed = self.0.borrow().pressed;
+                if let Some(p) = pressed
                     && let Some(field) = self.field_of(p)
                 {
-                    self.place_caret(p, &field, e.position, true);
+                    self.place_field(p, &field, e.position, true, 0);
                 }
             }
             PointerPhase::Up => {
@@ -374,14 +401,20 @@ impl Ui {
         tree.dispatch(hit, e).is_ok_and(|d| d.handled)
     }
 
-    fn place_caret(&self, id: ElementId, field: &Rc<RefCell<Field>>, at: Point, extend: bool) {
+    fn place_field(&self, id: ElementId, field: &Rc<RefCell<Field>>, at: Point, extend: bool, clicks: u32) {
         let Some(b) = self.tree().bounds(id) else { return };
-        let changed = field.borrow_mut().place(Point::new(at.x - b.min.x, at.y - b.min.y), extend);
+        let local = Point::new(at.x - b.min.x, at.y - b.min.y);
+        let changed = if clicks == 0 {
+            // A drag: grow the selection in the unit the press chose.
+            field.borrow_mut().pointer_drag(local, extend)
+        } else {
+            field.borrow_mut().pointer_down(local, extend, clicks)
+        };
         if changed {
             self.field_edited(id, field, true);
             return;
         }
-        self.mark(id, Dirty::PAINT);
+        self.mark(id, Dirty::PAINT | Dirty::SEMANTICS);
         field::request_session(self, field, b);
         field::notify_caret(field);
     }
@@ -744,6 +777,11 @@ pub(crate) fn focus_changed(ui: &Ui) {
         Some((n, f)) => {
             ui.0.borrow_mut().field_session = Some(n);
             let b = tree.bounds(n).unwrap_or(remedy_ui_core::Rect::ZERO);
+            if before != now && f.borrow().selects_all_on_focus() {
+                f.borrow_mut().select_all();
+                ui.mark(n, Dirty::PAINT | Dirty::SEMANTICS);
+                field::notify_caret(&f);
+            }
             field::request_session(ui, &f, b);
         }
         None if client.is_some() => {

@@ -1,7 +1,10 @@
 //! Text inputs.
 
+use remedy_ui_input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_layout::Align;
 use remedy_ui_view::{El, FieldKind, IntoProp, TextField, Ui};
+
+use crate::menus::{MenuItem, context_menu};
 
 /// A one-line text input. Its value is read with [`TextField::value`]; Enter calls
 /// `on_submit`.
@@ -30,6 +33,7 @@ pub fn search(ui: &Ui, label: impl Into<String>, on_change: impl Fn(String) + 's
     let f2 = field.clone();
     let field = field.on_change(move || on_change(f2.value()));
     let f3 = field.clone();
+    text_edit_menu(&field);
     let gap = ui.theme().spacing.unit * 1.5;
     ui.el("search")
         .row()
@@ -97,6 +101,50 @@ trait Fill {
 impl Fill for TextField {
     fn fill(self) -> Self {
         let _ = self.el().fill_width();
+        text_edit_menu(&self);
         self
     }
+}
+
+/// A right-click (and Shift+F10 / the Menu key) Cut, Copy, Paste and Select All menu
+/// on `field`. [`text_input`], [`text_area`], [`secret_input`] and [`search`] attach
+/// this themselves. Cut and Copy stay off on a secret field, and while nothing is
+/// selected.
+#[track_caller]
+pub fn text_edit_menu(field: &TextField) {
+    let ui = field.el().ui().clone();
+    let f = field.clone();
+    let platform = ui.platform();
+    let _ = context_menu(&field.el(), move || {
+        let secret = f.kind() == FieldKind::Secret;
+        let empty = f.selection().is_empty();
+        let nothing = f.is_empty();
+        let cut = f.clone();
+        let copy = f.clone();
+        let paste = f.clone();
+        let all = f.clone();
+        vec![
+            MenuItem::new(crate::tr(&ui, "edit-cut"), move || edit_command(&cut, 'x'))
+                .disabled(secret || empty)
+                .chord(Chord::primary(platform, Key::char('x'))),
+            MenuItem::new(crate::tr(&ui, "edit-copy"), move || edit_command(&copy, 'c'))
+                .disabled(secret || empty)
+                .chord(Chord::primary(platform, Key::char('c'))),
+            MenuItem::new(crate::tr(&ui, "edit-paste"), move || edit_command(&paste, 'v'))
+                .chord(Chord::primary(platform, Key::char('v'))),
+            MenuItem::new(crate::tr(&ui, "edit-select-all"), move || all.select_all())
+                .disabled(nothing)
+                .chord(Chord::primary(platform, Key::char('a'))),
+        ]
+    });
+}
+
+fn edit_command(field: &TextField, key: char) {
+    let el = field.el();
+    if !el.is_focused() {
+        el.focus();
+    }
+    let ui = el.ui().clone();
+    let mods = Modifiers::primary(ui.platform());
+    let _ = ui.key(&KeyEvent::press(Key::char(key)).with_modifiers(mods));
 }

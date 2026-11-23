@@ -116,6 +116,13 @@ fn clamp_scroll(s: Vec2, text: Size, view: Size) -> Vec2 {
     )
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DragUnit {
+    Char,
+    Word,
+    All,
+}
+
 pub(crate) struct Field {
     kind: FieldKind,
     editor: Editor,
@@ -176,6 +183,12 @@ pub(crate) struct Field {
     on_copy: Option<Rc<dyn Fn()>>,
     /// The most characters people may type, paste or compose in ([`TextField::max_length`]).
     max_len: Option<usize>,
+    /// First click or keyboard focus selects everything (a browser's address bar).
+    select_all_on_focus: bool,
+    /// How a drag started by a press extends the selection.
+    drag_unit: DragUnit,
+    /// The word selected on the double-click that started a word drag.
+    word_anchor: Option<Range<usize>>,
 }
 
 /// An editor as it was before an edit, to go back to when the edit takes the text past the
@@ -772,6 +785,111 @@ impl Field {
         let Editor::Code(c) = &mut self.editor else { return false };
         c.ed.add_cursor(pos, pos);
         true
+    }
+
+    /// True when the first click or a focus move should select the whole value.
+    pub(crate) fn selects_all_on_focus(&self) -> bool {
+        self.select_all_on_focus
+    }
+
+    /// Selects all of the text.
+    pub(crate) fn select_all(&mut self) {
+        match &mut self.editor {
+            Editor::Plain(e) => e.select_all(),
+            Editor::Rich(r) => {
+                r.ed.select_all();
+                r.reset();
+            }
+            Editor::Code(c) => c.ed.select_all(),
+            Editor::Secret(e) => e.select_all(),
+        }
+        self.show_caret = true;
+    }
+
+    /// A press: one click places (or Shift-extends) the caret, two select the word, three
+    /// select all. Remembers how a following drag should grow the selection.
+    pub(crate) fn pointer_down(&mut self, at: Point, extend: bool, clicks: u32) -> bool {
+        self.drag_unit = match clicks {
+            2 => DragUnit::Word,
+            n if n >= 3 => DragUnit::All,
+            _ => DragUnit::Char,
+        };
+        if self.drag_unit == DragUnit::All && !extend {
+            self.select_all();
+            return false;
+        }
+        self.pointer_drag(at, extend)
+    }
+
+    /// A drag (or the first press) extends the selection in the unit the press chose.
+    pub(crate) fn pointer_drag(&mut self, at: Point, extend: bool) -> bool {
+        match self.drag_unit {
+            DragUnit::All => false,
+            DragUnit::Word => {
+                self.select_word_at(at, extend);
+                false
+            }
+            DragUnit::Char => self.place(at, extend),
+        }
+    }
+
+    /// Byte range of the word at an element-local point, mapped into the editor.
+    fn word_range_at(&self, at: Point) -> Option<Range<usize>> {
+        let Some((_, p, o)) = &self.shown else { return None };
+        let r = p.word_at(Point::new(at.x - o.x, at.y - o.y));
+        match &self.editor {
+            Editor::Plain(_) | Editor::Code(_) => Some(r),
+            Editor::Rich(rich) => {
+                let v = rich.view();
+                let a = v.to_model(r.start);
+                let b = v.to_model(r.end);
+                Some(if a <= b { a..b } else { b..a })
+            }
+            Editor::Secret(e) if self.reveal => Some(r),
+            Editor::Secret(e) => {
+                let n = |i: usize| {
+                    let n = i / MASK.len_utf8();
+                    e.secret().expose().char_indices().nth(n).map_or(e.secret().len(), |(j, _)| j)
+                };
+                let (a, b) = (n(r.start), n(r.end));
+                Some(if a <= b { a..b } else { b..a })
+            }
+        }
+    }
+
+    fn set_sel(&mut self, anchor: usize, focus: usize) {
+        match &mut self.editor {
+            Editor::Plain(e) => e.set_selection(anchor, focus),
+            Editor::Rich(r) => {
+                r.ed.set_selection(anchor, focus);
+                r.reset();
+            }
+            Editor::Code(c) => {
+                if anchor == focus {
+                    c.ed.single_cursor();
+                }
+                c.ed.set_selection(anchor, focus);
+            }
+            Editor::Secret(e) => e.set_selection(anchor, focus),
+        }
+        self.show_caret = true;
+    }
+
+    fn select_word_at(&mut self, at: Point, extend: bool) {
+        let Some(word) = self.word_range_at(at) else { return };
+        if !extend {
+            self.word_anchor = Some(word.clone());
+            self.set_sel(word.start, word.end);
+            return;
+        }
+        let anchor = self.word_anchor.clone().unwrap_or_else(|| word.clone());
+        if word.end <= anchor.start {
+            self.set_sel(anchor.end, word.start);
+        } else if word.start >= anchor.end {
+            self.set_sel(anchor.start, word.end);
+        } else {
+            self.set_sel(anchor.start, anchor.end);
+        }
     }
 
     fn changed(&mut self) {
@@ -1404,6 +1522,9 @@ impl Ui {
             secret_copy: None,
             on_copy: None,
             max_len: None,
+            select_all_on_focus: false,
+            drag_unit: DragUnit::Char,
+            word_anchor: None,
         }));
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
@@ -1524,7 +1645,7 @@ impl TextField {
             Editor::Plain(e) => e.select_all(),
             Editor::Rich(r) => r.ed.select_all(),
             Editor::Code(c) => c.ed.select_all(),
-            Editor::Secret(_) => {}
+            Editor::Secret(e) => e.select_all(),
         }
         f.changed();
         drop(f);
@@ -1589,7 +1710,21 @@ impl TextField {
     /// switch mode, and password managers and autofill know what to offer. A secret field
     /// is [`CurrentPassword`](remedy_ui_host::InputPurpose::CurrentPassword) unless set.
     pub fn purpose(self, purpose: remedy_ui_host::InputPurpose) -> Self {
-        self.field.borrow_mut().purpose = purpose;
+        let mut f = self.field.borrow_mut();
+        f.purpose = purpose;
+        // A URL bar selects the whole address on first click or focus, as browsers do.
+        if purpose == remedy_ui_host::InputPurpose::Url {
+            f.select_all_on_focus = true;
+        }
+        drop(f);
+        self
+    }
+
+    /// Selects the whole value when the field gains focus, including the first click
+    /// that focuses it (a browser's address bar). A later click places the caret.
+    /// [`TextField::purpose`] with [`InputPurpose::Url`] turns this on.
+    pub fn select_all_on_focus(self) -> Self {
+        self.field.borrow_mut().select_all_on_focus = true;
         self
     }
 
@@ -1836,10 +1971,7 @@ impl TextField {
             let width = (bounds.width() - inset - inner.end).max(1.0);
             let mut f = self.field.borrow_mut();
             let p = f.paragraph(&mut engine.borrow_mut(), width);
-            let o = Point::new(
-                inset + p.x_offset(width) - f.scroll.x,
-                inner.top - f.scroll.y,
-            );
+            let o = Point::new(inset + p.x_offset(width) - f.scroll.x, inner.top - f.scroll.y);
             if let Some(shown) = f.shown.as_mut() {
                 shown.2 = o;
             }

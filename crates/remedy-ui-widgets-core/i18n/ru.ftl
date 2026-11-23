@@ -19,6 +19,12 @@ menu-title-keys = Открывается клавишей F10 или клави�
 escape-closes = Закрывается клавишей Esc
 context-menu-keys = Shift+F10 или клавиша меню открывает то же меню
 
+## Text field edit menu.
+edit-cut = Вырезать
+edit-copy = Копировать
+edit-paste = Вставить
+edit-select-all = Выбрать всё
+
 ## The trusted permission prompt.
 prompt-deny = Запретить
 prompt-allow = Разрешить
