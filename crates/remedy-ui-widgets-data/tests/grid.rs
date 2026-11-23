@@ -187,3 +187,28 @@ fn a_grid_and_a_table_shown_after_starting_hidden_settle() {
     done.store(true, std::sync::atomic::Ordering::SeqCst);
     assert!(find(&g, "grid_tile").len() >= 10);
 }
+
+#[test]
+fn tiles_take_their_own_gap_and_style_variant() {
+    let ui = ui();
+    let items = Signal::new((0..4).collect::<Vec<u32>>());
+    let state = GridState::new(true);
+    let tiles =
+        Tiles::fluid(10_000.0, 0.0, 40.0, |ui: &Ui, i: &u32| w::text(ui, format!("item {i}")).nowrap())
+            .gap(2.0)
+            .variant("row");
+    let g = grid_view(&ui, "Files", items, |i: &u32| *i, tiles, &state, |_| {}).fill_width();
+    ui.root().child(g.clone());
+    frame(&ui);
+    frame(&ui);
+    let rows = find(&g, "grid_tile");
+    let (a, b) = (
+        rows.first().and_then(El::bounds).unwrap_or_default(),
+        rows.get(1).and_then(El::bounds).unwrap_or_default(),
+    );
+    assert_eq!(b.min.y - a.max.y, 2.0, "rows sit 2 apart, not the theme's spacing: {a:?} {b:?}");
+    assert!(
+        rows.iter().all(|r| r.info().is_some_and(|i| i.variant == "row")),
+        "each tile box has the variant"
+    );
+}

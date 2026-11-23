@@ -4,7 +4,7 @@ use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_layout::{Axis, Display, Length, Position};
 use remedy_ui_reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_view::{El, IntoProp, Ui};
 
 /// Children in a column.
 #[track_caller]
@@ -73,6 +73,40 @@ pub fn section(ui: &Ui, title: &str) -> El {
         .gap(gap)
         .semantics(Semantics::new(Role::Group).label(title))
         .child(crate::heading(ui, 3, title))
+}
+
+/// A part that opens and closes under its title (a page's `<details>`, an expander): the
+/// head shows a marker and `title` and flips `open` when pressed; `body` shows only while
+/// open. Style the head as `disclosure_head` (hover, focus) and the part as `disclosure`.
+#[track_caller]
+pub fn disclosure(ui: &Ui, title: impl IntoProp<String>, body: El, open: Signal<bool>) -> El {
+    let title = title.into_prop();
+    let unit = ui.theme().spacing.unit;
+    let size = ui.theme().type_scale.small + 2.0;
+    let (closed_mark, open_mark) =
+        (crate::icon(ui, crate::Icon::ChevronRight, size), crate::icon(ui, crate::Icon::ChevronDown, size));
+    let head = crate::min_target(ui.el("disclosure_head"))
+        .row()
+        .align(remedy_ui_layout::Align::Center)
+        .gap(unit * 1.5)
+        .child(closed_mark.clone())
+        .child(open_mark.clone())
+        .child(ui.el("label").text(title.clone().map(remedy_ui_view::RichText::plain)))
+        .on_click(move || open.update(|o| *o = !*o))
+        .semantics(move || {
+            Semantics::new(Role::Button)
+                .label(title.get())
+                .expanded(open.get())
+                .action(remedy_ui_a11y::Action::Click)
+        });
+    let b2 = body.clone();
+    let body = body.bind(move || {
+        let on = open.get();
+        let _ = closed_mark.clone().hidden(on);
+        let _ = open_mark.clone().hidden(!on);
+        let _ = b2.clone().hidden(!on);
+    });
+    ui.el("disclosure").column().gap(unit * 2.0).child(head).child(body)
 }
 
 /// A vertically scrolling column; scrolling runs on the compositor.

@@ -1884,3 +1884,20 @@ fn a_search_field_is_a_searchbox_to_assistive_technology() {
     assert_eq!(role_of("Search"), Some(remedy_ui_a11y::Role::SearchInput));
     assert_eq!(role_of("Name"), Some(remedy_ui_a11y::Role::TextInput));
 }
+
+#[test]
+fn a_text_field_is_as_tall_as_the_themes_text_makes_it() {
+    // Text 24 high: a field is a line of it tall, as a label beside it is, from its first frame.
+    let mut theme = Theme::dark_forest();
+    theme.type_scale.body = 24.0;
+    let ui = Ui::new(theme, StyleSheet::new(), fonts());
+    let label = ui.el("label").text("Name");
+    let field = ui.text_field("text_input", FieldKind::Single);
+    field.set_value("Name");
+    ui.root().child(ui.el("column").column().child(label.clone()).child(field.el()));
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    let (l, f) =
+        (label.bounds().unwrap_or_default().height(), field.el().bounds().unwrap_or_default().height());
+    assert!(l > 28.0, "the label is a line of 24 px text: {l}");
+    assert!((f - l).abs() < 1.0, "the field's text is the theme's size too: {f} beside {l}");
+}

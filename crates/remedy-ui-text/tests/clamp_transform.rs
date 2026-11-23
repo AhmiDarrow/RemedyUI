@@ -159,3 +159,25 @@ fn clamping_a_huge_paragraph_lays_out_only_its_first_lines() {
     assert_eq!(got, first);
     assert!(ellipsis_x(&mut e, &p).is_some());
 }
+
+#[test]
+fn a_long_word_is_cut_inside_itself_to_fill_the_line() {
+    let mut e = engine();
+    // A path or a file name has few places to wrap, or none: the cut fills the line up to
+    // the "…", as CSS `text-overflow: ellipsis` does, in one line and in the last of several.
+    for text in [
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\Library",
+        "Holiday_plan_final_version_2_reviewed.pdf",
+        "see C:\\Users\\Administrator\\AppData\\Local\\Temp\\Library",
+    ] {
+        for n in 1..=2 {
+            let p = clamp(&mut e, text, n, Direction::Ltr, Align::Start, 0.0);
+            let lines = p.lines();
+            assert!(lines.len() <= n, "{text}: at most {n} lines, got {}", lines.len());
+            let w = lines.last().map_or(0.0, |l| l.width);
+            assert!(w <= 120.5, "{text} in {n}: the last line fits: {w}");
+            assert!(w > 95.0, "{text} in {n}: the last line is filled up to the …: {w}");
+            assert!(ellipsis_x(&mut e, &p).is_some(), "{text} in {n}: ends in …");
+        }
+    }
+}

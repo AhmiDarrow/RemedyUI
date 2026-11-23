@@ -450,6 +450,88 @@ fn assistive_technology_can_dismiss_a_toast_as_a_click_does() {
 }
 
 #[test]
+fn toasts_showing_together_stack_in_the_corner_asked_for() {
+    let mut t = T::new();
+    t.frame();
+    let before = t.ui.tree().len();
+    let first = w::toast_at(&t.ui, "Shared Photos", Duration::from_secs(60), remedy_ui_layout::Align::End);
+    let second = w::toast_at(&t.ui, "Invite copied", Duration::from_secs(60), remedy_ui_layout::Align::End);
+    t.frame();
+    let (a, b) = (first.bounds().unwrap_or_default(), second.bounds().unwrap_or_default());
+    assert!(a.max.y <= b.min.y, "the newer toast sits under the older one, not on it: {a:?} {b:?}");
+    assert!(a.max.x > 300.0 && b.max.x > 300.0, "both at the end of a 400 wide window: {a:?} {b:?}");
+    assert!(b.max.y <= 300.0, "inside the window: {b:?}");
+    // A dialog opened now is under the toasts showing, and under the next one.
+    let top = |t: &T| {
+        let [_, overlays, _] = t.ui.layers();
+        overlays.child_elements().pop().and_then(|e| e.info()).map(|i| i.widget)
+    };
+    let m = w::modal(&t.ui, "Settings", w::text(&t.ui, "Body"), true);
+    assert_eq!(top(&t), Some("toast_host"), "a dialog's scrim does not dim the toasts showing");
+    let third = w::toast_at(&t.ui, "Saved", Duration::from_secs(60), remedy_ui_layout::Align::End);
+    t.frame();
+    assert_eq!(top(&t), Some("toast_host"), "toasts are the top overlay");
+    m.close();
+    for toast in [first, second, third] {
+        assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_a11y::Action::Click));
+    }
+    t.frame();
+    assert_eq!(t.ui.tree().len(), before, "the last toast to go takes the layer with it");
+}
+
+#[test]
+fn a_fitted_modal_keeps_its_head_and_foot_while_its_middle_scrolls() {
+    let mut t = T::new();
+    t.frame();
+    let (head, foot) = (w::text(&t.ui, "Share a folder"), w::button(&t.ui, "Save", || {}));
+    let mut rows = w::column(&t.ui);
+    for i in 0..60 {
+        rows = rows.child(w::text(&t.ui, format!("Folder {i}")));
+    }
+    let middle = w::scroll(&t.ui).child(rows);
+    let content = w::column(&t.ui).child(head.clone()).child(middle.clone()).child(foot.clone());
+    let m = w::modal_fitted(&t.ui, "Share a folder", content, true);
+    t.frame();
+    let (d, h, f, mid) = (
+        m.body().bounds().unwrap_or_default(),
+        head.bounds().unwrap_or_default(),
+        foot.bounds().unwrap_or_default(),
+        middle.bounds().unwrap_or_default(),
+    );
+    assert!(d.height() <= 300.0 * 0.92 + 0.5, "the dialog fits the 300 high window: {d:?}");
+    assert!(h.min.y >= d.min.y && f.max.y <= d.max.y, "head and foot are inside it: {h:?} {f:?} in {d:?}");
+    assert!(mid.height() > 0.0 && mid.max.y <= f.min.y, "the middle took what was left and scrolls: {mid:?}");
+    m.close();
+}
+
+#[test]
+fn a_disclosure_opens_and_closes_from_its_head_and_says_which() {
+    let mut t = T::new();
+    let open = Signal::new(false);
+    let body = w::text(&t.ui, "Paste a Hearth invite");
+    let d = w::disclosure(&t.ui, "I have an invite", body.clone(), open);
+    t.ui.root().child(d.clone());
+    t.frame();
+    assert!(body.bounds().is_none_or(|b| b.height() == 0.0), "closed: the body takes no room");
+    let head =
+        d.child_elements().into_iter().next().unwrap_or_else(|| unreachable!("a disclosure has a head"));
+    let s = head.composed_semantics().unwrap_or_else(|| unreachable!("the head has semantics"));
+    assert_eq!((s.name(), s.expanded_state()), (Some("I have an invite"), Some(false)));
+    head.focus();
+    t.key(Key::Enter);
+    t.frame();
+    assert_eq!(open.get_untracked().ok(), Some(true), "Enter on the head opens it");
+    assert!(body.bounds().is_some_and(|b| b.height() > 0.0), "open: the body shows");
+    let s = head.composed_semantics().unwrap_or_else(|| unreachable!("the head has semantics"));
+    assert_eq!(s.expanded_state(), Some(true));
+    let c = head.bounds().unwrap_or_default().center();
+    t.ui.pointer(&ptr(PointerPhase::Down, c, Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Up, c, Buttons::default()));
+    t.frame();
+    assert_eq!(open.get_untracked().ok(), Some(false), "a click closes it again");
+}
+
+#[test]
 fn a_trusted_prompt_waits_from_when_it_is_seen() {
     let mut t = T::new();
     t.ui.root().child(w::text(&t.ui, "Below"));
