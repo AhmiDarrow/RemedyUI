@@ -86,6 +86,16 @@ timestamp_url = "http://timestamp.digicert.com"
 # Startup-folder shortcut, so the app never starts twice.
 autostart_args = "--background"
 
+# Optional: take over an earlier per-user install of the same app made by another installer
+# (an NSIS build, say). Setup waits for its program to close, then removes only the files
+# named here from its folder (the program first), its Start menu and desktop shortcuts (a
+# desktop shortcut comes back for the new install), its uninstall entry and these HKCU keys.
+# Files are plain names and keys sit under Software\; the app's data is never touched.
+[windows.replaces]
+uninstall_key = "Notes"
+files = ["notes.exe", "uninstall.exe"]
+registry = ['Software\Maker\Notes']
+
 [android]
 # The Rust target, the lowest and the target API level, and the release key.
 target = "aarch64-linux-android"
