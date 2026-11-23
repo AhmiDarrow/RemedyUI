@@ -1,7 +1,7 @@
 //! Boards on a real view with the theme sheet: what visitors see, scripted widgets at work,
 //! arranging with the keyboard and the pointer, undo, and a hostile script kept in its box.
-//! Every scenario with a scripted widget runs once with the Rhai example and once with the
-//! WebAssembly one.
+//! Every scenario with a scripted widget runs once with the RemedyLua example and once with
+//! the WebAssembly one.
 
 #![cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
 use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_script_rhai::RhaiEngine;
+use remedy_ui_script_lua::LuaEngine;
 use remedy_ui_script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -100,18 +100,18 @@ fn audit(ui: &Ui) -> Vec<String> {
         .collect()
 }
 
-/// The example widget in each language: the same widget, written by hand in Rhai and
+/// The example widget in each language: the same widget, written by hand in RemedyLua and
 /// compiled from Rust to WebAssembly.
 fn claps() -> [Package; 2] {
     [
-        Package::rhai(include_str!("../../remedy-ui-script-rhai/examples/claps.rhai")),
+        Package::lua(include_str!("../../remedy-ui-script-lua/examples/claps.lua")),
         Package::wasm(include_bytes!("../../remedy-ui-script-wasm/examples/claps.wasm")),
     ]
 }
 
 /// Both engines.
 fn engines() -> Engines {
-    Engines::new().with(Rc::new(RhaiEngine::new())).with(Rc::new(WasmEngine::new()))
+    Engines::new().with(Rc::new(LuaEngine::new())).with(Rc::new(WasmEngine::new()))
 }
 
 /// Time enough for an unoptimized test build; the hostile test sets its own.
@@ -268,14 +268,17 @@ fn widgets_are_added_and_dragged(claps: Package) {
 
 /// Hostile widgets in each language: an endless loop, runaway recursion, a memory hog.
 fn hostile_widgets() -> Vec<(&'static str, Package)> {
-    let rhai = |body: &str| Package::rhai(&format!("fn render(s, h) {{ {body} }} #{{ name: \"Hostile\" }}"));
+    let lua =
+        |body: &str| Package::lua(&format!("return {{ name = 'Hostile', render = function() {body} end }}"));
     vec![
-        ("a Rhai loop", rhai("loop {}")),
+        ("a Lua loop", lua("while true do end")),
         (
-            "Rhai recursion",
-            Package::rhai("fn down(n) { down(n + 1) } fn render(s, h) { down(0) } #{ name: \"Deep\" }"),
+            "Lua recursion",
+            Package::lua(
+                "local function down(n) return down(n + 1) + 0 end return { name = 'Deep', render = function() down(0) end }",
+            ),
         ),
-        ("a Rhai hog", rhai("let s = \"x\"; loop { s += s; }")),
+        ("a Lua hog", lua("local s = 'x' while true do s = s .. s end")),
         ("a WebAssembly loop", Package::wasm(&hostile::spin())),
         ("WebAssembly recursion", Package::wasm(&hostile::recurse())),
         ("a WebAssembly hog", Package::wasm(&hostile::hog())),
@@ -316,12 +319,12 @@ fn a_hostile_script_stops_in_its_box_and_the_board_stays_usable() {
 
 #[test]
 fn a_handler_that_stops_is_reported_and_the_widget_starts_again() {
-    let src = "fn render(s, h) { ui::column([ui::text(\"ready\"), ui::button(\"Spin\", \"spin\")]) } \
-               fn spin() { loop {} } #{ name: \"Spinner\" }";
+    let src = "function spin() while true do end end\n\
+               return { name = 'Spinner', render = function() return ui.column{ ui.text('ready'), ui.button('Spin', 'spin') } end }";
     let limits = limits().operations(Some(100_000));
     let mut r = Registry::with_builtins();
     r.add(Rc::new(
-        ScriptKind::new("spin", Package::rhai(src), &engines(), limits)
+        ScriptKind::new("spin", Package::lua(src), &engines(), limits)
             .unwrap_or_else(|e| unreachable!("{e}")),
     ));
     let (b, area) = Board::default().add_area("Home", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
@@ -346,26 +349,26 @@ fn a_handler_that_stops_is_reported_and_the_widget_starts_again() {
 
 #[test]
 fn a_board_runs_only_the_script_languages_it_accepts() {
-    let [rhai, wasm] = claps();
+    let [lua, wasm] = claps();
     let mut r = Registry::with_builtins();
     r.add(Rc::new(
-        ScriptKind::new("claps-rhai", rhai, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
+        ScriptKind::new("claps-lua", lua, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
     ));
     r.add(Rc::new(
         ScriptKind::new("claps-wasm", wasm, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
     ));
     let (b, area) = Board::default().add_area("Home", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
     let (b, _) =
-        b.add_widget(&area, "claps-rhai", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+        b.add_widget(&area, "claps-lua", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
     let (b, _) =
         b.add_widget(&area, "claps-wasm", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
     let state = BoardState::new(b);
     let mut cx = context();
-    cx.engines = Engines::new().with(Rc::new(RhaiEngine::new()));
+    cx.engines = Engines::new().with(Rc::new(LuaEngine::new()));
     let ui = ui();
     ui.root().child(board(&ui, &state, Rc::new(r), cx));
     frame(&ui);
-    assert!(has_text(&ui, "0 claps from the Den"), "the Rhai widget runs");
+    assert!(has_text(&ui, "0 claps from the Den"), "the Lua widget runs");
     let stopped = texts_like(&ui, "This widget stopped");
     assert!(stopped.iter().any(|t| t.contains("WebAssembly widgets are not accepted here")), "{stopped:?}");
 }

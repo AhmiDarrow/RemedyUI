@@ -15,7 +15,7 @@ use std::time::Duration;
 use remedy_ui_core::Size;
 use remedy_ui_core::time::Instant;
 use remedy_ui_script::{Node, ScriptWidget, TextStyle};
-use remedy_ui_script_rhai::RhaiEngine;
+use remedy_ui_script_lua::LuaEngine;
 use remedy_ui_script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
@@ -40,11 +40,11 @@ impl<T, E: std::fmt::Debug> Must<T> for Result<T, E> {
     }
 }
 
-const CLAPS_RHAI: &str = include_str!("../../remedy-ui-script-rhai/examples/claps.rhai");
+const CLAPS_LUA: &str = include_str!("../../remedy-ui-script-lua/examples/claps.lua");
 const CLAPS_WASM: &[u8] = include_bytes!("../../remedy-ui-script-wasm/examples/claps.wasm");
 
 fn engines() -> Engines {
-    Engines::new().with(Rc::new(RhaiEngine::new())).with(Rc::new(WasmEngine::new()))
+    Engines::new().with(Rc::new(LuaEngine::new())).with(Rc::new(WasmEngine::new()))
 }
 
 fn roomy() -> Limits {
@@ -66,7 +66,7 @@ fn claps_line(n: &Node) -> Option<&Node> {
 
 #[wasm_bindgen_test]
 fn both_examples_render_and_react_in_a_page() {
-    for package in [Package::rhai(CLAPS_RHAI), Package::wasm(CLAPS_WASM)] {
+    for package in [Package::lua(CLAPS_LUA), Package::wasm(CLAPS_WASM)] {
         let what = package.language.to_string();
         let mut w = engines().load(&package, roomy()).must(&what);
         assert_eq!(w.name(), "Claps", "{what}");
@@ -89,17 +89,17 @@ fn run(package: Package, limits: Limits) -> Result<Node, ScriptError> {
     render(w.as_mut())
 }
 
-fn rhai_running(body: &str) -> Package {
-    Package::rhai(&format!("fn render(s, h) {{ {body}; ui::text(\"ok\") }} #{{ name: \"probe\" }}"))
+fn lua_running(body: &str) -> Package {
+    Package::lua(&format!("return {{ name = 'probe', render = function() {body} return ui.text('ok') end }}"))
 }
 
 #[wasm_bindgen_test]
 fn endless_loops_stop_on_fuel_and_on_the_page_clock() {
     let fuel = roomy().operations(Some(200_000));
-    assert_eq!(run(rhai_running("loop {}"), fuel), Err(ScriptError::OutOfFuel));
+    assert_eq!(run(lua_running("while true do end"), fuel), Err(ScriptError::OutOfFuel));
     assert_eq!(run(Package::wasm(&hostile::spin()), fuel), Err(ScriptError::OutOfFuel));
     let clock = Limits::default().operations(Some(u64::MAX / 2)).time(Duration::from_millis(30));
-    for package in [rhai_running("loop {}"), Package::wasm(&hostile::spin())] {
+    for package in [lua_running("while true do end"), Package::wasm(&hostile::spin())] {
         let start = Instant::now();
         assert_eq!(run(package, clock), Err(ScriptError::TooSlow));
         assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
@@ -108,27 +108,44 @@ fn endless_loops_stop_on_fuel_and_on_the_page_clock() {
 
 #[wasm_bindgen_test]
 fn runaway_recursion_stops() {
-    let rhai = Package::rhai("fn down(n) { down(n + 1) } fn render(s, h) { down(0) } #{ name: \"deep\" }");
-    assert_eq!(run(rhai.clone(), roomy()), Err(ScriptError::TooDeep));
-    assert_eq!(run(rhai, roomy().call_depth(1_000_000)), Err(ScriptError::TooDeep));
+    let lua = Package::lua(
+        "local function down(n) return down(n + 1) + 0 end return { name = 'deep', render = function() down(0) end }",
+    );
+    assert_eq!(run(lua.clone(), roomy()), Err(ScriptError::TooDeep));
+    // Lua-to-Lua calls use no native stack, so a huge call depth is stopped by fuel.
+    assert_eq!(
+        run(lua, roomy().call_depth(1_000_000).operations(Some(200_000))),
+        Err(ScriptError::OutOfFuel)
+    );
     assert_eq!(run(Package::wasm(&hostile::recurse()), roomy()), Err(ScriptError::TooDeep));
 }
 
 #[wasm_bindgen_test]
 fn memory_hogs_stop_at_their_limit() {
     let limits = roomy().memory(4 * 1024 * 1024).operations(Some(50_000_000));
-    assert_eq!(run(rhai_running("let s = \"x\"; loop { s += s; }"), limits), Err(ScriptError::TooBig));
-    let keys = "let m = #{}; let i = 0; loop { m[`k${i}`] = i; i += 1; }";
-    assert_eq!(run(rhai_running(keys), limits.memory(64 * 1024)), Err(ScriptError::TooBig));
-    assert!(run(rhai_running("let a = []; loop { a = [a]; }"), limits).is_err());
+    assert_eq!(
+        run(lua_running("local s = 'x' while true do s = s .. s end"), limits),
+        Err(ScriptError::TooBig)
+    );
+    let keys = "local m = {} local i = 0 while true do m['k' .. i] = i i = i + 1 end";
+    // An idle RemedyLua state is larger than the old 64 KiB Rhai cap. The cap sits just above it.
+    let idle = engines().load(&lua_running("return ui.text('ok')"), limits).must("an idle widget loads");
+    let floor = idle.memory_used();
+    drop(idle);
+    assert_eq!(
+        run(lua_running(keys), limits.memory(floor.saturating_add(128 * 1024))),
+        Err(ScriptError::TooBig)
+    );
+    assert!(run(lua_running("local a = {} while true do a = { a } end"), limits).is_err());
     assert_eq!(run(Package::wasm(&hostile::hog()), limits), Err(ScriptError::TooBig));
 }
 
 #[wasm_bindgen_test]
 fn what_the_sandbox_does_not_give_is_refused() {
-    for probe in ["open_file(\"x\")", "http_get(\"https://example.com\")", "eval(\"1\")", "import \"x\" as y"]
+    for probe in
+        ["io.open('x')", "os.execute('x')", "require('x')", "load('return 1')", "eval('1')", "import 'x'"]
     {
-        let r = run(rhai_running(probe), roomy());
+        let r = run(lua_running(probe), roomy());
         assert!(matches!(r, Err(ScriptError::Denied(_) | ScriptError::Invalid(_))), "{probe}: {r:?}");
     }
     for (what, module) in hostile::reaching_out() {
@@ -149,13 +166,11 @@ fn ui() -> Ui {
 #[wasm_bindgen_test]
 fn a_board_in_a_page_shows_scripted_widgets_of_both_languages() {
     let mut r = Registry::with_builtins();
-    for (id, package) in
-        [("claps-rhai", Package::rhai(CLAPS_RHAI)), ("claps-wasm", Package::wasm(CLAPS_WASM))]
-    {
+    for (id, package) in [("claps-lua", Package::lua(CLAPS_LUA)), ("claps-wasm", Package::wasm(CLAPS_WASM))] {
         r.add(Rc::new(ScriptKind::new(id, package, &engines(), roomy()).must(id)));
     }
     let (b, area) = Board::default().add_area("Home", 12, 1).must("an area");
-    let (b, _) = b.add_widget(&area, "claps-rhai", serde_json::Map::new()).must("rhai");
+    let (b, _) = b.add_widget(&area, "claps-lua", serde_json::Map::new()).must("lua");
     let (b, _) = b.add_widget(&area, "claps-wasm", serde_json::Map::new()).must("wasm");
     let state = BoardState::new(b);
     let mut cx = Context::local(|_| {});
@@ -179,20 +194,20 @@ fn a_board_in_a_page_shows_scripted_widgets_of_both_languages() {
 fn the_engines_measure_their_rates_in_the_page() {
     // Loading queues each engine's calibration as cooperative work; the page runs it in a
     // slice between frames, as the bridge does.
-    let _ = engines().load(&Package::rhai(CLAPS_RHAI), roomy());
+    let _ = engines().load(&Package::lua(CLAPS_LUA), roomy());
     let _ = engines().load(&Package::wasm(CLAPS_WASM), roomy());
     let mut turns = 0;
     while remedy_ui_core::exec::run_pending(Duration::from_millis(50)) && turns < 100 {
         turns += 1;
     }
-    assert!(remedy_ui_script_rhai::rate().is_calibrated(), "Rhai calibrated in a slice");
+    assert!(remedy_ui_script_lua::rate().is_calibrated(), "Lua calibrated in a slice");
     assert!(remedy_ui_script_wasm::rate().is_calibrated(), "WebAssembly calibrated in a slice");
-    let rhai = remedy_ui_script_rhai::calibrate().must("Rhai calibrates");
+    let lua = remedy_ui_script_lua::calibrate().must("Lua calibrates");
     let wasm = remedy_ui_script_wasm::calibrate().must("WebAssembly calibrates");
-    assert!((100..100_000_000).contains(&rhai), "{rhai}");
+    assert!((100..100_000_000).contains(&lua), "{lua}");
     assert!((1_000..1_000_000_000).contains(&wasm), "{wasm}");
     // Budgets from the page's own rates still stop an endless loop in about its time.
-    for package in [rhai_running("loop {}"), Package::wasm(&hostile::spin())] {
+    for package in [lua_running("while true do end"), Package::wasm(&hostile::spin())] {
         let start = Instant::now();
         let r = run(package, Limits::default());
         assert!(matches!(r, Err(ScriptError::OutOfFuel | ScriptError::TooSlow)), "{r:?}");

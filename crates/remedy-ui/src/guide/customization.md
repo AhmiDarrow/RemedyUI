@@ -471,7 +471,7 @@ Some screens are not laid out by the app at all: a FreeSpeak Home is a board its
 builds from widgets. [`crate::board`] (feature `board`) holds the board as a document,
 renders it for visitors and for the person arranging it (select, drag, drop, every move from
 the keyboard too, undo), and edits each widget's settings. Besides built-in widgets and the
-app's own kinds, people write scripted widgets in Rhai or compile them to WebAssembly. Each
+app's own kinds, people write scripted widgets in RemedyLua or compile them to WebAssembly. Each
 runs sandboxed, with no files, network or processes and with limits on time and memory, and
 returns a description of elements that the board builds as ordinary RemedyUI elements, themed
 and accessible like built-in ones.

@@ -1,6 +1,6 @@
 //! Claps, a RemedyUI widget written in Rust and compiled to WebAssembly: it counts claps
 //! toward a goal and greets whoever is looking. It is the same widget as
-//! `crates/remedy-ui-script-rhai/examples/claps.rhai`, through the WebAssembly widget ABI
+//! `crates/remedy-ui-script-lua/examples/claps.lua`, through the WebAssembly widget ABI
 //! (`remedy-ui-script-wasm`'s crate docs): it exports `memory`, `remedy_alloc`,
 //! `remedy_describe`, `remedy_render` and `remedy_act`, and imports `remedy::fail` to report
 //! a panic.
@@ -81,10 +81,15 @@ pub extern "C" fn remedy_render(_ptr: i32, len: i32) -> i64 {
     let claps = CLAPS.get();
     let mut out = String::from(r#"{"kind":"column","gap":8,"children":["#);
     let _ = write!(out, r#"{{"kind":"text","text":{},"style":"heading"}},"#, quote(&title));
-    let _ = write!(out, r#"{{"kind":"text","text":{},"style":"body"}},"#, quote(&format!("{claps} claps from {house}")));
+    let _ = write!(
+        out,
+        r#"{{"kind":"text","text":{},"style":"body"}},"#,
+        quote(&format!("{claps} claps from {house}"))
+    );
     let _ = write!(out, r#"{{"kind":"progress","label":"Claps","value":{}}},"#, claps as f64 / goal);
     out.push_str(r#"{"kind":"button","label":"Clap","on":"clap"},"#);
-    let _ = write!(out, r#"{{"kind":"text","text":{},"style":"muted"}}]}}"#, quote(&format!("Hello, {name}")));
+    let _ =
+        write!(out, r#"{{"kind":"text","text":{},"style":"muted"}}]}}"#, quote(&format!("Hello, {name}")));
     give(out)
 }
 
@@ -214,9 +219,11 @@ impl Parser<'_> {
                                 b'b' => s.push(8),
                                 b'f' => s.push(12),
                                 b'u' => {
-                                    let hex = std::str::from_utf8(self.text.get(self.at..self.at + 4)?).ok()?;
+                                    let hex =
+                                        std::str::from_utf8(self.text.get(self.at..self.at + 4)?).ok()?;
                                     self.at += 4;
-                                    let c = char::from_u32(u32::from_str_radix(hex, 16).ok()?).unwrap_or('\u{fffd}');
+                                    let c = char::from_u32(u32::from_str_radix(hex, 16).ok()?)
+                                        .unwrap_or('\u{fffd}');
                                     s.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
                                 }
                                 other => s.push(other),

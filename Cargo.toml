@@ -28,11 +28,10 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 
-# The script interpreters (Rhai, wasmi) meter every step, and Rhai recurses on the native
-# stack; their limits are sized from that. They are built optimized in development too, so
-# tests see the stack use and speed the limits are measured for, and wasmi without its debug
-# checks so it runs the same interpreter loop as in release.
-[profile.dev.package.rhai]
+# The script interpreters (RemedyLua, wasmi) meter every step. They are built optimized in
+# development too, so tests see the speed the limits are measured for, and wasmi without its
+# debug checks so it runs the same interpreter loop as in release.
+[profile.dev.package.remedy-lua]
 opt-level = 3
 
 [profile.dev.package.wasmi]
