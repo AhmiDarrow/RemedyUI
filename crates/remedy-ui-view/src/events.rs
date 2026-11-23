@@ -525,6 +525,8 @@ impl Ui {
             }
             Key::PageUp
             | Key::PageDown
+            | Key::Home
+            | Key::End
             | Key::ArrowUp
             | Key::ArrowDown
             | Key::ArrowLeft
@@ -547,7 +549,7 @@ impl Ui {
 
     /// Sets how far an unhandled arrow key scrolls the scroll container around the focus, in
     /// logical pixels (default [`SCROLL_STEP`]); a snapping container goes on to the next snap
-    /// point that way. Page Up and Page Down move 90% of the viewport.
+    /// point that way. Page Up and Page Down move 90% of the viewport. Home and End jump to the start or end.
     pub fn set_scroll_step(&self, px: f32) {
         self.0.borrow_mut().scroll_step = px.max(0.0);
     }
@@ -581,6 +583,10 @@ impl Ui {
                 Key::PageUp if page_x => Vec2::new(-view.width() * 0.9, 0.0),
                 Key::PageDown => Vec2::new(0.0, view.height() * 0.9),
                 Key::PageUp => Vec2::new(0.0, -view.height() * 0.9),
+                Key::Home if page_x => Vec2::new(-off.x, 0.0),
+                Key::End if page_x => Vec2::new(room.x - off.x, 0.0),
+                Key::Home => Vec2::new(0.0, -off.y),
+                Key::End => Vec2::new(0.0, room.y - off.y),
                 Key::ArrowDown => Vec2::new(0.0, step),
                 Key::ArrowUp => Vec2::new(0.0, -step),
                 Key::ArrowRight => Vec2::new(step, 0.0),
