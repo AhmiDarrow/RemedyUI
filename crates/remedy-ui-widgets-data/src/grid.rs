@@ -32,12 +32,16 @@ pub struct Tiles<T> {
     /// Fluid tiles: (height over width of the part that scales, height added below it).
     fluid: Option<(f32, f32)>,
     draw: TileFn<T>,
+    /// The space between tiles (`None`: the theme's).
+    gap: Option<f32>,
+    /// The variant the tiles' boxes (`grid_tile`) are styled by.
+    variant: &'static str,
 }
 
 impl<T> Tiles<T> {
     /// Tiles of `size` drawn by `draw`.
     pub fn new(size: Size, draw: impl Fn(&Ui, &T) -> El + 'static) -> Self {
-        Tiles { size, fluid: None, draw: Rc::new(draw) }
+        Tiles { size, fluid: None, draw: Rc::new(draw), gap: None, variant: "" }
     }
 
     /// Tiles that fill the width, as CSS `repeat(auto-fill, minmax(min_width, 1fr))`: as many
@@ -51,7 +55,23 @@ impl<T> Tiles<T> {
         draw: impl Fn(&Ui, &T) -> El + 'static,
     ) -> Self {
         let (w, a, e) = (min_width.max(1.0), aspect.max(0.0), extra_height.max(0.0));
-        Tiles { size: Size::new(w, w * a + e), fluid: Some((a, e)), draw: Rc::new(draw) }
+        Tiles { size: Size::new(w, w * a + e), fluid: Some((a, e)), draw: Rc::new(draw), gap: None, variant: "" }
+    }
+
+    /// `gap` logical pixels between tiles, instead of the theme's spacing: a grid of cards
+    /// and a list of rows in one app each keep their own.
+    #[must_use]
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = Some(gap.max(0.0));
+        self
+    }
+
+    /// Styles the tiles' boxes as the `grid_tile` variant `variant`, so two grids in one
+    /// app (cards, rows) can look different in every state.
+    #[must_use]
+    pub fn variant(mut self, variant: &'static str) -> Self {
+        self.variant = variant;
+        self
     }
 }
 
@@ -226,8 +246,9 @@ pub fn grid_view_with<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
 ) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;
-    let (gap, pad) = (unit * 2.0, unit * 2.0);
+    let (gap, pad) = (tiles.gap.unwrap_or(unit * 2.0), unit * 2.0);
     let key: Rc<dyn Fn(&T) -> K> = Rc::new(key);
+    let tile_variant = tiles.variant;
     let (tile, tile_size, fluid) = (tiles.draw, tiles.size, tiles.fluid);
     let GridOptions { own_scroll, interactive_tiles: interactive } = options;
     // Built tiles by index, for Enter to move into (cleared when the rows rebuild).
@@ -267,6 +288,7 @@ pub fn grid_view_with<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             let (kept2, sel5, k5) = (kept.clone(), sel.clone(), k.clone());
             let mut el = ui2
                 .el("grid_tile")
+                .variant(tile_variant)
                 .column()
                 .width(tile_size.width)
                 .height(tile_size.height)

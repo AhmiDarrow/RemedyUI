@@ -25,6 +25,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   lowest, above a dialog opened since the first one. `widgets::toast_at` takes the bottom's
   start, center or end (`toast` stays centered).
 
+- **Grid tiles with their own gap and style variant**: `Tiles::gap` sets the space between a
+  grid's tiles, and `Tiles::variant` the `grid_tile` variant their boxes are styled by, so an
+  app can show a grid of cards and a list of rows (`Tiles::fluid` one column wide) that look
+  different in every state.
+
 - **`widgets::disclosure`**: a part that opens and closes under its title, as a page's
   `<details>` or an expander: a marker and the title in a head that Enter, Space or a click
   flips, the body shown only while open, and the expanded state told to screen readers.
