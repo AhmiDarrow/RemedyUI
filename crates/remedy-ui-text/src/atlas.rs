@@ -259,6 +259,11 @@ impl GlyphAtlas {
             self.empty.insert(key, ());
             return None;
         };
+        if img.is_color() {
+            // This atlas stores coverage, not premultiplied RGBA.
+            self.empty.insert(key, ());
+            return None;
+        }
         let e = self.insert(&img)?;
         self.entries.insert(key, e);
         Some(e)

@@ -23,6 +23,7 @@
 mod atlas;
 mod casing;
 mod code_edit;
+mod color_glyph;
 mod editing;
 mod engine;
 mod lazy;
@@ -80,6 +81,7 @@ pub fn is_rtl_locale(locale: &str) -> bool {
 
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
 pub use code_edit::{CodeEditor, Indent};
+pub use color_glyph::is_color_glyph;
 pub use editing::{
     Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
     set_undo_pause_ms,
@@ -92,7 +94,9 @@ pub use lazy::{
     LAZY_CHUNK_BYTES, LAZY_KEPT_PIECES, LAZY_MIN_BYTES, LazyLimits, lazy_limits, set_lazy_limits,
 };
 pub use pseudo::Pseudo;
-pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};
+pub use raster::{
+    Antialias, GlyphImage, GlyphImageFormat, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin,
+};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
 pub use rich_edit::{
     Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK, max_list_level,
