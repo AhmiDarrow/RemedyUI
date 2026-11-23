@@ -2206,6 +2206,38 @@ struct Win {
     pan: Option<TouchPan>,
     /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
     cursor_hidden: bool,
+    /// Middle-button autoscroll in progress ([`Autoscroll`]).
+    autoscroll: Option<Autoscroll>,
+}
+
+/// Middle-button autoscroll, as Windows browsers and editors have it: a middle press over
+/// something that scrolls marks a spot, and the content then scrolls toward the pointer,
+/// faster the further it is, every frame until any button is pressed, Escape is pressed,
+/// or (when the middle button was held and moved) it is released.
+struct Autoscroll {
+    origin: Point,
+    at: Point,
+    /// The middle button is still down from the press that started it.
+    held: bool,
+    /// The pointer moved past the dead zone while held: releasing ends it.
+    dragged: bool,
+    last: Option<Duration>,
+}
+
+impl Autoscroll {
+    /// No scrolling this close to the spot.
+    const DEAD_ZONE: f32 = 12.0;
+    /// Logical pixels per second for each pixel past the dead zone.
+    const SPEED: f32 = 8.0;
+
+    /// The scroll for `dt` seconds.
+    fn delta(&self, dt: f32) -> Vec2 {
+        let axis = |d: f32| {
+            let past = d.abs() - Self::DEAD_ZONE;
+            if past > 0.0 { past * Self::SPEED * dt * d.signum() } else { 0.0 }
+        };
+        Vec2::new(axis(self.at.x - self.origin.x), axis(self.at.y - self.origin.y))
+    }
 }
 
 /// How long a finger rests before a press is a long press (Android's default).
@@ -2224,6 +2256,27 @@ struct TouchPan {
 }
 
 impl Win {
+    /// Whether something at `p` (the content's logical pixels) can scroll: a field or other
+    /// element that takes the wheel, or a scroll container. Probes one pixel each way and
+    /// puts back what moved.
+    fn can_scroll_at(&mut self, p: Point) -> bool {
+        for dir in [Vec2::new(0.0, 1.0), Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0), Vec2::new(-1.0, 0.0)] {
+            if self.ui.wheel(&remedy_ui_input::WheelEvent::new(p, dir).with_precise(true)) {
+                self.ui.wheel(&remedy_ui_input::WheelEvent::new(p, -dir).with_precise(true));
+                return true;
+            }
+            let s = self.scale();
+            if let Some(c) = self.comp.as_mut() {
+                let at = Point::new(p.x * s, p.y * s);
+                if c.scroll_at(at, dir * s).is_some() {
+                    c.scroll_at(at, -dir * s);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Pixels per logical pixel of the window's content: the display's scale times the zoom.
     fn scale(&self) -> f32 {
         self.size.2 * self.zoom
@@ -2600,6 +2653,7 @@ impl Runner {
                         held: None,
                         pan: None,
                         cursor_hidden: false,
+                        autoscroll: None,
                         host: id,
                         ui: ui.clone(),
                         comp: None,
@@ -3182,9 +3236,48 @@ impl Runner {
         }
     }
 
+    /// Routes a wheel scroll (in the content's logical pixels) in `window`.
+    fn wheel(&mut self, host: &mut dyn Host, window: WindowId, e: &remedy_ui_input::WheelEvent) {
+        // Elements that take the wheel themselves (zoomable documents, Ctrl+wheel)
+        // come first; otherwise it scrolls on the compositor.
+        let taken = self
+            .by_host
+            .get(&window)
+            .and_then(|k| self.wins.get(k))
+            .map(|w| w.ui.clone())
+            .is_some_and(|ui| ui.wheel(e));
+        if taken {
+            if let Some(&key) = self.by_host.get(&window) {
+                self.requests(host, key);
+            }
+            host.request_frame(window);
+        } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
+            let s = w.scale();
+            if let Some(c) = w.comp.as_mut() {
+                c.wheel_at(
+                    Point::new(e.position.x * s, e.position.y * s),
+                    Vec2::new(e.delta.x * s, e.delta.y * s),
+                );
+            }
+            host.request_frame(window);
+        }
+    }
+
     fn frame(&mut self, host: &mut dyn Host, key: u64, at: Duration) {
         if self.suspended {
             return;
+        }
+        // Middle-button autoscroll moves on every frame while it lasts.
+        if let Some(w) = self.wins.get_mut(&key)
+            && let Some(a) = w.autoscroll.as_mut()
+        {
+            let dt = a.last.map_or(0.0, |l| at.saturating_sub(l).as_secs_f32().min(0.1));
+            a.last = Some(at);
+            let (delta, origin, window) = (a.delta(dt), a.origin, w.host);
+            if delta != Vec2::ZERO {
+                self.wheel(host, window, &remedy_ui_input::WheelEvent::new(origin, delta).with_precise(true));
+            }
+            host.request_frame(window);
         }
         let bg = self.config.theme.colors.bg;
         let local = host.local_time();
@@ -3699,13 +3792,57 @@ impl remedy_ui_host::App for Runner {
                             *p = unzoom(*p, w.zoom);
                         }
                     }
+                    if w.autoscroll.is_some() {
+                        // While autoscrolling the pointer steers it and nothing else.
+                        let middle = e.buttons.contains(Buttons::MIDDLE);
+                        let a = w.autoscroll.as_mut().expect("checked");
+                        a.at = e.position;
+                        let far = (a.at.x - a.origin.x).abs().max((a.at.y - a.origin.y).abs()) > Autoscroll::DEAD_ZONE;
+                        let end = match e.phase {
+                            PointerPhase::Down => !(a.held && middle && e.buttons == Buttons::MIDDLE),
+                            PointerPhase::Up | PointerPhase::Cancel => {
+                                let released = a.held && !middle;
+                                if released {
+                                    a.held = false;
+                                }
+                                (released && a.dragged) || e.phase == PointerPhase::Cancel
+                            }
+                            _ => {
+                                if a.held && far {
+                                    a.dragged = true;
+                                }
+                                false
+                            }
+                        };
+                        if end {
+                            w.autoscroll = None;
+                        }
+                        host.pointer_consumed(window, true);
+                        host.request_frame(window);
+                        return;
+                    }
                     let events = if e.kind == PointerKind::Touch { w.touch(e) } else { vec![e] };
                     if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
                         p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
                     }
+                    let mut start = None;
                     for e in &events {
                         w.ui.pointer(e);
-                        host.pointer_consumed(window, w.ui.pointer_consumed());
+                        let consumed = w.ui.pointer_consumed();
+                        host.pointer_consumed(window, consumed);
+                        if !consumed
+                            && e.kind == PointerKind::Mouse
+                            && e.phase == PointerPhase::Down
+                            && e.buttons == Buttons::MIDDLE
+                        {
+                            start = Some(e.position);
+                        }
+                    }
+                    if let Some(p) = start
+                        && w.can_scroll_at(p)
+                    {
+                        w.autoscroll =
+                            Some(Autoscroll { origin: p, at: p, held: true, dragged: false, last: None });
                     }
                     // A held finger (no events yet), a scroll, and a tap (down + up together)
                     // all need a frame: a tap focuses a field and opens the keyboard.
@@ -3745,29 +3882,7 @@ impl remedy_ui_host::App for Runner {
                     // compositor below scrolls in the display's.
                     e.position = unzoom(e.position, w.zoom);
                 }
-                // Elements that take the wheel themselves (zoomable documents, Ctrl+wheel)
-                // come first; otherwise it scrolls on the compositor.
-                let taken = self
-                    .by_host
-                    .get(&window)
-                    .and_then(|k| self.wins.get(k))
-                    .map(|w| w.ui.clone())
-                    .is_some_and(|ui| ui.wheel(&e));
-                if taken {
-                    if let Some(&key) = self.by_host.get(&window) {
-                        self.requests(host, key);
-                    }
-                    host.request_frame(window);
-                } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
-                    let s = w.scale();
-                    if let Some(c) = w.comp.as_mut() {
-                        c.wheel_at(
-                            Point::new(e.position.x * s, e.position.y * s),
-                            Vec2::new(e.delta.x * s, e.delta.y * s),
-                        );
-                    }
-                    host.request_frame(window);
-                }
+                self.wheel(host, window, &e);
             }
             HostEvent::Pinch(window, mut e) => {
                 self.activity(host);
@@ -3782,6 +3897,14 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Key(window, e) => {
                 self.activity(host);
+                // Any key ends autoscroll; Escape does nothing else.
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k))
+                    && w.autoscroll.take().is_some()
+                    && e.key == remedy_ui_input::Key::Escape
+                {
+                    host.request_frame(window);
+                    return;
+                }
                 // F12 opens the inspector (devtools) instead of reaching the app.
                 #[cfg(feature = "devtools")]
                 let inspector = e.pressed
@@ -4045,6 +4168,18 @@ impl remedy_ui_host::App for Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autoscroll_rests_near_its_spot_and_speeds_up_with_distance() {
+        let o = Point::new(100.0, 100.0);
+        let at = |x: f32, y: f32| Autoscroll { origin: o, at: Point::new(x, y), held: false, dragged: false, last: None };
+        assert_eq!(at(108.0, 92.0).delta(0.016), Vec2::ZERO, "inside the dead zone");
+        let near = at(100.0, 132.0).delta(0.5).y;
+        let far = at(100.0, 212.0).delta(0.5).y;
+        assert!(near > 0.0 && far > near * 4.0, "{near} then {far}");
+        assert!(at(100.0, 40.0).delta(0.5).y < 0.0, "above the spot scrolls up");
+        assert_eq!(at(100.0, 132.0).delta(0.0), Vec2::ZERO, "nothing before time passes");
+    }
 
     #[test]
     fn only_a_sustained_slow_average_asks_for_the_gpu() {

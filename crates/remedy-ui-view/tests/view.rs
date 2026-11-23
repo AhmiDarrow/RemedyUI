@@ -1623,6 +1623,29 @@ fn pictures_inside_text_are_drawn_in_their_objects_boxes_and_read_as_their_words
 }
 
 #[test]
+fn a_growing_text_area_stays_in_its_column_and_scrolls() {
+    // A note: a fixed-height column whose text area grows into the space left. Its text
+    // must scroll inside that space, not stretch the area past the column.
+    let ui = ui();
+    let area = ui.text_field("text_area", FieldKind::Multi);
+    let column = ui.el("column").layout(|l| {
+        l.display = remedy_ui_layout::Display::Flex;
+        l.axis = remedy_ui_layout::Axis::Column;
+        l.width = Length::Px(150.0);
+        l.height = Length::Px(80.0);
+    });
+    ui.root().child(column.child(area.el().layout(|l| l.grow = 1.0)));
+    let mut s = Screen::new(ui.clone());
+    let lines: Vec<String> = (0..40).map(|n| format!("line {n}")).collect();
+    area.set_value(&lines.join("\n"));
+    s.frame();
+    let b = area.el().bounds().unwrap_or_default();
+    assert!(b.height() <= 80.5, "the area keeps to its column: {b:?}");
+    let mid = Point::new(b.min.x + 20.0, b.min.y + 20.0);
+    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, 30.0))), "its text scrolls");
+}
+
+#[test]
 fn text_taller_or_wider_than_its_field_scrolls_inside_the_box() {
     let ui = ui();
     let area = ui.text_field("text_area", FieldKind::Multi);
