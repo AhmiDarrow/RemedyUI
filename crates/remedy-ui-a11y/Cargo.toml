@@ -15,5 +15,8 @@ categories.workspace = true
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 accesskit = { version = "=0.25.2", default-features = false }
 
+[dev-dependencies]
+accesskit_consumer = "=0.39.2"
+
 [lints]
 workspace = true
