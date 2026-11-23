@@ -1102,11 +1102,14 @@ impl Ui {
                 }
             }
             let node = d.node;
+            let has_text = d.text.is_some() || d.field.is_some();
             if layout_changed {
                 let _ = i.layout.mark_dirty(node);
                 i.tree.mark(id, Dirty::LAYOUT);
             }
-            if changed {
+            // Text shaped again (a new font family is not part of the resolved style) draws
+            // again even where its box kept its size.
+            if changed || (text_changed && has_text) {
                 i.tree.mark(id, Dirty::PAINT);
             }
             if passes_on {
