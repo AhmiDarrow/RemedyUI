@@ -20,6 +20,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Toasts stack, and can sit in a corner**: toasts showing at the same time used to lie on
+  top of each other at the bottom center. They now share one layer and stack, the newest
+  lowest, above a dialog opened since the first one. `widgets::toast_at` takes the bottom's
+  start, center or end (`toast` stays centered).
+
+- **`widgets::disclosure`**: a part that opens and closes under its title, as a page's
+  `<details>` or an expander: a marker and the title in a head that Enter, Space or a click
+  flips, the body shown only while open, and the expanded state told to screen readers.
+  Style it as `disclosure` and `disclosure_head`.
+
 - **Color emoji actually paints**: the rasterizer draws COLRv0/v1, CBDT/CBLC and sbix
   glyphs as premultiplied RGBA (it previously tried to hint an outline, so a thumbs-up
   from Noto Color Emoji or Twemoji was a blank gap even when the text was in the tree).
