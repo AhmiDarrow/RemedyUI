@@ -159,6 +159,28 @@ fn choices_follow_their_signals() {
 }
 
 #[test]
+fn choices_do_not_panic_when_their_signal_is_disposed() {
+    // Settings builds a segmented control on a short-lived `selected` signal.
+    // Unmounting or rebuilding the panel disposes that signal while the
+    // segment bind may still flush (Remedy Desktop crashed at choices.rs:182:
+    // "the signal was disposed; its value no longer exists").
+    let mut t = T::new();
+    let seg = Signal::new(0usize);
+    let radio = Signal::new(0usize);
+    let on = Signal::new(true);
+    let g = w::segmented(&t.ui, "Settings detail", &["Simple", "Advanced"], seg);
+    let r = w::radio_group(&t.ui, "Size", &["Small", "Large"], radio);
+    let c = w::check(&t.ui, "Remember", on);
+    t.ui.root().child(g).child(r).child(c);
+    t.frame();
+    seg.dispose();
+    radio.dispose();
+    on.dispose();
+    t.frame();
+    t.frame();
+}
+
+#[test]
 fn an_unavailable_segment_cannot_be_chosen() {
     let mut t = T::new();
     let seg = Signal::new(0usize);
