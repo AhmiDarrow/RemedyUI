@@ -33,7 +33,10 @@ Setup are Windows tools.
 
 - **Linux** (`--target linux`): `<bin>-<version>-linux-x86_64.tar.gz` holding the executable,
   an XDG desktop entry and the icon, laid out under a prefix (`bin/`, `share/`), so unpacking
-  it into `~/.local` installs it for the person.
+  it into `~/.local` installs it for the person; and the executable alone as
+  `<bin>_<version>_linux-x86_64`, for in-app updates that replace it. With `[linux] glibc =
+  "2.28"` it is built with `cargo zigbuild` against that glibc, so it runs on every
+  distribution since; otherwise it needs this machine's glibc or newer.
 - **Android** (`--target android`): a signed APK with no Gradle: the app's library built with
   the NDK's clang, the Android bridge's Java (its compiled `classes.dex`), the app's icon as
   the launcher icon (at every screen density, and as an adaptive icon: below), a manifest, then `aapt2`, `zipalign` and `apksigner`. The bridge's Java

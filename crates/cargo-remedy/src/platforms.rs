@@ -217,11 +217,24 @@ pub fn tar_gz(entries: &[TarEntry]) -> Result<Vec<u8>, String> {
 
 /// Packages for Linux; returns what it wrote.
 pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<PathBuf>, String> {
-    let target = if cfg!(target_os = "linux") { None } else { Some("x86_64-unknown-linux-gnu") };
-    if target.is_some() {
-        notes.push("built with --target x86_64-unknown-linux-gnu: this needs a Linux linker for that target (CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER)".into());
-    }
-    let exe = build_bin(p, target)?;
+    let exe = match &p.linux_glibc {
+        // Linked against that glibc's symbols, so it runs on every distribution since it.
+        Some(glibc) => {
+            let mut build = Command::new(cargo());
+            build.current_dir(&p.root).args(["zigbuild", "--release", "--bin", &p.bin]);
+            build.args(["--target", &format!("x86_64-unknown-linux-gnu.{glibc}")]);
+            status(&mut build).map_err(|e| format!("{e} (`[linux] glibc` builds with cargo-zigbuild and zig)"))?;
+            notes.push(format!("built for glibc {glibc} and later"));
+            p.target_dir.join("x86_64-unknown-linux-gnu").join("release").join(&p.bin)
+        }
+        None => {
+            let target = if cfg!(target_os = "linux") { None } else { Some("x86_64-unknown-linux-gnu") };
+            if target.is_some() {
+                notes.push("built with --target x86_64-unknown-linux-gnu: this needs a Linux linker for that target (CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER)".into());
+            }
+            build_bin(p, target)?
+        }
+    };
     let set = icon_set(p, notes)?;
     let bytes = std::fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
     let base = format!("{}-{}-linux-x86_64", p.bin, p.version);
@@ -258,7 +271,10 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
     let out = dist.join(format!("{base}.tar.gz"));
     std::fs::write(&out, tar_gz(&entries)?).map_err(|e| format!("{}: {e}", out.display()))?;
     notes.push(format!("unpack into ~/.local (or /usr/local) to install: tar -xzf {base}.tar.gz --strip-components=1 -C ~/.local"));
-    Ok(vec![out])
+    // The program alone, for in-app updates that replace it (`Apply::ReplaceExecutable`).
+    let program = dist.join(format!("{}_{}_linux-x86_64", p.bin, p.version));
+    std::fs::copy(&exe, &program).map_err(|e| format!("{}: {e}", program.display()))?;
+    Ok(vec![out, program])
 }
 
 /// The permissions an Android app's manifest declares: `[android] permissions`, then what
@@ -697,6 +713,7 @@ mod tests {
             sign_thumbprint: None,
             windows_autostart: None,
             windows_replaces: None,
+            linux_glibc: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,

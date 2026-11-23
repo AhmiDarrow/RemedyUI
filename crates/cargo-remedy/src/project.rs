@@ -50,6 +50,9 @@ pub struct Project {
     /// An earlier per-user install this one takes over (`[windows.replaces]`), such as the
     /// same app's old NSIS build; unset when there is none.
     pub windows_replaces: Option<Replaces>,
+    /// The oldest glibc the Linux build runs on (`[linux] glibc`, such as `"2.28"`), built
+    /// with `cargo zigbuild`; unset builds against this machine's glibc.
+    pub linux_glibc: Option<String>,
     /// The timestamp server for signatures.
     pub timestamp_url: String,
     /// The Rust target Android packages build for (`[android] target`).
@@ -155,6 +158,17 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
         }
     };
     Ok(Some(Replaces { uninstall_key: key, files, registry, mutex: text("mutex")?, msi_name: text("msi_name")? }))
+}
+
+/// `[linux] glibc`: a version such as `2.28` (digits and one or two dots).
+fn linux_glibc(t: &toml::Table) -> Result<Option<String>, String> {
+    let Some(v) = string(t, "linux", "glibc") else { return Ok(None) };
+    let parts: Vec<&str> = v.split('.').collect();
+    let ok = (2..=3).contains(&parts.len()) && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    if !ok {
+        return Err(format!("remedy.toml: [linux] glibc: `{v}` is not a glibc version such as 2.28"));
+    }
+    Ok(Some(v))
 }
 
 fn number(t: &toml::Table, section: &str, key: &str) -> Option<u32> {
@@ -336,6 +350,7 @@ impl Project {
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
             windows_autostart: string(&remedy, "windows", "autostart_args"),
             windows_replaces: windows_replaces(&remedy)?,
+            linux_glibc: linux_glibc(&remedy)?,
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
             android_target: string(&remedy, "android", "target")
@@ -423,6 +438,7 @@ pub(crate) mod tests {
             sign_thumbprint: None,
             windows_autostart: None,
             windows_replaces: None,
+            linux_glibc: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,
@@ -496,6 +512,16 @@ pub(crate) mod tests {
             "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"notes.exe\"]\nregistry = ['System\\x']",
         ] {
             assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn linux_glibc_is_a_version() {
+        let parse = |s: &str| linux_glibc(&toml::from_str(s).unwrap_or_default());
+        assert_eq!(parse("[linux]\nglibc = \"2.28\""), Ok(Some("2.28".into())));
+        assert_eq!(parse("[linux]\nx = 1"), Ok(None));
+        for bad in ["2", "2.28; rm", "a.b", "2..28", "2.28.1.0"] {
+            assert!(parse(&format!("[linux]\nglibc = \"{bad}\"")).is_err(), "{bad}");
         }
     }
 
