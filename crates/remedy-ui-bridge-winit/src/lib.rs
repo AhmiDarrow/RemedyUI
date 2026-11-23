@@ -466,8 +466,13 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         }
         #[cfg(target_os = "windows")]
         {
-            use winit::platform::windows::WindowAttributesExtWindows;
+            use winit::platform::windows::{CornerPreference, WindowAttributesExtWindows};
             attrs = attrs.with_skip_taskbar(!options.taskbar);
+            // A frameless window is still a Windows 11 window: rounded corners and the system
+            // shadow, as framed ones have. A transparent one draws its own shape.
+            if !options.decorated && !options.transparent {
+                attrs = attrs.with_corner_preference(CornerPreference::Round).with_undecorated_shadow(true);
+            }
         }
         let attrs = self.hooks.window_attributes(attrs);
         let window =

@@ -1415,7 +1415,18 @@ impl Ui {
         };
         {
             let mut i = self.0.borrow_mut();
-            let style = i.els.get(&el.id).map(|d| d.layout.clone()).unwrap_or_default();
+            let mut style = i.els.get(&el.id).map(|d| d.layout.clone()).unwrap_or_default();
+            // A multi-line field scrolls its own text, so like a scroll container (CSS's
+            // `min-height: auto` for one) it may shrink below its text: a growing field
+            // then fills the space it has and scrolls, rather than growing past it.
+            if matches!(kind, FieldKind::Multi | FieldKind::Rich)
+                && matches!(style.min_height, remedy_ui_layout::Length::Auto)
+            {
+                style.min_height = remedy_ui_layout::Length::Px(0.0);
+                if let Some(d) = i.els.get_mut(&el.id) {
+                    d.layout.min_height = style.min_height;
+                }
+            }
             if let Ok(node) = i.layout.measured(&style, measure) {
                 if let Some(old) = i.els.get(&el.id).map(|d| d.node) {
                     let _ = i.layout.remove(old);
