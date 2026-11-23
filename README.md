@@ -1,6 +1,6 @@
 # RemedyUI
 
-RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat (FreeSpeak), documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
+RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
 **Status:** milestones M1 to M5 are built, M6 to M9 are built in large part, and M10 (1.0) is under way: the API review is done ([docs/API-REVIEW.md](docs/API-REVIEW.md)), and the guides, porting guides and recipes are written. [docs/ROADMAP.md](docs/ROADMAP.md) has the details. SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch).
 
