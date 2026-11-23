@@ -19,6 +19,12 @@ menu-title-keys = اضغط F10، أو Alt مع الحرف الذي تحته خط
 escape-closes = اضغط Esc للإغلاق
 context-menu-keys = اضغط Shift+F10 أو مفتاح القائمة لفتح القائمة نفسها
 
+## Text field edit menu.
+edit-cut = قص
+edit-copy = نسخ
+edit-paste = لصق
+edit-select-all = تحديد الكل
+
 ## The trusted permission prompt.
 prompt-deny = رفض
 prompt-allow = سماح

@@ -19,6 +19,12 @@ menu-title-keys = F10 से, या Alt और इसके रेखांक�
 escape-closes = Esc दबाने पर यह बंद हो जाता है
 context-menu-keys = Shift+F10 या मेन्यू कुंजी से वही मेन्यू खुलता है
 
+## Text field edit menu.
+edit-cut = काटें
+edit-copy = कॉपी करें
+edit-paste = पेस्ट करें
+edit-select-all = सभी चुनें
+
 ## The trusted permission prompt.
 prompt-deny = अस्वीकार करें
 prompt-allow = अनुमति दें
