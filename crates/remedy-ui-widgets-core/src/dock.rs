@@ -99,7 +99,7 @@ pub fn dock(ui: &Ui, state: Signal<DockState>, spec: DockSpec, docked: El, main:
         label: label.clone(),
     };
 
-    let st_clamp = state.clone();
+    let st_clamp = state;
     let spec_clamp = spec.clone();
     st_clamp.update(|s| s.width = spec_clamp.clamp_width(s.width));
 
@@ -112,7 +112,7 @@ pub fn dock(ui: &Ui, state: Signal<DockState>, spec: DockSpec, docked: El, main:
         l.min_height = Length::Px(0.0);
     });
 
-    let st_size = state.clone();
+    let st_size = state;
     let spec_size = spec.clone();
     let row = row.on_resize(move |size| {
         let cur = st_size.get();
@@ -126,17 +126,17 @@ pub fn dock(ui: &Ui, state: Signal<DockState>, spec: DockSpec, docked: El, main:
         }
     });
 
-    let st_side = state.clone();
+    let st_side = state;
     let row_side = row.clone();
     let row = row.bind(move || {
         let reverse = st_side.get().side == DockSide::End;
         let _ = row_side.clone().layout(move |l| l.reverse = reverse);
     });
 
-    let pane = dock_pane(ui, state.clone(), &spec, &label, docked);
-    let handle = resize_handle(ui, state.clone(), &spec, &label, row.clone());
+    let pane = dock_pane(ui, state, &spec, &label, docked);
+    let handle = resize_handle(ui, state, &spec, &label, row.clone());
     let handle_b = handle.clone();
-    let st_h = state.clone();
+    let st_h = state;
     let handle = handle.bind(move || {
         let _ = handle_b.clone().hidden(st_h.get().collapsed);
     });
@@ -156,14 +156,14 @@ pub fn dock(ui: &Ui, state: Signal<DockState>, spec: DockSpec, docked: El, main:
 }
 
 fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, body: El) -> El {
-    let expanded = dock_chrome(ui, state.clone(), label);
-    let collapsed_bar = strip_chrome(ui, state.clone(), label);
-    let st_exp = state.clone();
+    let expanded = dock_chrome(ui, state, label);
+    let collapsed_bar = strip_chrome(ui, state, label);
+    let st_exp = state;
     let exp_b = expanded.clone();
     let expanded = expanded.bind(move || {
         let _ = exp_b.clone().hidden(st_exp.get().collapsed);
     });
-    let st_col = state.clone();
+    let st_col = state;
     let col_b = collapsed_bar.clone();
     let collapsed_bar = collapsed_bar.bind(move || {
         let _ = col_b.clone().hidden(!st_col.get().collapsed);
@@ -177,7 +177,7 @@ fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, bo
         l.width = Length::Percent(1.0);
     });
     let body_b = body.clone();
-    let st_body = state.clone();
+    let st_body = state;
     let body = body.bind(move || {
         let _ = body_b.clone().hidden(st_body.get().collapsed);
     });
@@ -197,7 +197,7 @@ fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, bo
         .child(collapsed_bar)
         .child(body);
 
-    let st = state.clone();
+    let st = state;
     let spec_w = spec.clone();
     let col_b = col.clone();
     let col = col.bind(move || {
@@ -211,7 +211,7 @@ fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, bo
             l.max_width = Length::Px(max);
         });
     });
-    let st_s = state.clone();
+    let st_s = state;
     let label_s = label.to_string();
     col.semantics(move || {
         let name = if st_s.get().collapsed { format!("{label_s} (collapsed)") } else { label_s.clone() };
@@ -220,7 +220,7 @@ fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, bo
 }
 
 fn strip_chrome(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
-    let chevron = toggle_btn(ui, state.clone(), label);
+    let chevron = toggle_btn(ui, state, label);
     let grip = header_grip(ui, state, label).layout(|l| {
         l.width = Length::Percent(1.0);
         l.grow = 1.0;
@@ -240,7 +240,7 @@ fn strip_chrome(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
 }
 
 fn dock_chrome(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
-    let chevron = toggle_btn(ui, state.clone(), label);
+    let chevron = toggle_btn(ui, state, label);
     let grip = header_grip(ui, state, label);
     crate::row(ui)
         .align(Align::Center)
@@ -255,9 +255,9 @@ fn dock_chrome(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
 }
 
 fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
-    let st = state.clone();
+    let st = state;
     let mark = {
-        let st = state.clone();
+        let st = state;
         move || {
             let cur = st.get();
             // Point toward the edge when expanded (collapse), toward the
@@ -278,7 +278,7 @@ fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
     })
     .variant("quiet");
     let tip = {
-        let st = state.clone();
+        let st = state;
         let label = label.to_string();
         let ui = ui.clone();
         move || {
@@ -287,7 +287,7 @@ fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
         }
     };
     crate::tooltip(&btn, tip);
-    let st_s = state.clone();
+    let st_s = state;
     let label_s = label.to_string();
     btn.semantics(move || {
         let name =
@@ -297,7 +297,7 @@ fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
 }
 
 fn header_grip(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
-    let st = state.clone();
+    let st = state;
     let start_x = Signal::new(0.0f32);
     let dragging = Signal::new(false);
     let grip = ui
@@ -345,7 +345,7 @@ fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str
         })
         .focusable(true)
         .semantics({
-            let st = state.clone();
+            let st = state;
             let label = label.to_string();
             let spec = spec.clone();
             move || {
@@ -355,7 +355,7 @@ fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str
             }
         })
         .on_pointer({
-            let st = state.clone();
+            let st = state;
             let spec = spec.clone();
             let row = row.clone();
             move |e| {
@@ -395,8 +395,6 @@ fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str
         })
         .on_key({
             let st = state;
-            let spec = spec;
-            let row = row;
             move |e| {
                 if !e.pressed {
                     return false;
