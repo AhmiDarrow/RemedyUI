@@ -122,7 +122,7 @@ struct Api {
     webkit_web_view_can_go_forward: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_web_view_get_uri: unsafe extern "C" fn(Ptr) -> *const c_char,
     webkit_web_view_get_title: unsafe extern "C" fn(Ptr) -> *const c_char,
-    webkit_web_view_run_javascript: unsafe extern "C" fn(Ptr, *const c_char, Ptr, Ptr, Ptr),
+    webkit_web_view_run_javascript: unsafe extern "C" fn(Ptr, *const c_char, Ptr, GCallback, Ptr),
     webkit_policy_decision_use: unsafe extern "C" fn(Ptr),
     webkit_policy_decision_ignore: unsafe extern "C" fn(Ptr),
     webkit_navigation_policy_decision_get_navigation_action: unsafe extern "C" fn(Ptr) -> Ptr,
@@ -655,7 +655,7 @@ impl Native {
                         i.view,
                         script.as_ptr(),
                         std::ptr::null_mut(),
-                        std::ptr::null_mut(),
+                        std::ptr::null(),
                         std::ptr::null_mut(),
                     );
                 }
