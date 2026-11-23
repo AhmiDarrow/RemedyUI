@@ -22,7 +22,7 @@ text + spans ─▶ itemize ─▶ shape ─▶ break lines ─▶ position ─�
 
 ## Paragraphs and rich text
 
-- **`RichText`** is the model: a string plus spans (font, weight, width, slant, size, color, decorations, letter spacing, OpenType features, link, custom attributes) and inline objects (any element, sized by layout, placed on the baseline or centered).
+- **`RichText`** is the model: a string plus spans (font, weight, width, slant, size, color, decorations, letter spacing, OpenType features, link, a filled background, custom attributes) and inline objects (any element, sized by layout, placed on the baseline or centered). A span background is a chip: its inline padding is laid out so the fill does not cover the words beside it, and its block padding and corner radius are painted.
 - **One paragraph, many styles.** A FreeSpeak message with bold, a link, a spoiler and custom emoji is one paragraph. It wraps inside runs and around inline objects.
 - **Builders** read naturally:
 

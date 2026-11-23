@@ -64,7 +64,7 @@ pub use remedy_ui_style::{
     ColorRole, Dp, Gradient, GradientStop, LineHeight, Pad, Pos, Radius, Space, Style, TextRole,
     TextTransform,
 };
-pub use remedy_ui_text::{InlineObject, RichText, TextStylePatch};
+pub use remedy_ui_text::{InlineObject, RichText, SpanBackground, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
 pub use spatial::SpatialTuning;
 

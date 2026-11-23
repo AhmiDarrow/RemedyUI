@@ -131,7 +131,7 @@ app.load_system_ui_font(|got| match got {
 
 [`RichText`](crate::view::RichText) is a string with styled spans and inline objects. Spans
 take a [`TextStylePatch`](crate::view::TextStylePatch): size, weight, italic, color, underline,
-strikethrough, letter spacing, OpenType features, families, and a link.
+strikethrough, letter spacing, OpenType features, families, a link, and a filled background.
 
 ```
 use remedy_ui::view::{RichText, TextStylePatch};
@@ -142,6 +142,22 @@ let line = RichText::new()
     .text(" just now");
 assert_eq!(line.as_str(), "Saved to Documents just now");
 assert_eq!(line.spans().len(), 1);
+```
+
+A filled background behind a span is a [`SpanBackground`](crate::view::SpanBackground). Inline
+code uses [`SpanBackground::chip`](crate::view::SpanBackground::chip): room on each side, a
+little above and below, and rounded corners. The side room is part of the line, so the chip
+does not sit on the words next to it.
+
+```
+use remedy_ui_core::Color;
+use remedy_ui::view::{RichText, SpanBackground, TextStylePatch};
+
+let chip = SpanBackground::chip(Color::rgb8(40, 40, 48), 14.0);
+let mut code = TextStylePatch::background(chip);
+code.families = Some(vec!["AhmiPrint".into()]);
+let line = RichText::new().text("Run ").styled("cargo test", code).text(".");
+assert_eq!(line.as_str(), "Run cargo test.");
 ```
 
 Pictures go inside a paragraph as inline objects: add one with
