@@ -47,6 +47,9 @@ pub struct Project {
     /// The arguments the installer's "start when I sign in" choice runs the app with
     /// (`[windows] autostart_args`); unset for no such choice.
     pub windows_autostart: Option<String>,
+    /// An earlier per-user install this one takes over (`[windows.replaces]`), such as the
+    /// same app's old NSIS build; unset when there is none.
+    pub windows_replaces: Option<Replaces>,
     /// The timestamp server for signatures.
     pub timestamp_url: String,
     /// The Rust target Android packages build for (`[android] target`).
@@ -89,6 +92,69 @@ pub const DEFAULT_THEME_COLOR: &str = "#1e2a24";
 
 fn string(t: &toml::Table, section: &str, key: &str) -> Option<String> {
     t.get(section)?.get(key)?.as_str().map(str::to_owned)
+}
+
+/// An earlier install the Windows installer removes before it installs: only the program
+/// files named here, its Start menu and desktop shortcuts, its uninstall entry and the
+/// registry keys named here. Nothing else in its folder, and never the app's data.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Replaces {
+    /// Its key under `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall`, whose
+    /// `InstallLocation` says where it is.
+    pub uninstall_key: String,
+    /// The file names in that folder it installed; the first is the program, which must be
+    /// closed before anything is removed.
+    pub files: Vec<String>,
+    /// Further `HKCU` keys it wrote, each under `Software\`.
+    pub registry: Vec<String>,
+    /// A named mutex the old program holds while it runs (`mutex`); setup waits for it.
+    pub mutex: Option<String>,
+    /// The display name of a per-machine MSI build of it (`msi_name`), which setup
+    /// uninstalls with `msiexec` (Windows asks for administrator rights).
+    pub msi_name: Option<String>,
+}
+
+fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
+    let Some(r) = t.get("windows").and_then(|w| w.get("replaces")) else { return Ok(None) };
+    let bad = |what: &str| format!("remedy.toml: [windows.replaces] {what}");
+    let list = |key: &str| -> Result<Vec<String>, String> {
+        let Some(v) = r.get(key) else { return Ok(Vec::new()) };
+        v.as_array()
+            .ok_or_else(|| bad(&format!("{key} must be a list of strings")))?
+            .iter()
+            .map(|i| i.as_str().map(str::to_owned).ok_or_else(|| bad(&format!("{key} must be a list of strings"))))
+            .collect()
+    };
+    let key = r.get("uninstall_key").and_then(|k| k.as_str()).unwrap_or_default().to_owned();
+    if key.is_empty() || key.contains(['\\', '/', '\'']) {
+        return Err(bad("uninstall_key must be the name of one uninstall entry, such as \"Notes\""));
+    }
+    let files = list("files")?;
+    // Plain names only: a path or a wildcard could reach past the old program's own files.
+    let plain = |f: &String| {
+        !f.is_empty() && f != "." && f != ".." && !f.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|', '\''])
+    };
+    if files.is_empty() || !files.iter().all(plain) {
+        return Err(bad("files must list the old program's file names, the program first, such as [\"notes.exe\"]"));
+    }
+    let registry = list("registry")?;
+    let under_software = |k: &String| {
+        k.strip_prefix("Software\\").is_some_and(|rest| !rest.is_empty() && !rest.contains('\'') && !rest.ends_with('\\'))
+            && !k.contains("\\\\")
+    };
+    if !registry.iter().all(under_software) {
+        return Err(bad("registry keys must be under Software\\, such as 'Software\\Maker\\Notes'"));
+    }
+    let text = |key: &str| -> Result<Option<String>, String> {
+        match r.get(key) {
+            None => Ok(None),
+            Some(v) => match v.as_str() {
+                Some(s) if !s.is_empty() && !s.contains(['\'', '"', '\\']) => Ok(Some(s.to_owned())),
+                _ => Err(bad(&format!("{key} must be a name without quotes or backslashes"))),
+            },
+        }
+    };
+    Ok(Some(Replaces { uninstall_key: key, files, registry, mutex: text("mutex")?, msi_name: text("msi_name")? }))
 }
 
 fn number(t: &toml::Table, section: &str, key: &str) -> Option<u32> {
@@ -269,6 +335,7 @@ impl Project {
             android_icon_background: android_icon_background(&remedy)?,
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
             windows_autostart: string(&remedy, "windows", "autostart_args"),
+            windows_replaces: windows_replaces(&remedy)?,
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
             android_target: string(&remedy, "android", "target")
@@ -355,6 +422,7 @@ pub(crate) mod tests {
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
             windows_autostart: None,
+            windows_replaces: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,
@@ -400,6 +468,35 @@ pub(crate) mod tests {
         );
         assert!(icon_pixel_art(&parse("[app]\nicon_scaling = \"blurry\"\n")).is_err());
         assert_eq!(icon_pixel_art(&parse("")), Ok(false));
+    }
+
+    #[test]
+    fn a_replaced_install_names_plain_files_and_software_keys() {
+        let parse = |s: &str| windows_replaces(&toml::from_str(s).unwrap_or_default());
+        let ok = parse(
+            "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"notes.exe\", \"uninstall.exe\"]\nregistry = ['Software\\maker\\Notes']\nmutex = \"notes-running\"\nmsi_name = \"Notes\"",
+        );
+        assert_eq!(
+            ok,
+            Ok(Some(Replaces {
+                uninstall_key: "Notes".into(),
+                files: vec!["notes.exe".into(), "uninstall.exe".into()],
+                registry: vec!["Software\\maker\\Notes".into()],
+                mutex: Some("notes-running".into()),
+                msi_name: Some("Notes".into()),
+            }))
+        );
+        assert_eq!(parse("[windows]\nx = 1"), Ok(None));
+        for bad in [
+            "[windows.replaces]\nfiles = [\"notes.exe\"]",
+            "[windows.replaces]\nuninstall_key = \"Notes\"",
+            "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"..\\\\vault.json\"]",
+            "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"*.json\"]",
+            "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"notes.exe\"]\nregistry = ['Software']",
+            "[windows.replaces]\nuninstall_key = \"Notes\"\nfiles = [\"notes.exe\"]\nregistry = ['System\\x']",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
