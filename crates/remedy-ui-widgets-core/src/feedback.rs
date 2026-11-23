@@ -129,6 +129,21 @@ pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
     toast_at(ui, message, duration, Align::Center)
 }
 
+/// The layer holding the toasts showing now.
+fn toast_host(ui: &Ui) -> Option<El> {
+    let [_, overlays, _] = ui.layers();
+    overlays.child_elements().into_iter().find(|c| c.info().is_some_and(|i| i.widget == "toast_host"))
+}
+
+/// Puts the toasts showing over an overlay that was just opened (a dialog's scrim would dim
+/// them).
+pub(crate) fn raise_toasts(ui: &Ui) {
+    if let Some(host) = toast_host(ui) {
+        let [_, overlays, _] = ui.layers();
+        overlays.insert_child(usize::MAX, &host);
+    }
+}
+
 /// A [`toast`] at the bottom's start, center or end (`align`). Toasts showing at the same
 /// time stack, the newest lowest, above whatever else is open; the stack sits where the
 /// newest one asked.
@@ -146,9 +161,7 @@ pub fn toast_at(ui: &Ui, message: impl Into<String>, duration: Duration, align: 
         .child(crate::text(ui, message));
     // One click-through layer the size of the window holds every toast at its bottom.
     let [_, overlays, _] = ui.layers();
-    let showing =
-        overlays.child_elements().into_iter().find(|c| c.info().is_some_and(|i| i.widget == "toast_host"));
-    let host = showing.unwrap_or_else(|| {
+    let host = toast_host(ui).unwrap_or_else(|| {
         ui.el("toast_host")
             .column()
             .justify(remedy_ui_layout::Justify::End)

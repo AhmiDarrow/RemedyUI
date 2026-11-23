@@ -22,8 +22,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 - **Toasts stack, and can sit in a corner**: toasts showing at the same time used to lie on
   top of each other at the bottom center. They now share one layer and stack, the newest
-  lowest, above a dialog opened since the first one. `widgets::toast_at` takes the bottom's
-  start, center or end (`toast` stays centered).
+  lowest, and stay above a dialog opened while they show (its scrim used to dim them).
+  `widgets::toast_at` takes the bottom's start, center or end (`toast` stays centered).
 
 - **Grid tiles with their own gap and style variant**: `Tiles::gap` sets the space between a
   grid's tiles, and `Tiles::variant` the `grid_tile` variant their boxes are styled by, so an
@@ -1571,6 +1571,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- **Text fields take the theme's text size from their first frame.** A field kept the
+  engine's built-in 14 px until one of its text properties changed, so its text was a
+  different size from the labels around it in any theme whose body size is not 14 (the
+  stock themes' is 13). Fields now start with the style their element has, as text does.
 
 - **A closing tab's last requests** (web): `App::on_leave` never heard `Closing` when a tab
   was really closed in Firefox, and its keepalive requests never left. Firefox cuts off the

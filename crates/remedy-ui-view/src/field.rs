@@ -1352,6 +1352,12 @@ impl Ui {
         let el = self.el(widget).focusable(true);
         let scale = self.0.borrow().scale;
         let look = rich_look(&self.0.borrow().theme);
+        // The style the element has now: a frame restyles a field only when its style changes,
+        // which it may not after this (as for an element's text).
+        let style = {
+            let i = self.0.borrow();
+            i.els.get(&el.id).map(|d| crate::frame::text_style_for(d, &i.theme)).unwrap_or_default()
+        };
         let field = Rc::new(RefCell::new(Field {
             kind,
             editor: match kind {
@@ -1369,7 +1375,7 @@ impl Ui {
                 })),
                 _ => Editor::Plain(TextEditor::new("")),
             },
-            style: TextStyle::default(),
+            style,
             placeholder: String::new(),
             purpose: remedy_ui_host::InputPurpose::Text,
             enter: None,

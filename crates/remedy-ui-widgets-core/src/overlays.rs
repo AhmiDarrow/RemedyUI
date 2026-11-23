@@ -326,6 +326,7 @@ pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool
         });
     }
     ui.overlay(layer);
+    crate::feedback::raise_toasts(ui);
     body.focus_first();
     m
 }
