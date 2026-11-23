@@ -1616,6 +1616,7 @@ impl Ui {
         if theme.font_families != i.theme.font_families
             || theme.mono_families != i.theme.mono_families
             || theme.heading_families != i.theme.heading_families
+            || theme.text_scale != i.theme.text_scale
         {
             i.reshape_text = true;
         }
