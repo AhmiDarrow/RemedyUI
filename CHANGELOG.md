@@ -1572,6 +1572,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Cut text fills its line.** Text cut with "…" (`truncate`, `max_lines`) was cut only
+  inside the last line as wrapping left it, so a path or a long file name, which has few
+  places to wrap, showed as little as `C:…` in a wide box. The cut now also tries the start
+  of the word that wrapping pushed to the next line, as CSS `text-overflow: ellipsis` does:
+  `C:\Users\Admin…`, and `hello world extr…` where it was `hello world…`.
+
 - **Text fields take the theme's text size from their first frame.** A field kept the
   engine's built-in 14 px until one of its text properties changed, so its text was a
   different size from the labels around it in any theme whose body size is not 14 (the
