@@ -6,7 +6,7 @@
 //! widget shows the app's state rather than keeping its own. See
 //! `docs/design/15-widgets-and-media.md`.
 //!
-//! - Containers: [`column()`], [`row`], [`wrap`], [`stack`], [`spacer`], [`divider`],
+//! - Containers: [`column()`], [`row`], [`overflow_row`], [`wrap`], [`stack`], [`spacer`], [`divider`],
 //!   [`card`], [`section`], [`disclosure`], [`scroll`], [`split`]
 //! - Lists: [`for_each`], [`list`], [`virtual_list`]
 //! - Text: [`text`] (with a variant: `.variant("muted")`), [`heading`], [`link`]
@@ -57,6 +57,7 @@ mod inputs;
 mod lists;
 mod menu_bar;
 mod menus;
+mod overflow;
 mod overlays;
 mod rejection;
 mod text;
@@ -68,6 +69,7 @@ pub use actions::button_dyn;
 pub use actions::{button, icon_button, menu_button, toggle_button};
 pub use choices::{check, chip, radio_group, segmented, segmented_unavailable, select, switch};
 pub use containers::{card, column, disclosure, divider, row, scroll, section, spacer, split, stack, wrap};
+pub use overflow::{OverflowRow, overflow_row};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast, toast_at};
 pub use icons::{Icon, avatar, canvas, icon, image, pixel_image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
