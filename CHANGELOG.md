@@ -8,7 +8,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Removed
+
+- **The Rhai script engine.** `remedy-ui-script-rhai`, the facade feature `script-rhai`, `remedy_ui::script_rhai`, `Language::RHAI`, `Package::rhai` and `Language::for_extension("rhai")` are gone. Rhai was a placeholder for RemedyLua. There is no feature flag that keeps it. WebAssembly (`script-wasm`, `Language::WASM`) is unchanged.
+
 ### Changed
+
+- **Handwritten widgets are RemedyLua.** Enable `script-lua` (it is part of `full`, where `script-rhai` was). The module is `remedy_ui::script_lua` (`LuaEngine`, `LuaWidget`, `Grants`). `Language::LUA` and `Package::lua` are the package language; `Language::for_extension` accepts `lua` and `rlua` (the typed dialect, selected when the source's first non-empty line is `-- rlua`). `cargo remedy migrate` rewrites `remedy_ui::script_rhai` to `script_lua`, `Language::RHAI` to `LUA` and `Package::rhai` to `lua`. A path that names the old type, such as `remedy_ui::script_rhai::RhaiEngine`, has to be edited by hand to `remedy_ui::script_lua::LuaEngine`. `ScriptWidget` gains `advance`, `unmount` and `next_frame` (defaults: no clock). `Limits::expr_depth` is ignored by RemedyLua, whose parser does not recurse.
 
 - **Colorblind palette names**: the `protan`, `deutan` and `tritan` palettes are labelled **Protan**, **Deutan** and **Tritan** (ids unchanged, so a saved theme still matches).
 

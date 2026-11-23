@@ -97,6 +97,6 @@ RemedyUI uses, and versioned with it:
   facade exposes of them; their engine-to-engine surface follows the release cadence of the
   renderers and bridges.
 - **Experimental:** scripted widgets (`remedy-ui-script`, `remedy-ui-widgets-board`) are being
-  rebuilt on Rhai and WebAssembly engines behind one interface, and are not covered by the
+  built on RemedyLua and WebAssembly engines behind one interface, and are not covered by the
   1.0 promise until that lands. The stage pack (`remedy-ui-widgets-stage`, `stage`) is new
   and may still change while the first presentations are built on it.

@@ -108,14 +108,14 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-widgets-forms`: exact-decimal number input, color picker with contrast readout, key capture, calendar, date and time pickers, forms with validation and submit state, all in the user's locale
 - `remedy-ui-widgets-nav`: commands and shortcuts, tabs, nav rail, breadcrumbs, a navigation stack, user-arranged toolbars, the command palette, drawers, sheets and a custom title bar
 - `remedy-ui-widgets-data`: tables, icon grids, trees, property grids and chat lists, virtual at any size, with selection, editing and drag and drop
-- `remedy-ui-widgets-board` and `remedy-ui-script`: boards people arrange, with sandboxed scripted widgets behind one language-neutral `ScriptEngine` interface: `remedy-ui-script-rhai` for widgets written in Rhai, `remedy-ui-script-wasm` for widgets compiled to WebAssembly; both measure their own speed on the device they run on
+- `remedy-ui-widgets-board` and `remedy-ui-script`: boards people arrange, with sandboxed scripted widgets behind one language-neutral `ScriptEngine` interface: `remedy-ui-script-lua` for widgets written in RemedyLua, `remedy-ui-script-wasm` for widgets compiled to WebAssembly; both measure their own speed on the device they run on
 - `remedy-ui-widgets-extra`: QR codes, rating, carousel, a setup wizard flow and swatch grids
 - `remedy-ui-widgets-stage`: parts for whole alternative presentations: scenes that scale art to fit with children at named anchors, pixel-art sprites written as code, orbits, path layouts, knobs and tuner dials, faders, timelines, big physical buttons and LED or split-flap boards
 - `remedy-ui-widgets-music`: fretboard, chord diagram, tab staff and note staff
 - `remedy-ui-widgets-term`: the terminal element: VT and xterm emulation with true color, the kitty keyboard protocol, sixel pictures, reflow, scrollback sized from the machine, selection, links, input methods and screen readers; the PTY stays in the app
 - `remedy-ui-viz`: the speaking ring, level meters, sparklines and bars
 
-For advanced scripting, [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.0, [repository](https://github.com/AhmiDarrow/RemedyLua)) is a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. It is a separate crate, built to plug in through the same `ScriptEngine` interface; Prism effect bindings are designed for it. This workspace ships the Rhai and WebAssembly engines above.
+Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.0, [repository](https://github.com/AhmiDarrow/RemedyLua)), a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. `remedy-ui-script-lua` is that engine. Prism effect bindings are designed for the same language. This workspace ships the RemedyLua and WebAssembly engines above.
 
 **Documents**
 - `remedy-ui-doc-rich`: Markdown, a rich text editor with links and mentions that saves Markdown, and a find bar

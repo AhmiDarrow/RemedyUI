@@ -8,7 +8,7 @@
 //!   and runs the handlers its buttons name ([`ScriptWidget::act`]), keeping its own state
 //!   between calls.
 //! - [`ScriptEngine`]: a language that loads widgets from a [`Package`]. Engines are crates
-//!   of their own (`remedy-ui-script-rhai` for widgets people write by hand in Rhai,
+//!   of their own (`remedy-ui-script-lua` for widgets people write by hand in RemedyLua,
 //!   `remedy-ui-script-wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
 //!   app or a board enables; a package names its [`Language`].
 //! - The element-description protocol ([`Node`], read from JSON by [`describe`], or by
@@ -56,14 +56,15 @@ pub use rate::{MIN_SAMPLE, StepRate, calibrate_with, min_sample};
 /// are the version RemedyUI is built with.
 pub use serde_json;
 
-/// The language a widget is written in, named by a short id (`rhai`, `wasm`). Engines for
+/// The language a widget is written in, named by a short id (`lua`, `wasm`). Engines for
 /// other languages name their own.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Language(Cow<'static, str>);
 
 impl Language {
-    /// Rhai: widgets people write by hand (`remedy-ui-script-rhai`).
-    pub const RHAI: Language = Language(Cow::Borrowed("rhai"));
+    /// RemedyLua: widgets people write by hand (`remedy-ui-script-lua`). The id is `lua`;
+    /// `.rlua` is the same language with the typed dialect selected by the source.
+    pub const LUA: Language = Language(Cow::Borrowed("lua"));
     /// WebAssembly: widgets compiled from Rust or any language that targets it
     /// (`remedy-ui-script-wasm`).
     pub const WASM: Language = Language(Cow::Borrowed("wasm"));
@@ -78,11 +79,11 @@ impl Language {
         &self.0
     }
 
-    /// The language of a file with extension `ext` (`rhai`, `wasm`), if it is one of the two
-    /// RemedyUI ships engines for.
+    /// The language of a file with extension `ext` (`lua`, `rlua`, `wasm`), if it is one of
+    /// the two RemedyUI ships engines for. `.rlua` is RemedyLua's typed dialect of `lua`.
     pub fn for_extension(ext: &str) -> Option<Language> {
         match ext.to_ascii_lowercase().as_str() {
-            "rhai" => Some(Language::RHAI),
+            "lua" | "rlua" => Some(Language::LUA),
             "wasm" => Some(Language::WASM),
             _ => None,
         }
@@ -92,14 +93,14 @@ impl Language {
 impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.id() {
-            "rhai" => f.write_str("Rhai"),
+            "lua" => f.write_str("Lua"),
             "wasm" => f.write_str("WebAssembly"),
             other => f.write_str(other),
         }
     }
 }
 
-/// A widget as shared: its language and its code (source text for Rhai, a module for
+/// A widget as shared: its language and its code (source text for RemedyLua, a module for
 /// WebAssembly).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -116,9 +117,10 @@ impl Package {
         Package { language, code: code.into() }
     }
 
-    /// A Rhai widget from its source.
-    pub fn rhai(source: &str) -> Package {
-        Package::new(Language::RHAI, source.as_bytes())
+    /// A RemedyLua widget from its source (`.lua`, or `.rlua` when the source starts with
+    /// `-- rlua`).
+    pub fn lua(source: &str) -> Package {
+        Package::new(Language::LUA, source.as_bytes())
     }
 
     /// A WebAssembly widget from its module.
@@ -140,15 +142,16 @@ pub struct Limits {
     /// runs does not count, so a busy machine does not stop fair work. This is the
     /// backstop for slow devices; `operations` is what stops a script deterministically.
     pub time: Duration,
-    /// How many steps one call may take, in the engine's own unit (a Rhai operation, a
+    /// How many steps one call may take, in the engine's own unit (a RemedyLua step, a
     /// WebAssembly fuel unit). `None`: each engine derives it from `time` at the rate it
     /// measured on this device ([`StepRate`]). Set it for a script that must stop at the same
     /// step on every machine.
     pub operations: Option<u64>,
     /// How deeply calls may nest (recursion).
     pub call_depth: usize,
-    /// The native stack one call may use, in bytes, for engines whose interpreter recurses on
-    /// the caller's stack (Rhai); an engine with a stack of its own (WebAssembly) ignores it.
+    /// The native stack one call may use, in bytes, for library callbacks (and a parser that
+    /// recurses). RemedyLua's parser does not recurse; Lua-to-Lua calls use none of this.
+    /// WebAssembly ignores it.
     pub stack: usize,
     /// How deeply described elements may nest. Past this a tree is not a readable widget and
     /// would only cost the layout.
@@ -162,10 +165,11 @@ pub struct Limits {
     /// The widest gap between children, in logical pixels. Default 64.
     pub gap: u32,
     /// How deeply expressions may nest in the source, at the top level and inside a
-    /// function, for engines that parse source (Rhai); others ignore it. Default 64 and 32,
-    /// what readable code needs. A safety bound: the parser recurses on the caller's stack
-    /// before any step is metered, a few KiB a level, so raising it far needs more `stack`
-    /// (and a UI thread with that stack) or hostile source can overflow it.
+    /// function, for an engine whose parser recurses on the caller's stack. The shipped
+    /// RemedyLua engine ignores it: its parser does not recurse, and source size is bounded
+    /// by the memory limit. Default 64 and 32, what readable code needs. Where a parser does
+    /// recurse, this is a safety bound (a few KiB a level, before any step is metered), so
+    /// raising it far needs more `stack` or hostile source can overflow the caller's stack.
     pub expr_depth: (usize, usize),
 }
 
@@ -780,6 +784,20 @@ pub trait ScriptWidget {
     }
     /// The memory its machine holds now, in bytes.
     fn memory_used(&self) -> usize;
+    /// Moves the widget's own clock by `elapsed` (timers, motion, frame hooks). The default
+    /// does nothing and reports no change. A widget that wants another frame says when with
+    /// [`ScriptWidget::next_frame`].
+    fn advance(&mut self, elapsed: Duration) -> Result<bool, ScriptError> {
+        let _ = elapsed;
+        Ok(false)
+    }
+    /// The widget left the screen. The default does nothing.
+    fn unmount(&mut self) {}
+    /// When the widget next wants [`ScriptWidget::advance`], or `None` when its clock is
+    /// idle. The default is idle, so a widget that only renders on demand schedules nothing.
+    fn next_frame(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl std::fmt::Debug for dyn ScriptWidget {
@@ -1042,12 +1060,14 @@ mod tests {
     #[test]
     fn engines_load_only_the_languages_they_accept() {
         let engines = Engines::new().with(Rc::new(Echo));
-        assert!(engines.accepts(&Language::new("echo")) && !engines.accepts(&Language::RHAI));
-        let r = engines.load(&Package::rhai("x"), Limits::default());
+        assert!(engines.accepts(&Language::new("echo")) && !engines.accepts(&Language::LUA));
+        let r = engines.load(&Package::lua("x"), Limits::default());
         let Err(ScriptError::Unsupported(why)) = r else { unreachable!("{r:?}") };
-        assert!(why.contains("Rhai") && why.contains("echo"), "{why}");
+        assert!(why.contains("Lua") && why.contains("echo"), "{why}");
         let r = engines.load(&Package::new(Language::new("echo"), &b""[..]), Limits::default());
         assert!(matches!(r, Err(ScriptError::Invalid(_))));
         assert_eq!(Language::for_extension("WASM"), Some(Language::WASM));
+        assert_eq!(Language::for_extension("lua"), Some(Language::LUA));
+        assert_eq!(Language::for_extension("rlua"), Some(Language::LUA));
     }
 }

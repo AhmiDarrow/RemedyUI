@@ -566,8 +566,10 @@ impl ScriptHooks {
 
 /// A loaded scripted widget as an element anywhere (a board's slot, a screen built in Rust,
 /// an element of a `.rui` file the app registers): it renders `widget` with `settings` and
-/// `host`, again whenever `host` changes and after each of its handlers runs. A failure goes
-/// to `hooks.stopped` and leaves the last good picture in place.
+/// `host`, again whenever `host` changes and after each of its handlers runs. When the
+/// widget's clock wants another frame ([`ScriptWidget::next_frame`]), a timer moves it on
+/// ([`ScriptWidget::advance`]). Removing the element runs [`ScriptWidget::unmount`]. A
+/// failure goes to `hooks.stopped` and leaves the last good picture in place.
 pub fn mount_script(
     ui: &Ui,
     widget: SharedWidget,
@@ -578,6 +580,15 @@ pub fn mount_script(
     let holder = w::column(ui).fill_width();
     let version = Signal::new(0u64);
     let (h2, u2) = (holder.clone(), ui.clone());
+    // The widget's own clock (timers, motion) runs on the frame loop: after each render, a
+    // timer for its next frame, if it wants one. A widget that only renders schedules none.
+    let pending: Rc<Cell<Option<u64>>> = Rc::new(Cell::new(None));
+    let leaving = Rc::downgrade(&widget);
+    let holder = holder.on_removed(move || {
+        if let Some(w) = leaving.upgrade() {
+            w.borrow_mut().unmount();
+        }
+    });
     holder.bind(move || {
         let _ = version.get();
         let data = host.get();
@@ -587,11 +598,44 @@ pub fn mount_script(
                 Ok(node) => {
                     h2.clear();
                     let _ = h2.clone().child(build_node_with(&u2, &node, &widget, version, &hooks));
+                    schedule_frames(&u2, Rc::downgrade(&widget), version, &pending, &hooks.stopped);
                 }
                 Err(e) => (hooks.stopped)(FailurePhase::Build, e),
             }
         });
     })
+}
+
+/// Asks the frame loop to move `widget`'s clock on when it next needs it
+/// ([`ScriptWidget::next_frame`]), then renders it again if what it shows changed. The timer
+/// holds the widget weakly: once its element is gone, its clock stops.
+fn schedule_frames(
+    ui: &Ui,
+    widget: std::rc::Weak<RefCell<Box<dyn ScriptWidget>>>,
+    version: Signal<u64>,
+    pending: &Rc<Cell<Option<u64>>>,
+    stopped: &Rc<dyn Fn(FailurePhase, ScriptError)>,
+) {
+    if let Some(id) = pending.take() {
+        ui.cancel_timer(id);
+    }
+    let Some(strong) = widget.upgrade() else { return };
+    let Some(delay) = strong.borrow().next_frame() else { return };
+    drop(strong);
+    let (u, p, st) = (ui.clone(), pending.clone(), stopped.clone());
+    let started = ui.frame_time();
+    let id = ui.after(delay, move || {
+        p.set(None);
+        let Some(wd) = widget.upgrade() else { return };
+        let elapsed = u.frame_time().saturating_sub(started).max(delay);
+        let r = wd.borrow_mut().advance(elapsed);
+        match r {
+            Ok(true) => version.update(|v| *v += 1),
+            Ok(false) => schedule_frames(&u, Rc::downgrade(&wd), version, &p, &st),
+            Err(e) => st(FailurePhase::Handler, e),
+        }
+    });
+    pending.set(Some(id));
 }
 
 /// What a stopped widget shows: why, and a button that starts it again.

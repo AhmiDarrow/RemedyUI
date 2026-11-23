@@ -231,7 +231,7 @@ a markup file, a theme) cheap; raising one lets such input cost that much more.
 | Zoom of a page view | 1% to 6400% | `pages::PageView::set_zoom_range` |
 | Handlers in one script description (*safety*) | 4096 | `script::Limits::handlers` |
 | Picture side / gap a script asks for | 4096 / 64 logical px | `script::Limits::image_side`, `gap` |
-| Rhai expression nesting, top level / in a function (*safety*: the parser recurses on the stack) | 64 / 32 | `script::Limits::expr_depth` |
+| Expression nesting, top level / in a function (*safety* where a parser recurses; RemedyLua ignores it) | 64 / 32 | `script::Limits::expr_depth` |
 | Markup nesting (*safety*: parsing and building recurse on the UI thread's stack) | 128 | `markup::set_max_depth` |
 | How long a terminal's synchronized update may hold the screen | 150 ms | `term::TerminalOptions::sync_timeout` |
 | How long the devtools Remote page waits for an app | 10 s | `devtools::set_remote_timeout` |
