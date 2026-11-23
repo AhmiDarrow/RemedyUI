@@ -93,3 +93,7 @@ icon-forward-10 = 前进 10 秒
 icon-home = 主页
 icon-image = 图片
 icon-selected = 已选择
+icon-microphone = 麦克风
+icon-paperclip = 回形针
+icon-stop = 停止
+icon-star = 星标
