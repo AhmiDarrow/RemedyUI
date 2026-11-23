@@ -294,19 +294,36 @@ impl Modal {
 /// Opens `content` as a modal over the window. `escape_closes` lets Escape close it.
 #[track_caller]
 pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool) -> Modal {
+    open_modal(ui, title.into(), content, escape_closes, true)
+}
+
+/// [`modal`] for content that fits itself to the room the window gives it: a head and a foot
+/// that stay while the part between them scrolls, or panes that scroll on their own. The
+/// dialog does not scroll; `content` is as tall as the dialog may be at most and shrinks with
+/// the window, so give the part that scrolls a [`scroll`](crate::scroll) of its own.
+#[track_caller]
+pub fn modal_fitted(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool) -> Modal {
+    open_modal(ui, title.into(), content, escape_closes, false)
+}
+
+#[track_caller]
+fn open_modal(ui: &Ui, title: String, content: El, escape_closes: bool, scrolls: bool) -> Modal {
     let restore = ui.tree().focused().map(|f| ui.element(f));
-    let body = ui
-        .el("dialog")
-        .column()
-        .gap(ui.theme().spacing.unit * 3.0)
-        // Taller than the window (a phone in landscape, large text): it scrolls.
-        .scroll()
+    let body = ui.el("dialog").column().gap(ui.theme().spacing.unit * 3.0);
+    // Taller than the window (a phone in landscape, large text): it scrolls, or its content
+    // shrinks to fit when that lays itself out.
+    let (body, content) = if scrolls {
+        (body.scroll(), content)
+    } else {
+        (body.clip(), content.layout(|l| l.min_height = Length::Px(0.0)))
+    };
+    let body = body
         .layout(|l| {
             l.max_width = Length::Percent(0.92);
             l.min_width = Length::Px(260.0);
             l.max_height = Length::Percent(0.92);
         })
-        .semantics(Semantics::new(Role::Dialog).label(title.into()).modal(true))
+        .semantics(Semantics::new(Role::Dialog).label(title).modal(true))
         .child(content);
     let layer = fill_window(ui.el("scrim"))
         .column()

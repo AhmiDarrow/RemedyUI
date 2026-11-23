@@ -480,6 +480,31 @@ fn toasts_showing_together_stack_in_the_corner_asked_for() {
 }
 
 #[test]
+fn a_fitted_modal_keeps_its_head_and_foot_while_its_middle_scrolls() {
+    let mut t = T::new();
+    t.frame();
+    let (head, foot) = (w::text(&t.ui, "Share a folder"), w::button(&t.ui, "Save", || {}));
+    let mut rows = w::column(&t.ui);
+    for i in 0..60 {
+        rows = rows.child(w::text(&t.ui, format!("Folder {i}")));
+    }
+    let middle = w::scroll(&t.ui).child(rows);
+    let content = w::column(&t.ui).child(head.clone()).child(middle.clone()).child(foot.clone());
+    let m = w::modal_fitted(&t.ui, "Share a folder", content, true);
+    t.frame();
+    let (d, h, f, mid) = (
+        m.body().bounds().unwrap_or_default(),
+        head.bounds().unwrap_or_default(),
+        foot.bounds().unwrap_or_default(),
+        middle.bounds().unwrap_or_default(),
+    );
+    assert!(d.height() <= 300.0 * 0.92 + 0.5, "the dialog fits the 300 high window: {d:?}");
+    assert!(h.min.y >= d.min.y && f.max.y <= d.max.y, "head and foot are inside it: {h:?} {f:?} in {d:?}");
+    assert!(mid.height() > 0.0 && mid.max.y <= f.min.y, "the middle took what was left and scrolls: {mid:?}");
+    m.close();
+}
+
+#[test]
 fn a_disclosure_opens_and_closes_from_its_head_and_says_which() {
     let mut t = T::new();
     let open = Signal::new(false);

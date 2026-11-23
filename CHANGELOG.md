@@ -30,6 +30,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   app can show a grid of cards and a list of rows (`Tiles::fluid` one column wide) that look
   different in every state.
 
+- **`widgets::modal_fitted`**: a modal whose content fits itself to the window, for the
+  dialog with a head and a foot that stay while its middle scrolls, or with panes that scroll
+  on their own (settings beside their sections). `modal`'s dialog scrolls as a whole, and
+  what is inside a scroll container never shrinks, so such a dialog lost its foot below a
+  short window.
+
 - **`widgets::disclosure`**: a part that opens and closes under its title, as a page's
   `<details>` or an expander: a marker and the title in a head that Enter, Space or a click
   flips, the body shown only while open, and the expanded state told to screen readers.
