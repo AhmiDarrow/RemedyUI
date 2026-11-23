@@ -93,3 +93,7 @@ icon-forward-10 = 10 सेकंड आगे
 icon-home = होम
 icon-image = इमेज
 icon-selected = चुना गया
+icon-microphone = माइक्रोफ़ोन
+icon-paperclip = पेपरक्लिप
+icon-stop = रोकें
+icon-star = तारा

@@ -93,3 +93,7 @@ icon-forward-10 = 10 秒進む
 icon-home = ホーム
 icon-image = 画像
 icon-selected = 選択済み
+icon-microphone = マイク
+icon-paperclip = クリップ
+icon-stop = 停止
+icon-star = スター

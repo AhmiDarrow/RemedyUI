@@ -93,3 +93,7 @@ icon-forward-10 = 10 সেকেন্ড সামনে
 icon-home = হোম
 icon-image = ছবি
 icon-selected = নির্বাচিত
+icon-microphone = মাইক্রোফোন
+icon-paperclip = পেপারক্লিপ
+icon-stop = থামান
+icon-star = তারা

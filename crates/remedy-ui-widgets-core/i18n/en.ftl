@@ -93,3 +93,7 @@ icon-forward-10 = Forward 10 seconds
 icon-home = Home
 icon-image = Image
 icon-selected = Selected
+icon-microphone = Microphone
+icon-paperclip = Paperclip
+icon-stop = Stop
+icon-star = Star
