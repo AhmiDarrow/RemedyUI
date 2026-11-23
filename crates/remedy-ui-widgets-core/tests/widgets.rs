@@ -461,13 +461,16 @@ fn toasts_showing_together_stack_in_the_corner_asked_for() {
     assert!(a.max.y <= b.min.y, "the newer toast sits under the older one, not on it: {a:?} {b:?}");
     assert!(a.max.x > 300.0 && b.max.x > 300.0, "both at the end of a 400 wide window: {a:?} {b:?}");
     assert!(b.max.y <= 300.0, "inside the window: {b:?}");
-    // A dialog opened now is under the next toast, not over it.
+    // A dialog opened now is under the toasts showing, and under the next one.
+    let top = |t: &T| {
+        let [_, overlays, _] = t.ui.layers();
+        overlays.child_elements().pop().and_then(|e| e.info()).map(|i| i.widget)
+    };
     let m = w::modal(&t.ui, "Settings", w::text(&t.ui, "Body"), true);
+    assert_eq!(top(&t), Some("toast_host"), "a dialog's scrim does not dim the toasts showing");
     let third = w::toast_at(&t.ui, "Saved", Duration::from_secs(60), remedy_ui_layout::Align::End);
     t.frame();
-    let [_, overlays, _] = t.ui.layers();
-    let last = overlays.child_elements().pop().and_then(|e| e.info()).map(|i| i.widget);
-    assert_eq!(last, Some("toast_host"), "toasts are the top overlay");
+    assert_eq!(top(&t), Some("toast_host"), "toasts are the top overlay");
     m.close();
     for toast in [first, second, third] {
         assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_a11y::Action::Click));
