@@ -1157,3 +1157,116 @@ fn a_modal_taller_than_the_window_fits_and_scrolls() {
     let l = last.bounds().unwrap_or_default();
     assert!(l.max.y <= b.max.y + 0.5 && l.min.y >= b.min.y, "scrolled into the dialog: {l:?} in {b:?}");
 }
+
+fn find_widget(root: &El, name: &str) -> Option<El> {
+    let mut stack = vec![root.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_some_and(|i| i.widget == name) {
+            if e.bounds().is_some_and(|b| b.width() > 0.0 && b.height() > 0.0) {
+                return Some(e);
+            }
+        }
+        stack.extend(e.child_elements());
+    }
+    None
+}
+
+#[test]
+fn dock_pane_resizes_collapses_and_redocks() {
+    let mut t = T::new();
+    t.ui.connect_accessibility();
+    let state = Signal::new(w::DockState::new(200.0));
+    let mut spec = w::DockSpec::named("Plans");
+    spec.min_width = 80.0;
+    spec.max_width = 280.0;
+    spec.strip_width = 36.0;
+    let body = t.ui.el("plan-body").layout(|l| {
+        l.width = remedy_ui_layout::Length::Percent(1.0);
+        l.height = remedy_ui_layout::Length::Percent(1.0);
+        l.grow = 1.0;
+    });
+    let main = t.ui.el("main-body").layout(|l| {
+        l.width = remedy_ui_layout::Length::Percent(1.0);
+        l.height = remedy_ui_layout::Length::Percent(1.0);
+        l.grow = 1.0;
+    });
+    let dock = w::dock(&t.ui, state.clone(), spec, body.clone(), main.clone()).width(400.0).height(200.0);
+    t.ui.root().child(dock.clone());
+    t.frame();
+
+    let pane = body.bounds().unwrap_or_default();
+    assert!((pane.width() - 200.0).abs() < 8.0, "expanded pane is 200 px wide: {pane:?}");
+    assert!(pane.min.x < 8.0, "start-docked pane is on the left: {pane:?}");
+    let chat = main.bounds().unwrap_or_default();
+    assert!(chat.min.x >= pane.max.x - 1.0, "main sits after the pane: {pane:?} {chat:?}");
+    assert!(chat.max.x <= 401.0 && chat.width() > 80.0, "main has the rest of the row: {chat:?}");
+
+    // Arrow keys on the handle move the divider in pixels, clamped to min/max.
+    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| panic!("resize handle"));
+    handle.focus();
+    t.key(Key::ArrowRight);
+    t.key(Key::ArrowRight);
+    assert!((state.get().width - 232.0).abs() < 0.5, "each right arrow adds 16 px: {}", state.get().width);
+    t.frame();
+    let wider = body.bounds().unwrap_or_default();
+    assert!(wider.width() > pane.width() + 20.0, "the pane grew: {wider:?}");
+    for _ in 0..20 {
+        t.key(Key::ArrowRight);
+    }
+    assert_eq!(state.get().width, 280.0, "width stops at the max");
+    for _ in 0..30 {
+        t.key(Key::ArrowLeft);
+    }
+    assert_eq!(state.get().width, 80.0, "width stops at the min");
+    // Restore a mid width so a mid-crossing drag can redock.
+    state.update(|s| s.width = 160.0);
+    t.frame();
+
+    // Dragging the divider past the midpoint docks the pane on the other side.
+    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| panic!("resize handle after clamp"));
+    let hb = handle.bounds().unwrap_or_default();
+    let y = (hb.min.y + hb.max.y) / 2.0;
+    t.ui.pointer(&ptr(PointerPhase::Down, Point::new(hb.min.x + 4.0, y), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(320.0, y), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Up, Point::new(320.0, y), Buttons::default()));
+    t.frame();
+    assert_eq!(state.get().side, w::DockSide::End, "drop past mid docks on the end");
+    let right = body.bounds().unwrap_or_default();
+    assert!(right.max.x > 390.0, "end-docked pane is on the right: {right:?}");
+    let chat = main.bounds().unwrap_or_default();
+    assert!(chat.max.x <= right.min.x + 8.0, "main sits before the end pane: {chat:?} {right:?}");
+
+    // The chevron collapses the pane to the slim strip.
+    let btn = find_widget(&dock, "button").unwrap_or_else(|| panic!("collapse chevron"));
+    t.click(&btn);
+    assert!(state.get().collapsed, "the chevron collapses the pane");
+    t.frame();
+    assert!(body.bounds().map(|b| b.width() < 1.0).unwrap_or(true), "the body is hidden while collapsed");
+    let names: Vec<String> = t.ui.reader_view().into_iter().filter_map(|n| n.name).collect();
+    assert!(
+        names.iter().any(|n| n.contains("Expand Plans")),
+        "collapsed strip names the expand action: {names:?}"
+    );
+    // Expanding from the signal restores the last width on the same side.
+    state.update(|s| s.collapsed = false);
+    t.frame();
+    assert!(!state.get().collapsed);
+    let again = body.bounds().unwrap_or_default();
+    assert!(again.max.x > 390.0, "it stays on the end after expand: {again:?}");
+    assert!(again.width() >= 80.0, "the stored width comes back: {again:?}");
+
+    // Dragging the grip across the row flips the side without changing width.
+    let width = state.get().width;
+    let grip = find_widget(&dock, "dock-grip").unwrap_or_else(|| panic!("move grip"));
+    let gb = grip.bounds().unwrap_or_default();
+    let gy = (gb.min.y + gb.max.y) / 2.0;
+    let gx = (gb.min.x + gb.max.x) / 2.0;
+    t.ui.pointer(&ptr(PointerPhase::Down, Point::new(gx, gy), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(gx - 120.0, gy), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Up, Point::new(gx - 120.0, gy), Buttons::default()));
+    t.frame();
+    assert_eq!(state.get().side, w::DockSide::Start, "a long grip drag docks on the other side");
+    assert!((state.get().width - width).abs() < 0.5, "redock keeps the width");
+    let left = body.bounds().unwrap_or_default();
+    assert!(left.min.x < 8.0, "back on the start edge: {left:?}");
+}
