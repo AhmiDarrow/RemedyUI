@@ -537,10 +537,36 @@ pub fn apply(file: &Path, how: &Apply) -> Result<(), UpdateError> {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755));
             }
-            std::process::Command::new(&exe).args(std::env::args().skip(1)).spawn().map_err(io)?;
+            restart_after_exit(&exe).map_err(io)?;
         }
     }
     Ok(())
+}
+
+/// Starts `exe` with this process's arguments once this process has exited, so a
+/// single-instance app's new copy does not find the old one still running and hand over to
+/// it. Unix waits in a shell; Windows starts it at once (its updates run an installer, which
+/// waits for the app itself).
+fn restart_after_exit(exe: &Path) -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(unix)]
+    {
+        wait_then_exec(std::process::id(), exe, &args).spawn().map(|_| ())
+    }
+    #[cfg(not(unix))]
+    {
+        std::process::Command::new(exe).args(&args).spawn().map(|_| ())
+    }
+}
+
+/// A shell that waits for process `pid` to end, then becomes `exe args`.
+#[cfg(unix)]
+fn wait_then_exec(pid: u32, exe: &Path, args: &[String]) -> std::process::Command {
+    // `$1` is the pid to wait for, `$2` the program, the rest its arguments.
+    let script = "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; shift; exec \"$@\"";
+    let mut c = std::process::Command::new("/bin/sh");
+    c.arg("-c").arg(script).arg("sh").arg(pid.to_string()).arg(exe).args(args);
+    c
 }
 
 /// Where an update stands, for the banner.
@@ -732,6 +758,25 @@ mod json_feed_tests {
         assert_eq!(tauri_platform_keys_for("linux", "x86_64"), &["linux-x86_64", "linux-x86-64"]);
         assert_eq!(tauri_platform_keys_for("macos", "aarch64")[0], "darwin-aarch64");
         assert!(tauri_platform_keys_for("fuchsia", "x86_64").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_replaced_program_starts_only_after_the_old_one_exits() {
+        let dir = std::env::temp_dir().join(format!("remedy-update-wait-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mark = dir.join("started");
+        let mut old = std::process::Command::new("sleep").arg("0.6").spawn().expect("sleep");
+        let started = std::time::Instant::now();
+        let mut new = super::wait_then_exec(old.id(), std::path::Path::new("touch"), &[mark.display().to_string()])
+            .spawn()
+            .expect("sh");
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        assert!(!mark.exists(), "not while the old one runs");
+        let _ = old.wait();
+        let _ = new.wait();
+        assert!(mark.exists() && started.elapsed() >= std::time::Duration::from_millis(600), "once it has gone");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
