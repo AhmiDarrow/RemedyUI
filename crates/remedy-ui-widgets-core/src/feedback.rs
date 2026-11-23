@@ -126,6 +126,14 @@ pub fn badge(ui: &Ui, text: impl IntoProp<String>) -> El {
 /// with the same click action a pointer uses.
 #[track_caller]
 pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
+    toast_at(ui, message, duration, Align::Center)
+}
+
+/// A [`toast`] at the bottom's start, center or end (`align`). Toasts showing at the same
+/// time stack, the newest lowest, above whatever else is open; the stack sits where the
+/// newest one asked.
+#[track_caller]
+pub fn toast_at(ui: &Ui, message: impl Into<String>, duration: Duration, align: Align) -> El {
     let message = message.into();
     let u = ui.theme().spacing.unit;
     let t = ui
@@ -136,26 +144,39 @@ pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
             Semantics::new(Role::Status).label(message.clone()).live(Live::Polite).action(Action::Click),
         )
         .child(crate::text(ui, message));
-    // A click-through layer the size of the window holds the toast at its bottom.
-    let host = ui
-        .el("toast_host")
-        .column()
-        .justify(remedy_ui_layout::Justify::End)
-        .align(Align::Center)
-        .padding(remedy_ui_core::Insets::all(u * 4.0))
-        .layout(|l| {
-            l.position = Position::Absolute;
-            l.inset = remedy_ui_core::Insets::ZERO;
-            l.width = Length::Percent(1.0);
-            l.height = Length::Percent(1.0);
+    // One click-through layer the size of the window holds every toast at its bottom.
+    let [_, overlays, _] = ui.layers();
+    let showing =
+        overlays.child_elements().into_iter().find(|c| c.info().is_some_and(|i| i.widget == "toast_host"));
+    let host = showing.unwrap_or_else(|| {
+        ui.el("toast_host")
+            .column()
+            .justify(remedy_ui_layout::Justify::End)
+            .gap(u * 2.0)
+            .padding(remedy_ui_core::Insets::all(u * 4.0))
+            .layout(|l| {
+                l.position = Position::Absolute;
+                l.inset = remedy_ui_core::Insets::ZERO;
+                l.width = Length::Percent(1.0);
+                l.height = Length::Percent(1.0);
+            })
+            .pass_through()
+    });
+    let host = host.align(align).child(t.clone());
+    // Last among the overlays: over a dialog opened since the first toast.
+    overlays.insert_child(usize::MAX, &host);
+    let gone = {
+        let (host, t) = (host, t.clone());
+        std::rc::Rc::new(move || {
+            t.remove();
+            if host.child_elements().is_empty() {
+                host.remove();
+            }
         })
-        .pass_through()
-        .child(t.clone());
-    let host = ui.overlay(host);
-    let h2 = host.clone();
-    let _ = t.clone().on_click(move || h2.remove());
-    let h3 = host.clone();
-    ui.after(duration, move || h3.remove());
+    };
+    let g2 = gone.clone();
+    let _ = t.clone().on_click(move || g2());
+    ui.after(duration, move || gone());
     t
 }
 

@@ -161,6 +161,14 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     // A card that stands out (the user's own message, a highlighted item).
     rule("card", Some("accent"), States::NONE, StylePatch::default().background(d.selected).border(c.accent));
     rule("divider", None, States::NONE, StylePatch::default().background(line));
+    // A disclosure's head: muted until the pointer or the keyboard is on it.
+    rule(
+        "disclosure_head",
+        None,
+        States::NONE,
+        StylePatch::default().foreground(d.muted).radius(r.small).padding(pad(u * 0.5, u)).weight(600.0),
+    );
+    rule("disclosure_head", None, States::HOVER, StylePatch::default().foreground(d.text));
     rule("scrim", None, States::NONE, StylePatch::default().background(Color::BLACK.with_alpha(0.5)));
     rule(
         "dialog",
