@@ -564,7 +564,7 @@ pub enum UpdateState {
     Failed(String),
 }
 
-/// What the update strip says, for apps in other languages. `available` holds `{version}`;
+/// What the update strip says, for apps in other languages. `available` and `install` may hold `{version}`;
 /// `restart` is `None` for apps whose installer restarts them (no Restart button);
 /// `failure` turns an error (English, from the updater) into what to show.
 #[derive(Clone)]
@@ -651,7 +651,14 @@ pub fn update_banner_with(
     let text = w::text(ui, "");
     let pct = remedy_ui_reactive::Signal::new(None::<f32>);
     let bar = w::progress(ui, texts.progress.clone(), pct);
-    let install = w::button(ui, texts.install.clone(), on_install).variant("primary");
+    // `install` may hold `{version}` too ("Install 1.2.0 & restart"); it shows only while a
+    // release is available.
+    let install_text = texts.install.clone();
+    let install_label = move || match state.get() {
+        UpdateState::Available(r) => install_text.replace("{version}", r.version.trim_start_matches('v')),
+        _ => install_text.clone(),
+    };
+    let install = w::button(ui, install_label, on_install).variant("primary");
     let restart = texts.restart.clone().map(|r| w::button(ui, r, on_restart).variant("primary"));
     let mut row = w::row(ui)
         .gap(gap)

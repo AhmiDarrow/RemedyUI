@@ -149,3 +149,15 @@ fn ch_lengths_are_advances_of_zero_in_the_elements_font() {
     let s = small.bounds().map_or(0.0, |b| b.width());
     assert!((s - 5.0 * one).abs() < 0.2, "at half the size, half as wide: {s}");
 }
+
+#[test]
+fn a_rounded_image_element_rounds_its_picture() {
+    let ui = ui();
+    let white = remedy_ui_paint::Image::new(40, 40, vec![255u8; 40 * 40 * 4].into());
+    ui.root().child(ui.el("image").image(white).width(40.0).height(40.0).style(StylePatch::default().radius(12.0)));
+    let (_, frame) = draw(&ui);
+    let px = |x: u32, y: u32| frame.pixel(x, y).unwrap_or([0; 4]);
+    assert_eq!(px(0, 0)[0], 0, "the corner is cut away");
+    assert_eq!(px(20, 20)[0], 255, "the middle is the picture");
+    assert_eq!(px(20, 0)[0], 255, "an edge away from the corners is the picture");
+}

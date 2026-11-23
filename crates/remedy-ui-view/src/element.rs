@@ -2807,7 +2807,8 @@ impl El {
             cx.list.push(remedy_ui_paint::Item::Image {
                 image: image.clone(),
                 rect: remedy_ui_core::Rect::new(x, y, x + dw, y + dh),
-                radii: remedy_ui_core::CornerRadii::ZERO,
+                // A rounded element rounds its picture, as `border-radius` rounds an `<img>`.
+                radii: crate::frame::corners(cx.style, cx.rtl),
                 sampling,
             });
         })
