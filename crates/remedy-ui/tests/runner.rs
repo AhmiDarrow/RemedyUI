@@ -2425,6 +2425,50 @@ fn keyboard_paging_and_arrows_snap() {
 }
 
 #[test]
+fn page_and_home_end_keys_scroll_a_tall_list() {
+    let list_slot: Rc<std::cell::RefCell<Option<remedy_ui::El>>> = Rc::new(std::cell::RefCell::new(None));
+    let slot = list_slot.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let slot = slot.clone();
+        app.open(WindowSpec::new("List").size(200.0, 160.0), move |ui, _| {
+            let list = ui
+                .el("scroll")
+                .scroll()
+                .column()
+                .layout(|l| {
+                    l.width = Length::Px(200.0);
+                    l.height = Length::Px(100.0);
+                });
+            let list = list.child(ui.el("spacer").layout(|l| {
+                l.height = Length::Px(400.0);
+                l.width = Length::Px(200.0);
+                l.shrink = 0.0;
+            }));
+            *slot.borrow_mut() = Some(list.clone());
+            ui.root().child(list);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).expect("a window");
+    let list = list_slot.borrow().clone().expect("the list");
+    let id = first(&host);
+    host.send(HostEvent::Pointer(id, press(100.0, 50.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::PageDown)));
+    host.run_frames(&mut runner, 8);
+    let page = ui.scroll_offset(list.id()).y;
+    assert!(page > 80.0, "Page Down moves about a viewport: {page}");
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::End)));
+    host.run_frames(&mut runner, 8);
+    let end = ui.scroll_offset(list.id()).y;
+    assert!(end >= 299.0, "End jumps to the bottom: {end}");
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::Home)));
+    host.run_frames(&mut runner, 8);
+    assert_eq!(ui.scroll_offset(list.id()).y, 0.0, "Home jumps to the start");
+}
+
+#[test]
 fn focus_moves_step_a_snapping_shelf_card_by_card() {
     let (mut runner, mut host, ui, row, cards) = shelf(remedy_ui::view::SnapStrictness::Mandatory, false);
     let id = first(&host);
