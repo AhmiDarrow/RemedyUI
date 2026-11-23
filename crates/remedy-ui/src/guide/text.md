@@ -191,10 +191,12 @@ Arrows, shapes, stars, check marks and interface signs (✦ ◆ ◇ ◈ ◎ ⚠ 
 to no script (Unicode's Common script), so the script-based fallback above does not look for
 them. When a character comes out without a glyph, layout tries the collection's *symbol
 fallbacks* for that character: Remedy Symbols, a small face of interface symbols the Remedy
-text families lack (9 KB, in `remedy-ui-fonts`, on by default), then the platform's symbol,
-math and emoji fonts (Segoe UI Symbol on Windows, Apple Symbols on macOS, Noto Sans Symbols
-and DejaVu Sans on Linux and Android). So these symbols draw in a browser page and on systems
-with no symbol fonts too, and an app writes them as plain text, with no icon font of its own.
+text families lack (9 KB, in `remedy-ui-fonts`, on by default), then Twemoji Mozilla, a
+bundled COLRv0 color-emoji face (on by default, CC-BY-4.0 artwork) so 👍 and the rest paint
+without a system emoji font, then the platform's symbol, math and emoji fonts (Segoe UI
+Symbol on Windows, Apple Symbols on macOS, Noto Sans Symbols and DejaVu Sans on Linux and
+Android). So these symbols and emoji draw in a browser page and on systems with no symbol
+or color-emoji fonts too, and an app writes them as plain text, with no icon font of its own.
 
 [`FontCollection::set_symbol_fallbacks`](crate::text::FontCollection::set_symbol_fallbacks)
 changes the list (an app's own icon font first, say), and an empty list turns it off. Apps set

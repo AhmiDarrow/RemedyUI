@@ -22,8 +22,10 @@ parley_data = { version = "=0.13.0", default-features = false, features = ["std"
 icu_properties = { version = "=2.3.0", default-features = false }
 # Only to load fontconfig at run time (with `system-fonts`).
 fontique = { version = "=0.13.0", default-features = false, optional = true }
-# The same skrifa parley uses, for outlines and hinting.
+# The same skrifa parley uses, for outlines, hinting, COLR and bitmap (CBDT/sbix) glyphs.
 skrifa = { version = "=0.49.0", default-features = false, features = ["std", "autohint_shaping"] }
+# PNG payloads inside CBDT and sbix color strikes (already in the workspace via `image`).
+png = { version = "=0.18.1", default-features = false }
 # Grapheme and word boundaries for editing; the same ICU4X parley uses.
 icu_segmenter = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 # Canonical decomposition for Greek capitals without accents (the same ICU4X parley uses).
@@ -46,7 +48,7 @@ system-fonts = ["parley/system", "dep:fontique", "fontique/fontconfig-dlopen"]
 complex-scripts = ["parley/complex-scripts"]
 
 [dev-dependencies]
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print", "remedy-symbols", "scripts"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print", "remedy-symbols", "scripts", "twemoji"] }
 remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1" }
 
 [[bench]]

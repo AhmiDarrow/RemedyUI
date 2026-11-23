@@ -10,7 +10,9 @@ const SAMPLE: &str = "✦ Soap ✧ Candle ◈◆◇◎⚠☰⌕ ← × • ≈ �
 fn bundled(symbols: bool) -> FontCollection {
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
-        if symbols || face.family != "Remedy Symbols" {
+        // Leave out every bundled symbol/emoji fallback when the test wants a collection
+        // with none of them, so missing glyphs stay missing.
+        if symbols || !matches!(face.family, "Remedy Symbols" | "Twemoji Mozilla") {
             assert!(fonts.add_static(face.data).is_ok(), "{} parses", face.family);
         }
     }

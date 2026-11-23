@@ -413,3 +413,31 @@ fn gradient_layers_stack_with_transparency() {
     // Half green over the blue (premultiplied: the fade's transparent end adds no grey).
     assert!(glow[1].abs_diff(128) <= 4 && glow[2].abs_diff(100) <= 6 && glow[0] < 8, "the glow: {glow:?}");
 }
+
+#[test]
+fn color_emoji_keeps_its_yellow_when_the_run_is_black() {
+    let Some(list) = text_list("👍", Color::BLACK) else { unreachable!("fonts load") };
+    let f = CpuRenderer::new().render(&list, 80, 80, 1.0, Color::WHITE).expect("render");
+    // Over white, a yellow hand's pixels are washed toward white; they still have a warm
+    // chroma. A coverage glyph tinted black would be a dark grey silhouette.
+    let mut warm = 0usize;
+    let mut dark = 0usize;
+    let mut ink = 0usize;
+    for px in f.pixels.as_chunks::<4>().0 {
+        let [r, g, b, a] = *px;
+        if a < 32 || (r > 250 && g > 250 && b > 250) {
+            continue;
+        }
+        ink += 1;
+        if r < 50 && g < 50 && b < 50 {
+            dark += 1;
+        } else if r > b.saturating_add(20) && r >= g {
+            warm += 1;
+        }
+    }
+    assert!(ink > 30, "the thumbs-up puts ink down, found {ink}");
+    assert!(
+        warm > 20 && warm > dark,
+        "the hand stays warm over black text color (warm {warm}, dark {dark}, ink {ink})"
+    );
+}
