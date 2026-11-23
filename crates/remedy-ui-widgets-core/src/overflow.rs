@@ -96,12 +96,29 @@ impl OverflowRow {
     }
 
     /// Like [`OverflowRow::child`], with a label built each time the More menu opens.
-    pub fn child_fn(mut self, label: impl Fn() -> String + 'static, el: El) -> Self {
+    pub fn child_fn(self, label: impl Fn() -> String + 'static, el: El) -> Self {
+        self.push_auto(label, el, MIN_TARGET)
+    }
+
+    /// Like [`OverflowRow::child`], but an unmeasured or collapsed child takes no
+    /// space. Use for slots that `show()` hides until a condition is true, so they
+    /// do not reserve [`MIN_TARGET`] and force the More menu early.
+    pub fn child_maybe(self, label: impl Into<String>, el: El) -> Self {
+        let label = label.into();
+        self.child_maybe_fn(move || label.clone(), el)
+    }
+
+    /// Like [`OverflowRow::child_maybe`], with a label built each time the More menu opens.
+    pub fn child_maybe_fn(self, label: impl Fn() -> String + 'static, el: El) -> Self {
+        self.push_auto(label, el, 0.0)
+    }
+
+    fn push_auto(mut self, label: impl Fn() -> String + 'static, el: El, min: f32) -> Self {
         self.items.push(Item {
             el,
             label: Rc::new(label),
             slot: Slot::Auto,
-            min: MIN_TARGET,
+            min,
             kind: OverflowKind::Activate,
         });
         self
