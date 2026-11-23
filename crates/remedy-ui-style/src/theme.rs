@@ -155,6 +155,10 @@ pub struct Theme {
     pub heading_families: Vec<String>,
     /// Text sizes.
     pub type_scale: TypeScale,
+    /// The person's text size: every text is drawn this many times its styled size (1 as
+    /// designed), as the system's own text-size setting does. Boxes that fit their text grow
+    /// with it; spacing, icons and fixed sizes do not.
+    pub text_scale: f32,
     /// Spacing.
     pub spacing: Spacing,
     /// Corner radii.
@@ -250,6 +254,7 @@ impl Theme {
             font_families: vec!["Remedy Sans UI".into()],
             mono_families: vec!["AhmiPrint".into(), "Remedy Sans UI".into()],
             type_scale: TypeScale { small: 12.0, body: 13.0, title: 18.0 },
+            text_scale: 1.0,
             spacing: Spacing { unit: 4.0, control_height: 28.0 },
             radii: Radii { small: 3.0, medium: 6.0, large: 12.0 },
             motion: MotionTokens {

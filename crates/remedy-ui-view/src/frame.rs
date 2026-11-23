@@ -145,10 +145,12 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
     {
         let mut v_ = remedy_ui_text::TextStyle::default();
         v_.families = theme.families(d.resolved.mono, d.resolved.heading);
-        v_.letter_spacing = d.resolved.letter_spacing.px(d.resolved.text_size);
+        // The person's text size scales every text (a theme's `text_scale`, 1 as designed).
+        let size = d.resolved.text_size * theme.text_scale.clamp(0.5, 4.0);
+        v_.letter_spacing = d.resolved.letter_spacing.px(size);
         v_.transform = d.resolved.text_transform;
         v_.line_height = d.resolved.line_height;
-        v_.size = d.resolved.text_size;
+        v_.size = size;
         v_.weight = d.resolved.weight;
         v_.color = d.resolved.foreground;
         v_
