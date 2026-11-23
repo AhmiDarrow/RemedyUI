@@ -7,7 +7,7 @@
 //! `docs/design/15-widgets-and-media.md`.
 //!
 //! - Containers: [`column()`], [`row`], [`wrap`], [`stack`], [`spacer`], [`divider`],
-//!   [`card`], [`section`], [`scroll`], [`split`]
+//!   [`card`], [`section`], [`disclosure`], [`scroll`], [`split`]
 //! - Lists: [`for_each`], [`list`], [`virtual_list`]
 //! - Text: [`text`] (with a variant: `.variant("muted")`), [`heading`], [`link`]
 //! - Actions: [`button`], [`button_dyn`], [`icon_button`], [`toggle_button`], [`menu_button`]
@@ -15,9 +15,9 @@
 //! - Values: [`slider`], [`stepper`]
 //! - Input: [`text_input`], [`text_area`], [`search`], [`secret_input`] with
 //!   [`reveal_toggle`], [`field`]
-//! - Feedback: [`progress`], [`spinner`], [`lamp`], [`badge`], [`toast`], [`empty_state`],
+//! - Feedback: [`progress`], [`spinner`], [`lamp`], [`badge`], [`toast`], [`toast_at`], [`empty_state`],
 //!   [`skeleton`]
-//! - Overlays: [`tooltip`], [`popover`], [`modal`], [`dialog`], [`trusted_prompt`],
+//! - Overlays: [`tooltip`], [`popover`], [`modal`], [`modal_fitted`], [`dialog`], [`trusted_prompt`],
 //!   [`lock_screen`]
 //! - Menus: [`MenuItem`] (commands, check and radio items, submenus, separators, shortcuts,
 //!   icons, access keys), [`menu`], [`context_menu`], [`menu_button`], [`menu_bar`]
@@ -67,8 +67,8 @@ mod values;
 pub use actions::button_dyn;
 pub use actions::{button, icon_button, menu_button, toggle_button};
 pub use choices::{check, chip, radio_group, segmented, segmented_unavailable, select, switch};
-pub use containers::{card, column, divider, row, scroll, section, spacer, split, stack, wrap};
-pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast};
+pub use containers::{card, column, disclosure, divider, row, scroll, section, spacer, split, stack, wrap};
+pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast, toast_at};
 pub use icons::{Icon, avatar, canvas, icon, image, pixel_image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtual_list};
@@ -76,8 +76,8 @@ pub use menu_bar::menu_bar;
 pub use menus::{MenuItem, close_menus_in, context_menu, context_menu_at, menu, menu_press_through};
 pub use overlays::{
     DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, full_text_tooltip,
-    lock_screen, modal, place_at, place_beside, place_near, place_near_within, popover, tooltip,
-    trusted_prompt,
+    lock_screen, modal, modal_fitted, place_at, place_beside, place_near, place_near_within, popover,
+    tooltip, trusted_prompt,
 };
 pub use rejection::Rejection;
 // Kept for apps written against it (FreeSpeak) until the next minor release.

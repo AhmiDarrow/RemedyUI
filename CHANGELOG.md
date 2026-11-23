@@ -20,6 +20,27 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Toasts stack, and can sit in a corner**: toasts showing at the same time used to lie on
+  top of each other at the bottom center. They now share one layer and stack, the newest
+  lowest, and stay above a dialog opened while they show (its scrim used to dim them).
+  `widgets::toast_at` takes the bottom's start, center or end (`toast` stays centered).
+
+- **Grid tiles with their own gap and style variant**: `Tiles::gap` sets the space between a
+  grid's tiles, and `Tiles::variant` the `grid_tile` variant their boxes are styled by, so an
+  app can show a grid of cards and a list of rows (`Tiles::fluid` one column wide) that look
+  different in every state.
+
+- **`widgets::modal_fitted`**: a modal whose content fits itself to the window, for the
+  dialog with a head and a foot that stay while its middle scrolls, or with panes that scroll
+  on their own (settings beside their sections). `modal`'s dialog scrolls as a whole, and
+  what is inside a scroll container never shrinks, so such a dialog lost its foot below a
+  short window.
+
+- **`widgets::disclosure`**: a part that opens and closes under its title, as a page's
+  `<details>` or an expander: a marker and the title in a head that Enter, Space or a click
+  flips, the body shown only while open, and the expanded state told to screen readers.
+  Style it as `disclosure` and `disclosure_head`.
+
 - **Color emoji actually paints**: the rasterizer draws COLRv0/v1, CBDT/CBLC and sbix
   glyphs as premultiplied RGBA (it previously tried to hint an outline, so a thumbs-up
   from Noto Color Emoji or Twemoji was a blank gap even when the text was in the tree).
@@ -1556,6 +1577,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- **Cut text fills its line.** Text cut with "…" (`truncate`, `max_lines`) was cut only
+  inside the last line as wrapping left it, so a path or a long file name, which has few
+  places to wrap, showed as little as `C:…` in a wide box. The cut now also tries the start
+  of the word that wrapping pushed to the next line, as CSS `text-overflow: ellipsis` does:
+  `C:\Users\Admin…`, and `hello world extr…` where it was `hello world…`.
+
+- **Text fields take the theme's text size from their first frame.** A field kept the
+  engine's built-in 14 px until one of its text properties changed, so its text was a
+  different size from the labels around it in any theme whose body size is not 14 (the
+  stock themes' is 13). Fields now start with the style their element has, as text does.
 
 - **A closing tab's last requests** (web): `App::on_leave` never heard `Closing` when a tab
   was really closed in Firefox, and its keepalive requests never left. Firefox cuts off the
