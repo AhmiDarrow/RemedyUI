@@ -188,6 +188,10 @@ pub struct Layer {
     /// The scroll bars a scroll container draws over its content, over its children; `None`
     /// for none.
     pub scrollbars: Option<Scrollbars>,
+    /// Something under the window shows through the layer's box (a page's own `<video>`,
+    /// which the browser composites): the box, with the layer's clip corners, is cleared to
+    /// transparent in place of the layer's content, and what draws after it draws over.
+    pub hole: bool,
 }
 
 /// How a scroll container's scroll bars look and when they show (resolved from the
@@ -294,6 +298,7 @@ impl Layer {
             backdrop: None,
             filters: Vec::new(),
             scrollbars: None,
+            hole: false,
         }
     }
 

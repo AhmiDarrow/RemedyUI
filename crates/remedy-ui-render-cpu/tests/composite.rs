@@ -207,3 +207,29 @@ fn damage_under_glass_matches_a_full_frame_exactly() {
         assert_eq!(worst, 0, "frame {k}: the glass over damage equals a full frame");
     }
 }
+
+#[test]
+fn a_hole_clears_its_box_and_what_draws_after_it_draws_over() {
+    // Page, a hole where a page's video shows, then a control over the hole.
+    let page = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 100.0, 100.0), {
+        let mut l = DisplayList::new();
+        l.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Brush::Solid(Color::BLACK));
+        l
+    });
+    let mut hole = Layer::new(LayerId(2), Rect::new(20.0, 20.0, 80.0, 80.0), DisplayList::new());
+    hole.hole = true;
+    let control = Layer::new(LayerId(3), Rect::new(40.0, 40.0, 60.0, 60.0), {
+        let mut l = DisplayList::new();
+        l.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Brush::Solid(Color::WHITE));
+        l
+    });
+    let mut comp = Compositor::new(100, 100, 1.0, ScrollPhysics::CLAMPED);
+    comp.commit(LayerTree::new(vec![page, hole, control]));
+    let plan = comp.frame(Duration::ZERO);
+    let mut cpu = CpuCompositor::new();
+    let f = cpu.present(&plan, 100, 100, Color::BLACK).unwrap_or_else(|e| unreachable!("{e:?}"));
+    let px = |x: usize, y: usize| f.pixels[(y * 100 + x) * 4..][..4].to_vec();
+    assert_eq!(px(5, 5), vec![0, 0, 0, 255], "the page around it");
+    assert_eq!(px(25, 25), vec![0, 0, 0, 0], "cleared: what is under the window shows");
+    assert_eq!(px(50, 50), vec![255, 255, 255, 255], "the control over it");
+}
