@@ -201,6 +201,137 @@ fn autostart_entries(p: &Project, exe_name: &str) -> String {
     )
 }
 
+/// Keeps an earlier install's desktop shortcut when `[windows.replaces]` removes it.
+fn replaces_icons(p: &Project, exe_name: &str) -> String {
+    if p.windows_replaces.is_none() {
+        return String::new();
+    }
+    format!(
+        "Name: \"{{autodesktop}}\\{}\"; Filename: \"{{app}}\\{exe_name}\"; Check: HadOldDesktopIcon\n",
+        iss_string(&p.name)
+    )
+}
+
+/// The `[Code]` that takes over `[windows.replaces]`. Before anything is installed it waits
+/// for the old program to close (its updater starts this setup, then quits), uninstalls a
+/// per-machine MSI build with `msiexec`, then removes only the per-user build's named files,
+/// its shortcuts and keys. The app's data lives elsewhere and is never touched. Setup stops,
+/// with the old install still working, if the program stays open or the MSI uninstall fails.
+fn replaces_code(p: &Project) -> String {
+    let Some(r) = &p.windows_replaces else { return String::new() };
+    const CODE: &str = r#"[Code]
+const
+  UninstallRoot = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+  OldUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\@KEY@';
+var
+  OldDir: String;
+  OldMsi: String;
+  OldDesktop: Boolean;
+
+// The product code of a per-machine MSI build named @MSI@, or ''.
+function FindOldMsi(): String;
+var
+  Names: TArrayOfString;
+  I: Integer;
+  Name: String;
+  IsMsi: Cardinal;
+begin
+  Result := '';
+  if (@MSI_WANTED@) and RegGetSubkeyNames(HKLM64, UninstallRoot, Names) then
+    for I := 0 to GetArrayLength(Names) - 1 do
+      if RegQueryStringValue(HKLM64, UninstallRoot + '\' + Names[I], 'DisplayName', Name) and (Name = '@MSI@')
+        and RegQueryDWordValue(HKLM64, UninstallRoot + '\' + Names[I], 'WindowsInstaller', IsMsi) and (IsMsi = 1) then
+      begin
+        Result := Names[I];
+        Exit;
+      end;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  if RegQueryStringValue(HKCU, OldUninstallKey, 'InstallLocation', OldDir) then
+    OldDir := RemoveBackslashUnlessRoot(RemoveQuotes(OldDir))
+  else
+    OldDir := '';
+  OldMsi := FindOldMsi();
+  OldDesktop := ((OldDir <> '') or (OldMsi <> '')) 
+    and (FileExists(ExpandConstant('{userdesktop}') + '\@NAME@.lnk') or FileExists(ExpandConstant('{commondesktop}') + '\@NAME@.lnk'));
+  Result := True;
+end;
+
+function HadOldDesktopIcon(): Boolean;
+begin
+  Result := OldDesktop;
+end;
+
+// False once the person gives up waiting (or at once when setup is silent).
+function KeepWaiting(var Tries: Integer): Boolean;
+begin
+  Result := True;
+  Tries := Tries + 1;
+  if Tries < 40 then
+    Sleep(250)
+  else if WizardSilent() or (SuppressibleMsgBox('Close @NAME@ (in the tray too), then press Retry.', mbError, MB_RETRYCANCEL, IDRETRY) <> IDRETRY) then
+    Result := False
+  else
+    Tries := 0;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Tries: Integer;
+  Code: Integer;
+begin
+  Result := '';
+  if (OldDir = '') and (OldMsi = '') then
+    Exit;
+  Tries := 0;
+  while (@MUTEX_WANTED@) and CheckForMutexes('@MUTEX@') do
+    if not KeepWaiting(Tries) then
+    begin
+      Result := '@NAME@ is still running. Close it and run setup again.';
+      Exit;
+    end;
+  if OldMsi <> '' then
+  begin
+    // 0 removed, 1605 already gone, 3010 removed once Windows restarts.
+    if not Exec(ExpandConstant('{sys}\msiexec.exe'), '/x ' + OldMsi + ' /passive /norestart', '', SW_SHOW, ewWaitUntilTerminated, Code)
+      or ((Code <> 0) and (Code <> 1605) and (Code <> 3010)) then
+    begin
+      Result := 'The earlier @NAME@ installed for all users was not removed (Windows Installer code ' + IntToStr(Code) + '). Your notes are untouched; run setup again.';
+      Exit;
+    end;
+  end;
+  if OldDir = '' then
+    Exit;
+  Tries := 0;
+  while FileExists(OldDir + '\@PROGRAM@') and not DeleteFile(OldDir + '\@PROGRAM@') do
+    if not KeepWaiting(Tries) then
+    begin
+      Result := '@NAME@ is still running. Close it and run setup again.';
+      Exit;
+    end;
+@DELETE_FILES@  // Only if nothing else is left in it.
+  RemoveDir(OldDir);
+  DeleteFile(ExpandConstant('{userprograms}') + '\@NAME@.lnk');
+  DeleteFile(ExpandConstant('{userdesktop}') + '\@NAME@.lnk');
+  RegDeleteKeyIncludingSubkeys(HKCU, OldUninstallKey);
+@DELETE_KEYS@end;
+"#;
+    // Pascal strings: a quote is doubled. The names in `r` were checked to hold none.
+    let files: String = r.files[1..].iter().map(|f| format!("  DeleteFile(OldDir + '\\{f}');\n")).collect();
+    let keys: String = r.registry.iter().map(|k| format!("  RegDeleteKeyIncludingSubkeys(HKCU, '{k}');\n")).collect();
+    CODE.replace("@KEY@", &r.uninstall_key)
+        .replace("@MSI_WANTED@", if r.msi_name.is_some() { "True" } else { "False" })
+        .replace("@MSI@", r.msi_name.as_deref().unwrap_or(""))
+        .replace("@MUTEX_WANTED@", if r.mutex.is_some() { "True" } else { "False" })
+        .replace("@MUTEX@", r.mutex.as_deref().unwrap_or(""))
+        .replace("@PROGRAM@", &r.files[0])
+        .replace("@DELETE_FILES@", &files)
+        .replace("@DELETE_KEYS@", &keys)
+        .replace("@NAME@", &p.name.replace('\'', "''"))
+}
+
 /// The Inno Setup script: a per-user install with a Start menu entry and an uninstaller.
 pub fn inno_script(p: &Project, exe: &Path, ico: &Path, out: &Path, base: &str) -> String {
     let exe_name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -234,10 +365,13 @@ Source: "{exe}"; DestDir: "{{app}}"; Flags: ignoreversion
 [Icons]
 Name: "{{autoprograms}}\{name}"; Filename: "{{app}}\{exe_name}"
 Name: "{{autodesktop}}\{name}"; Filename: "{{app}}\{exe_name}"; Tasks: desktopicon
-
+{replaces_icons}
 {autostart_entries}[Run]
 Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall skipifsilent
-"#,
+
+{replaces_code}"#,
+        replaces_icons = replaces_icons(p, &exe_name),
+        replaces_code = replaces_code(p),
         autostart_task = autostart_task(p),
         autostart_entries = autostart_entries(p, &exe_name),
         // Inno takes AppId literally; braces would start a constant.
@@ -326,6 +460,7 @@ mod tests {
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
             windows_autostart: None,
+            windows_replaces: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
             android_target: "aarch64-linux-android".into(),
@@ -404,5 +539,36 @@ mod tests {
             iss.contains(r#"Name: "{userstartup}\Notes, ""Plus"".lnk"; Tasks: startup"#),
             "never a second start: {iss}"
         );
+        assert!(!iss.contains("[Code]") && !iss.contains("HadOldDesktopIcon"), "no takeover unless asked");
+    }
+
+    #[test]
+    fn a_replaced_install_loses_only_its_named_files_and_keys() {
+        let mut p = project();
+        p.name = "Notes".into();
+        p.windows_replaces = Some(crate::project::Replaces {
+            uninstall_key: "Notes".into(),
+            files: vec!["notes.exe".into(), "uninstall.exe".into()],
+            registry: vec![r"Software\maker\Notes".into()],
+            mutex: Some("notes-running".into()),
+            msi_name: Some("Notes".into()),
+        });
+        let iss =
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        for want in [
+            r"OldUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Notes';",
+            r"while FileExists(OldDir + '\notes.exe') and not DeleteFile(OldDir + '\notes.exe') do",
+            r"DeleteFile(OldDir + '\uninstall.exe');",
+            "RemoveDir(OldDir);",
+            "while (True) and CheckForMutexes('notes-running') do",
+            "and (Name = 'Notes')",
+            "'/x ' + OldMsi + ' /passive /norestart'",
+            r"DeleteFile(ExpandConstant('{userprograms}') + '\Notes.lnk');",
+            r"RegDeleteKeyIncludingSubkeys(HKCU, 'Software\maker\Notes');",
+            r#"Name: "{autodesktop}\Notes"; Filename: "{app}\notes.exe"; Check: HadOldDesktopIcon"#,
+        ] {
+            assert!(iss.contains(want), "{want}\n{iss}");
+        }
+        assert!(!iss.contains("DelTree") && !iss.contains("{userappdata}"), "never the data: {iss}");
     }
 }
