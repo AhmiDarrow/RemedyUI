@@ -205,8 +205,9 @@ pub fn segmented_unavailable(
 /// Its value and chevron sit centered, as a button's label does; `.justify(Justify::Start)`
 /// puts the value at the start, and `Justify::SpaceBetween` the chevron at the end too.
 #[track_caller]
-pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected: Signal<usize>) -> El {
-    let label = label.into();
+pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selected: Signal<usize>) -> El {
+    // A label that follows state (an app switching language) is read in the binding below.
+    let label = label.into_prop();
     let n = options.len();
     let ui2 = ui.clone();
     let opts = options.clone();
@@ -244,7 +245,7 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
         let _ = shown.clone().text(remedy_ui_view::RichText::plain(v.clone()));
         let _ = b2.clone().semantics(
             Semantics::new(Role::ComboBox)
-                .label(label.clone())
+                .label(label.get())
                 .value(v)
                 .has_popup(remedy_ui_a11y::Popup::ListBox)
                 .expanded(open.get())
