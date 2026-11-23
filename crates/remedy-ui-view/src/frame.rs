@@ -1897,6 +1897,7 @@ fn collect_ids(l: &Layer) -> std::collections::HashSet<LayerId> {
 fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
     let root = i.tree.root();
     let mut stack = vec![root];
+    let mut seen = std::collections::HashSet::new();
     while let Some(id) = stack.pop() {
         let mut kids = i.tree.children(id);
         let Some(d) = i.els.get(&id) else { continue };
@@ -1904,11 +1905,16 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
         kids.retain(|k| i.els.get(k).is_none_or(|kd| !kd.hidden));
         let bounds = i.tree.bounds(id).unwrap_or(Rect::ZERO);
         let s = composed_semantics(d, id == root, i.tree.is_focusable(id), i.pseudo);
-        i.a11y.set(root_key(id), s.bounds(bounds));
+        let key = root_key(id);
+        seen.insert(key);
+        i.a11y.set(key, s.bounds(bounds));
         let child_keys: Vec<u64> = kids.iter().map(|k| root_key(*k)).collect();
-        i.a11y.set_children(root_key(id), &child_keys);
+        i.a11y.set_children(key, &child_keys);
         stack.extend(kids);
     }
+    // Elements that left (or went hidden) must leave the AccessKit tree too; otherwise a
+    // later update can focus or send a node the consumer has just dropped, and unwrap.
+    i.a11y.retain(|id| seen.contains(&id));
     // With nothing focused, accessibility focus is the window (not the element that last
     // had focus).
     let focus = i.tree.focused().unwrap_or(root);

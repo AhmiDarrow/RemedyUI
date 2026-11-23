@@ -639,13 +639,29 @@ impl A11yTree {
 
     /// Removes an element (its parent's child list is updated by `set_children`).
     pub fn remove(&mut self, id: u64) {
+        if self.focus == id {
+            // A focus id the consumer cannot look up panics in accesskit_consumer.
+            self.focus = self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
+            self.mark(self.focus);
+        }
         self.nodes.remove(&id);
         self.parents.remove(&id);
         self.dirty.remove(&id);
     }
 
-    /// Moves accessibility focus.
+    /// Drops every node `keep` rejects, except the root. Used by the view to prune elements
+    /// that left the tree so a later update cannot name them as focus or send them as orphans.
+    pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+        let drop: Vec<u64> = self.nodes.keys().copied().filter(|&id| id != self.root && !keep(id)).collect();
+        for id in drop {
+            self.remove(id);
+        }
+    }
+
+    /// Moves accessibility focus. An id that is not in the tree falls back to the root,
+    /// so a later update cannot point AccessKit at a missing node.
     pub fn set_focus(&mut self, id: u64) {
+        let id = if self.nodes.contains_key(&id) { id } else { self.root };
         if self.focus == id {
             return;
         }
@@ -949,6 +965,25 @@ impl A11yTree {
         out
     }
 
+    /// True when `id` is in the tree (each parent up to the root lists it). Hidden nodes
+    /// still count: they are sent to AccessKit as hidden, not dropped.
+    fn attached(&self, id: u64) -> bool {
+        let mut cur = id;
+        loop {
+            if !self.nodes.contains_key(&cur) {
+                return false;
+            }
+            if cur == self.root {
+                return true;
+            }
+            let Some(&p) = self.parents.get(&cur) else { return false };
+            if !self.nodes.get(&p).is_some_and(|(_, kids)| kids.contains(&cur)) {
+                return false;
+            }
+            cur = p;
+        }
+    }
+
     /// True when `id` is in the tree (each parent up to the root lists it) and neither it nor
     /// an ancestor is hidden.
     fn showing(&self, id: u64) -> bool {
@@ -1008,11 +1043,22 @@ impl A11yTree {
             // The walk never goes into a merging element: nothing in it is merged away.
             (all, HashMap::new())
         };
+        self.focus = self.resolved_focus();
+        // Orphan dirty nodes must not go in the same update as a parent that dropped them:
+        // accesskit_consumer then both "updates" and removes the id, and unwraps at tree.rs:647.
         let nodes: Vec<(NodeId, Node)> = ids
             .into_iter()
             .filter(|id| !inside.get(id).copied().unwrap_or(false))
+            .filter(|id| self.attached(*id))
             .filter_map(|id| self.build(id).map(|n| (NodeId(id), n)))
             .collect();
+        // The consumer panics if `focus` names a node that is in neither this update nor the
+        // tree it already has. An attached, buildable node was sent earlier or is here; if
+        // ours is not, fall back to the window. Do not re-send the focused node just because
+        // it has focus: that would turn a no-op frame into a root-only update.
+        if !self.attached(self.focus) || self.build(self.focus).is_none() {
+            self.focus = self.root;
+        }
         if nodes.is_empty() && self.sent_once {
             return None;
         }
@@ -1023,6 +1069,24 @@ impl A11yTree {
         });
         self.sent_once = true;
         Some(TreeUpdate { nodes, tree, tree_id: TreeId::ROOT, focus: NodeId(self.focus) })
+    }
+
+    /// A node the AccessKit consumer can look up: attached to the root and not merged away.
+    /// Otherwise the nearest exposed ancestor, or the window.
+    fn resolved_focus(&self) -> u64 {
+        let mut cur = self.focus;
+        // A cycle or a long parent chain must not loop; the root is always a safe landing.
+        for _ in 0..self.nodes.len().saturating_add(1) {
+            if cur == self.root {
+                return self.root;
+            }
+            let merge = self.nodes.get(&cur).is_some_and(|(s, _)| s.merge);
+            if self.attached(cur) && !merge {
+                return cur;
+            }
+            cur = self.parents.get(&cur).copied().unwrap_or(self.root);
+        }
+        self.root
     }
 }
 

@@ -319,3 +319,89 @@ fn an_open_modal_makes_the_rest_of_the_window_inert() {
     assert!(node(&u, 2).is_some_and(|n| !n.is_hidden()), "the page is back");
     assert!(!t.is_inert(2));
 }
+
+struct SilentConsumer;
+
+impl accesskit_consumer::TreeChangeHandler for SilentConsumer {
+    fn node_added(&mut self, _: &accesskit_consumer::NodeRef<'_>) {}
+    fn node_updated(&mut self, _: &accesskit_consumer::NodeRef<'_>, _: &accesskit_consumer::NodeRef<'_>) {}
+    fn focus_moved(
+        &mut self,
+        _: Option<&accesskit_consumer::NodeRef<'_>>,
+        _: Option<&accesskit_consumer::NodeRef<'_>>,
+    ) {
+    }
+    fn node_removed(&mut self, _: &accesskit_consumer::NodeRef<'_>) {}
+}
+
+fn apply(tree: &mut accesskit_consumer::Tree, update: accesskit::TreeUpdate) {
+    tree.update_and_process_changes(update, &mut SilentConsumer);
+}
+
+#[test]
+fn focus_falls_back_to_the_root_when_the_focused_node_is_removed() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("App"));
+    t.set(2, Semantics::new(Role::TextInput).label("Search"));
+    t.set_children(1, &[2]);
+    t.set_focus(2);
+    t.connect();
+    let first = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(first.focus, NodeId(2));
+    let mut consumer = accesskit_consumer::Tree::new(first, true);
+    t.remove(2);
+    t.set_children(1, &[]);
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    assert_eq!(u.focus, NodeId(1), "focus follows the removed node back to the window");
+    assert!(node(&u, 2).is_none(), "the removed field is not sent");
+    apply(&mut consumer, u);
+}
+
+#[test]
+fn opening_a_palette_and_resizing_does_not_send_a_stale_focus_id() {
+    // The focused field (id 3) is lower than its parent (id 10). When the command palette
+    // replaces that field, an incremental update that still named 3 as focus *and* sent it
+    // as a dirty node — then dropped it from the parent's children — made
+    // accesskit_consumer unwrap at tree.rs:647.
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("App"));
+    t.set(10, Semantics::new(Role::Group).label("Main"));
+    t.set(3, Semantics::new(Role::TextInput).label("Prompt"));
+    t.set_children(1, &[10]);
+    t.set_children(10, &[3]);
+    t.set_focus(3);
+    t.connect();
+    let first = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(first.focus, NodeId(3));
+    let mut consumer = accesskit_consumer::Tree::new(first, true);
+
+    // Palette opens and the window resizes: the old field stays dirty and focused, but is
+    // no longer a child of anyone; a new search box appears under a new parent.
+    t.set(3, Semantics::new(Role::TextInput).label("Prompt"));
+    t.set(20, Semantics::new(Role::Dialog).label("Command palette"));
+    t.set(5, Semantics::new(Role::SearchInput).label("Search"));
+    t.set_children(1, &[10, 20]);
+    t.set_children(10, &[]);
+    t.set_children(20, &[5]);
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    let ids: Vec<NodeId> = u.nodes.iter().map(|(id, _)| *id).collect();
+    assert_ne!(u.focus, NodeId(3), "unparented focus must not stay on the missing field");
+    assert!(!ids.contains(&NodeId(3)), "the unparented field is not sent as an update");
+    assert!(
+        ids.contains(&u.focus) || u.focus == NodeId(1) || u.focus == NodeId(10),
+        "focus {focus:?} must be a node the consumer already has or receives, ids={ids:?}",
+        focus = u.focus
+    );
+    apply(&mut consumer, u);
+
+    // Focus moves to the new search field; a resize dirties the live nodes again.
+    t.set_focus(5);
+    t.set(1, Semantics::new(Role::Window).label("App"));
+    t.set(10, Semantics::new(Role::Group).label("Main"));
+    t.set(20, Semantics::new(Role::Dialog).label("Command palette"));
+    t.set(5, Semantics::new(Role::SearchInput).label("Search"));
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    assert_eq!(u.focus, NodeId(5));
+    assert!(node(&u, 5).is_some(), "the focused search field is in the update");
+    apply(&mut consumer, u);
+}
