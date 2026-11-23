@@ -2,7 +2,8 @@
 //!
 //! Each family is a Cargo feature, so an app carries only the faces it uses. Remedy Sans UI
 //! and Remedy Symbols are on by default. The fonts are the hinted TrueType builds from their own repositories and
-//! are licensed under the SIL Open Font License 1.1 (see `fonts/OFL-*.txt`); this crate's
+//! are licensed under the SIL Open Font License 1.1 (see `fonts/OFL-*.txt`); Twemoji Mozilla
+//! is CC-BY-4.0 artwork with Apache-2.0 font tooling (see `fonts/CC-BY-Twemoji.txt`); this crate's
 //! code is MIT OR Apache-2.0.
 //!
 //! | Feature | Family | Faces |
@@ -12,6 +13,7 @@
 //! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Light, Semilight, Regular, Semibold, Bold |
 //! | `ahmi-pixel` | Ahmi Pixel: pixel face | Regular, Bold |
 //! | `remedy-symbols` (default) | Remedy Symbols: interface symbols the text faces lack, for fallback (9 KB) | Regular |
+//! | `twemoji` (default) | Twemoji Mozilla: color emoji fallback, COLRv0 (1.4 MB) | Regular |
 //! | `noto-arabic` | Noto Sans Arabic: Arabic, Persian and Urdu letters, digits and marks, for fallback | Regular, Bold |
 //! | `noto-devanagari` | Noto Sans Devanagari: Hindi, Marathi, Nepali and the other Devanagari languages, for fallback | Regular, Bold |
 //! | `noto-bengali` | Noto Sans Bengali: Bengali and Assamese, for fallback | Regular, Bold |
@@ -167,6 +169,10 @@ pub const AHMI_PIXEL: &[Face] =
 #[cfg(feature = "remedy-symbols")]
 pub const REMEDY_SYMBOLS: &[Face] = &[face!("Remedy Symbols", 400, "RemedySymbols-Regular.ttf")];
 
+/// Twemoji Mozilla, the bundled color emoji fallback (COLRv0).
+#[cfg(feature = "twemoji")]
+pub const TWEMOJI_MOZILLA: &[Face] = &[face!("Twemoji Mozilla", 400, "TwemojiMozilla.ttf")];
+
 /// Every character Remedy Symbols has, in code point order.
 #[cfg(feature = "remedy-symbols")]
 pub const SYMBOL_CHARS: &str =
@@ -247,7 +253,7 @@ pub fn needs(family: &str) -> Option<fn(char) -> bool> {
 /// True for a face that is only a fallback for scripts the text faces lack (the Noto
 /// script faces and Remedy Symbols), not a face to set text in.
 pub fn is_fallback_only(family: &str) -> bool {
-    family == "Remedy Symbols" || family.starts_with("Noto Sans ")
+    family == "Remedy Symbols" || family == "Twemoji Mozilla" || family.starts_with("Noto Sans ")
 }
 
 /// Every face compiled into this build (the enabled features).
@@ -264,6 +270,8 @@ pub fn all() -> Vec<&'static Face> {
     out.extend(AHMI_PIXEL);
     #[cfg(feature = "remedy-symbols")]
     out.extend(REMEDY_SYMBOLS);
+    #[cfg(feature = "twemoji")]
+    out.extend(TWEMOJI_MOZILLA);
     #[cfg(feature = "noto-arabic")]
     out.extend(NOTO_SANS_ARABIC);
     #[cfg(feature = "noto-devanagari")]
