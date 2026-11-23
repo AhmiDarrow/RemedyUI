@@ -220,6 +220,7 @@ impl PaintCx<'_> {
         origin: remedy_ui_core::Point,
         color: remedy_ui_core::Color,
     ) {
+        crate::frame::span_backgrounds(self.list, paragraph, origin);
         crate::frame::glyphs(self.list, paragraph, origin, color);
     }
 

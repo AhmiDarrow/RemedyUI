@@ -383,3 +383,164 @@ fn a_word_longer_than_its_line_breaks_inside_the_width() {
     );
     assert!(words.width() <= 60.5);
 }
+
+fn covers(text: &str, lines: &[LineInfo]) {
+    let mut at = 0;
+    for line in lines {
+        assert_eq!(line.range.start, at, "a gap or an overlap at {at}: {lines:?}");
+        assert!(line.range.end <= text.len());
+        at = line.range.end;
+    }
+    assert_eq!(at, text.len());
+}
+
+/// Arrow keys visit every original boundary once. A chip's padding is an extra cluster, so a
+/// step that stops there would repeat a position or skip a letter.
+fn arrows_visit_every_boundary(p: &Paragraph, len: usize) {
+    let mut pos = TextPosition::default();
+    let mut seen = vec![pos.index];
+    for _ in 0..len + 8 {
+        let next = p.move_visual(pos, true);
+        if next == pos {
+            break;
+        }
+        if next.index != pos.index {
+            assert!(next.index > pos.index, "left to right moves forward: {pos:?} -> {next:?}");
+            seen.push(next.index);
+        }
+        pos = next;
+    }
+    assert_eq!(seen, (0..=len).collect::<Vec<_>>(), "every boundary, once");
+    let end = TextPosition { index: len, affinity: Affinity::Upstream };
+    let mut pos = end;
+    let mut back = vec![pos.index];
+    for _ in 0..len + 8 {
+        let next = p.move_visual(pos, false);
+        if next == pos {
+            break;
+        }
+        if next.index != pos.index {
+            assert!(next.index < pos.index, "moving left goes back: {pos:?} -> {next:?}");
+            back.push(next.index);
+        }
+        pos = next;
+    }
+    back.reverse();
+    assert_eq!(back, (0..=len).collect::<Vec<_>>());
+}
+
+#[test]
+#[allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "the chip fixture is built in this test and then indexed"
+)]
+fn a_span_background_paints_a_chip_around_the_callers_text() {
+    let mut e = engine();
+    let color = remedy_ui_core::Color::rgb8(40, 40, 48);
+    let chip = SpanBackground::chip(color, 14.0);
+    let text = RichText::new().text("use ").styled("code", TextStylePatch::background(chip)).text(" here");
+    let src = text.as_str();
+    let code_at = src.find("code").expect("code");
+    let plain = e.layout(&RichText::plain(src), &TextStyle::default(), opts(None));
+    let p = e.layout(&text, &TextStyle::default(), opts(None));
+    covers(src, &p.lines());
+    let side = 14.0 * 0.4;
+    assert!(
+        (p.width() - plain.width() - 2.0 * side).abs() < 1.5,
+        "two sides of room: {} vs {}",
+        p.width(),
+        plain.width()
+    );
+
+    let runs = p.glyph_runs();
+    let code = runs.iter().find(|r| r.range == (code_at..code_at + 4)).expect("the code run");
+    let bg = code.background.expect("a chip");
+    assert_eq!(bg.color, color);
+    assert!((bg.radius - 4.0).abs() < 0.01);
+    let word = e.layout(&RichText::plain("code"), &TextStyle::default(), opts(None)).width();
+    assert!(
+        (bg.rect.width() - word - 2.0 * side).abs() < 1.5,
+        "the fill is the word plus its side room: {} vs {}",
+        bg.rect.width(),
+        word + 2.0 * side
+    );
+    let before = runs.iter().find(|r| r.range.end == code_at).expect("the words before");
+    let before_right =
+        before.glyphs.last().map(|g| g.x).unwrap_or(0.0) + before.advances.last().copied().unwrap_or(0.0);
+    assert!(
+        before_right <= bg.rect.min.x + 0.6,
+        "the chip starts after 'use ': {before_right} {:?}",
+        bg.rect
+    );
+    let first = code.glyphs.first().map(|g| g.x).unwrap_or(0.0);
+    assert!(first >= bg.rect.min.x + side - 1.0, "the word sits inside the side room: {first} {:?}", bg.rect);
+    assert!(p.inline_objects().is_empty(), "padding is not one of the caller's objects");
+
+    // A point on the word, and one in the side room, both belong to the caller's text.
+    let mid = p.hit_test(Point::new((bg.rect.min.x + bg.rect.max.x) / 2.0, bg.rect.center().y));
+    assert!(code.range.contains(&mid.index), "{mid:?} on {code:?}");
+    let edge = p.hit_test(Point::new(bg.rect.min.x + 0.5, bg.rect.center().y));
+    assert_eq!(edge.index, code_at, "the side room is the span's edge: {edge:?}");
+    arrows_visit_every_boundary(&p, src.len());
+    let sel = p.selection_rects(code.range.clone());
+    assert_eq!(sel.len(), 1, "{sel:?}");
+    let last = code.glyphs.last().map(|g| g.x).unwrap_or(0.0) + code.advances.last().copied().unwrap_or(0.0);
+    assert!(
+        sel[0].min.x <= first + 0.6 && sel[0].max.x >= last - 0.6,
+        "the highlight covers the word: {sel:?}"
+    );
+    assert!(
+        sel[0].min.x >= bg.rect.min.x - 0.6 && sel[0].max.x <= bg.rect.max.x + 0.6,
+        "and stays inside the chip: {sel:?} {bg:?}"
+    );
+
+    // Block padding is paint only: the line stays as tall, the fill grows.
+    let tall = SpanBackground::new(color).padding_block(4.0).radius(2.0);
+    let flat = SpanBackground::new(color);
+    let tall_p = e.layout(
+        &RichText::new().styled("code", TextStylePatch::background(tall)),
+        &TextStyle::default(),
+        opts(None),
+    );
+    let flat_p = e.layout(
+        &RichText::new().styled("code", TextStylePatch::background(flat)),
+        &TextStyle::default(),
+        opts(None),
+    );
+    assert!((tall_p.width() - flat_p.width()).abs() < 0.6, "no side room, no extra width");
+    assert!((tall_p.height() - flat_p.height()).abs() < 0.6, "block padding does not change the line");
+    let tall_h = tall_p.glyph_runs()[0].background.expect("tall").rect.height();
+    let flat_h = flat_p.glyph_runs()[0].background.expect("flat").rect.height();
+    assert!((tall_h - flat_h - 8.0).abs() < 0.6, "4px above and below: {tall_h} vs {flat_h}");
+
+    // A link and a chip share a run. A caller's own object keeps its id.
+    let mut linked = TextStylePatch::link(7);
+    linked.background = Some(chip);
+    let mixed = RichText::new()
+        .text("a")
+        .object(InlineObject { id: 7, width: 12.0, height: 12.0, baseline: None })
+        .styled("code", linked);
+    let mixed_p = e.layout(&mixed, &TextStyle::default(), opts(None));
+    let link = mixed_p.glyph_runs().into_iter().find(|r| r.link == Some(7));
+    assert!(link.is_some_and(|r| r.background.is_some()), "the link is also a chip");
+    let ids: Vec<u64> = mixed_p.inline_objects().into_iter().map(|(id, _)| id).collect();
+    assert_eq!(ids, vec![7], "the pad is not reported: {ids:?}");
+
+    // Wrapped, the pieces still cover the original text and the chip still has a fill.
+    let wrapped = e.layout(&text, &TextStyle::default(), opts(Some(plain.width() * 0.55)));
+    assert!(wrapped.lines().len() >= 2, "{}", wrapped.lines().len());
+    covers(src, &wrapped.lines());
+    assert!(wrapped.glyph_runs().iter().any(|r| r.range == (code_at..code_at + 4) && r.background.is_some()));
+    arrows_visit_every_boundary(&wrapped, src.len());
+
+    // The same room at a device scale, still in logical pixels.
+    let scaled = e.layout(&text, &TextStyle::default(), at_scale(None, 2.0));
+    let scaled_bg = scaled
+        .glyph_runs()
+        .into_iter()
+        .find(|r| r.range == (code_at..code_at + 4))
+        .and_then(|r| r.background)
+        .expect("scaled chip");
+    assert!((scaled_bg.rect.width() - bg.rect.width()).abs() < 1.0, "{scaled_bg:?} vs {bg:?}");
+}

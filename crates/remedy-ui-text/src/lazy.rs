@@ -367,6 +367,15 @@ fn same_line(a: &Piece, ai: usize, a0: usize, b: &Piece, bi: usize, b0: usize) -
                 && x.clusters.iter().zip(&y.clusters).all(|(p, q)| p + a0 == q + b0)
                 && near_rect(x.underline, y.underline)
                 && near_rect(x.strikethrough, y.strikethrough)
+                && match (&x.background, &y.background) {
+                    (None, None) => true,
+                    (Some(p), Some(q)) => {
+                        p.color == q.color
+                            && near(p.radius, q.radius)
+                            && near_rect(Some(p.rect), Some(q.rect))
+                    }
+                    _ => false,
+                }
         })
 }
 
@@ -392,6 +401,9 @@ fn shift_run(mut r: GlyphRunInfo, at: usize, dy: f32) -> GlyphRunInfo {
     }
     r.underline = r.underline.map(|u| shift_rect(u, dy));
     r.strikethrough = r.strikethrough.map(|u| shift_rect(u, dy));
+    if let Some(bg) = r.background.as_mut() {
+        bg.rect = shift_rect(bg.rect, dy);
+    }
     r
 }
 

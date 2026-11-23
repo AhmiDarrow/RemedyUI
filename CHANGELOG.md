@@ -14,6 +14,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Filled span backgrounds**: `SpanBackground` (color, inline and block padding, corner radius)
+  paints behind a span, the way an inline code chip does. Set it with
+  `TextStylePatch::background` or `TextStyle::background`. Inline padding is laid out, so the
+  chip is wider than its glyphs and does not cover the words beside it; block padding is
+  painted and does not change the line height. `SpanBackground::chip(color, font_size)` is the
+  compact chip (0.4em on each side, 0.12em above and below, corners of 4).
+
 - **Web view script, user agent and DevTools**: `WebView::eval` runs a script and calls back
   once with JSON text (WebView2's `ExecuteScript` shape; WebKitGTK is wrapped so the text
   matches, `undefined` included). `WebView::set_user_agent` sets the page's user agent, and
