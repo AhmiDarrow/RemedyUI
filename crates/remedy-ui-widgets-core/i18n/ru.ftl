@@ -93,3 +93,7 @@ icon-forward-10 = Вперёд на 10 секунд
 icon-home = Главная
 icon-image = Изображение
 icon-selected = Выбрано
+icon-microphone = Микрофон
+icon-paperclip = Скрепка
+icon-stop = Стоп
+icon-star = Звезда

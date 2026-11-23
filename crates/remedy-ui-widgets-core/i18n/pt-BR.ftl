@@ -93,3 +93,7 @@ icon-forward-10 = Avançar 10 segundos
 icon-home = Início
 icon-image = Imagem
 icon-selected = Selecionado
+icon-microphone = Microfone
+icon-paperclip = Clipe
+icon-stop = Parar
+icon-star = Estrela

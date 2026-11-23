@@ -139,6 +139,14 @@ pub enum Icon {
     Image,
     /// A dot: the mark of a chosen radio item in a menu.
     Dot,
+    /// A microphone: record a voice message.
+    Mic,
+    /// A paperclip: attach a file.
+    Paperclip,
+    /// A rounded square: stop a running action.
+    Stop,
+    /// A five-pointed star: mark a favorite or pin.
+    Star,
 }
 
 impl Icon {
@@ -237,6 +245,10 @@ impl Icon {
             Icon::Home => "Home",
             Icon::Image => "Image",
             Icon::Dot => "Selected",
+            Icon::Mic => "Microphone",
+            Icon::Paperclip => "Paperclip",
+            Icon::Stop => "Stop",
+            Icon::Star => "Star",
         }
     }
 
@@ -314,6 +326,10 @@ impl Icon {
             Icon::Home => "icon-home",
             Icon::Image => "icon-image",
             Icon::Dot => "icon-selected",
+            Icon::Mic => "icon-microphone",
+            Icon::Paperclip => "icon-paperclip",
+            Icon::Stop => "icon-stop",
+            Icon::Star => "icon-star",
         }
     }
 }
@@ -703,6 +719,50 @@ fn strokes(icon: Icon) -> Path {
                 circle(&mut s, p(12.0, 12.0), r);
             }
         }
+        Icon::Mic => {
+            // Capsule body, a U-shaped yoke, a short stand and a base.
+            arc(&mut s, p(12.0, 6.0), 4.0, PI, 2.0 * PI);
+            s.move_to(p(16.0, 6.0)).line_to(p(16.0, 11.0));
+            arc(&mut s, p(12.0, 11.0), 4.0, 0.0, PI);
+            s.move_to(p(8.0, 11.0)).line_to(p(8.0, 6.0));
+            arc(&mut s, p(12.0, 11.0), 7.0, 0.0, PI);
+            s.move_to(p(12.0, 18.0)).line_to(p(12.0, 21.0));
+            s.move_to(p(8.0, 21.0)).line_to(p(16.0, 21.0));
+        }
+        Icon::Paperclip => {
+            // Inner tip, up the inner wire, tight top, down, wider bottom, up the outer wire.
+            s.move_to(p(15.0, 15.5)).line_to(p(15.0, 7.0));
+            arc(&mut s, p(12.0, 7.0), 3.0, 0.0, -PI);
+            s.line_to(p(9.0, 17.0));
+            arc(&mut s, p(13.0, 17.0), 4.0, PI, 2.0 * PI);
+            s.line_to(p(17.0, 6.5));
+        }
+        Icon::Stop => {
+            // A rounded square, distinct from the sharp Maximize box.
+            s.move_to(p(8.0, 6.0)).line_to(p(16.0, 6.0));
+            arc(&mut s, p(16.0, 8.0), 2.0, -PI * 0.5, 0.0);
+            s.line_to(p(18.0, 16.0));
+            arc(&mut s, p(16.0, 16.0), 2.0, 0.0, PI * 0.5);
+            s.line_to(p(8.0, 18.0));
+            arc(&mut s, p(8.0, 16.0), 2.0, PI * 0.5, PI);
+            s.line_to(p(6.0, 8.0));
+            arc(&mut s, p(8.0, 8.0), 2.0, PI, PI * 1.5);
+            s.close();
+        }
+        Icon::Star => {
+            let (cx, cy, ro, ri) = (12.0, 12.2, 9.5, 3.8);
+            for i in 0..10 {
+                let a = -PI * 0.5 + i as f32 * PI * 0.2;
+                let r = if i % 2 == 0 { ro } else { ri };
+                let pt = p(cx + r * a.cos(), cy + r * a.sin());
+                if i == 0 {
+                    s.move_to(pt);
+                } else {
+                    s.line_to(pt);
+                }
+            }
+            s.close();
+        }
         Icon::Captions => {
             rect(&mut s, 3.0, 5.0, 21.0, 19.0);
             s.move_to(p(6.5, 11.0)).line_to(p(11.0, 11.0)).move_to(p(13.0, 11.0)).line_to(p(17.5, 11.0));
@@ -1015,6 +1075,10 @@ mod tests {
             Icon::Home,
             Icon::Image,
             Icon::Dot,
+            Icon::Mic,
+            Icon::Paperclip,
+            Icon::Stop,
+            Icon::Star,
         ];
         let mut names = Vec::new();
         for icon in ALL.into_iter().chain(more) {
