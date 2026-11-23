@@ -37,7 +37,7 @@ playback = "remedy_ui_media_playback"
 reactive = "remedy_ui_reactive"
 rich = "remedy_ui_doc_rich"
 script = "remedy_ui_script"
-script_rhai = "remedy_ui_script_rhai"
+script_lua = "remedy_ui_script_lua"
 script_wasm = "remedy_ui_script_wasm"
 style = "remedy_ui_style"
 term = "remedy_ui_widgets_term"
@@ -171,3 +171,26 @@ new = "markdown"
 since = "1.0.0-rc.1"
 path = "remedy_ui::widgets::label"
 template = "{fn}text({0}, {1}).variant({2})"
+
+# Rhai was the placeholder handwritten engine. RemedyLua is what ships. One rename
+# changes the last path segment only, so `use remedy_ui::script_rhai` becomes
+# `script_lua`, while `remedy_ui::script_rhai::RhaiEngine` is a manual edit (see the
+# changelog): the type is `LuaEngine` on `remedy_ui::script_lua`.
+
+[[rename]]
+since = "1.0.0-rc.1"
+kind = "path"
+old = "remedy_ui::script_rhai"
+new = "script_lua"
+
+[[rename]]
+since = "1.0.0-rc.1"
+kind = "path"
+old = "remedy_ui::script::Language::RHAI"
+new = "LUA"
+
+[[rename]]
+since = "1.0.0-rc.1"
+kind = "path"
+old = "remedy_ui::script::Package::rhai"
+new = "lua"

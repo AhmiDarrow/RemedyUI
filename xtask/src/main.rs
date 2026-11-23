@@ -83,9 +83,9 @@ const LAYERS: &[(&str, u8)] = &[
     // data and arithmetic over the display list's types; renderers and elements build on it.
     ("remedy-ui-effects", 3),
     // Scripted widgets: the language-neutral interface for untrusted code that describes
-    // elements, with no UI of its own, and its engines (Rhai, WebAssembly).
+    // elements, with no UI of its own, and its engines (RemedyLua, WebAssembly).
     ("remedy-ui-script", 3),
-    ("remedy-ui-script-rhai", 3),
+    ("remedy-ui-script-lua", 3),
     ("remedy-ui-script-wasm", 3),
     // The host model: the platform-neutral contract bridges implement.
     ("remedy-ui-host", 3),
@@ -235,7 +235,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-customize", "remedy-ui-doc-code"),
     ("remedy-ui-customize", "remedy-ui-media-image"),
     // Each script engine implements the language-neutral widget interface.
-    ("remedy-ui-script-rhai", "remedy-ui-script"),
+    ("remedy-ui-script-lua", "remedy-ui-script"),
+    ("remedy-ui-script-lua", "remedy-ui-motion"),
     ("remedy-ui-script-wasm", "remedy-ui-script"),
     // Effects take pictures (textures) and blend modes from the display list.
     ("remedy-ui-effects", "remedy-ui-paint"),

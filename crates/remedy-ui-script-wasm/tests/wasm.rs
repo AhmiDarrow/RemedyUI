@@ -93,7 +93,7 @@ fn the_example_renders_takes_settings_and_handles_its_button() {
 }
 
 #[test]
-fn the_example_says_the_same_as_its_rhai_twin() {
+fn the_example_says_the_same_as_its_lua_twin() {
     let mut w = load(CLAPS, roomy()).must("loads");
     let n = render(&mut w).must("renders");
     let Node::Column { gap, children } = n else { unreachable!() };

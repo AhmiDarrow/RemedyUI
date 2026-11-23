@@ -95,8 +95,8 @@ spell = ["widgets", "dep:remedy-ui-services-spell"]
 ## Boards people arrange (`remedy_ui::board`), with sandboxed scripted widgets in the
 ## languages the board accepts (`remedy_ui::script` is the language-neutral interface).
 board = ["data", "dep:remedy-ui-widgets-board", "dep:remedy-ui-script"]
-## Scripted widgets people write by hand in Rhai (`remedy_ui::script_rhai`).
-script-rhai = ["board", "dep:remedy-ui-script-rhai"]
+## Scripted widgets people write by hand in RemedyLua (`remedy_ui::script_lua`).
+script-lua = ["board", "dep:remedy-ui-script-lua"]
 ## Scripted widgets compiled to WebAssembly, run by a pure-Rust interpreter
 ## (`remedy_ui::script_wasm`).
 script-wasm = ["board", "dep:remedy-ui-script-wasm"]
@@ -142,7 +142,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "net", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-lua", "script-wasm", "agents", "markup", "i18n", "net", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -186,7 +186,7 @@ remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "1.0.0-rc.1",
 remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-board = { path = "../remedy-ui-widgets-board", version = "1.0.0-rc.1", optional = true }
 remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1", optional = true }
-remedy-ui-script-rhai = { path = "../remedy-ui-script-rhai", version = "1.0.0-rc.1", optional = true }
+remedy-ui-script-lua = { path = "../remedy-ui-script-lua", version = "1.0.0-rc.1", optional = true }
 remedy-ui-script-wasm = { path = "../remedy-ui-script-wasm", version = "1.0.0-rc.1", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }

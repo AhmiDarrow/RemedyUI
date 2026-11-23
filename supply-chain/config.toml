@@ -1291,12 +1291,8 @@ criteria = "safe-to-deploy"
 version = "0.8.53"
 criteria = "safe-to-deploy"
 
-[[exemptions.rhai]]
-version = "1.27.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.rhai_codegen]]
-version = "3.3.0"
+[[exemptions.remedy-lua]]
+version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.ring]]

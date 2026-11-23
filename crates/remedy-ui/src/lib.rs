@@ -40,11 +40,11 @@ mod pip;
 pub mod router;
 mod runner;
 mod secure;
-#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
-mod web_fonts;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
 #[cfg(all(feature = "headless", feature = "widgets"))]
 pub mod testing;
+#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+mod web_fonts;
 
 // The README's code is compiled with the doctests, so it cannot drift from the API either.
 #[cfg(doctest)]
@@ -66,8 +66,8 @@ pub use movable::{Movable, movable};
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window, WindowSpec,
-    bundled_fonts,
+    GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window,
+    WindowSpec, bundled_fonts,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read
@@ -217,9 +217,9 @@ pub use remedy_ui_rui as markup;
 /// limits and the engine registry.
 #[cfg(feature = "board")]
 pub use remedy_ui_script as script;
-/// Scripted widgets in Rhai.
-#[cfg(feature = "script-rhai")]
-pub use remedy_ui_script_rhai as script_rhai;
+/// Scripted widgets in RemedyLua.
+#[cfg(feature = "script-lua")]
+pub use remedy_ui_script_lua as script_lua;
 /// Scripted widgets in WebAssembly.
 #[cfg(feature = "script-wasm")]
 pub use remedy_ui_script_wasm as script_wasm;
