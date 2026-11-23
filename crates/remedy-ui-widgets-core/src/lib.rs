@@ -17,7 +17,7 @@
 //!   [`reveal_toggle`], [`field`]
 //! - Feedback: [`progress`], [`spinner`], [`lamp`], [`badge`], [`toast`], [`toast_at`], [`empty_state`],
 //!   [`skeleton`]
-//! - Overlays: [`tooltip`], [`popover`], [`modal`], [`dialog`], [`trusted_prompt`],
+//! - Overlays: [`tooltip`], [`popover`], [`modal`], [`modal_fitted`], [`dialog`], [`trusted_prompt`],
 //!   [`lock_screen`]
 //! - Menus: [`MenuItem`] (commands, check and radio items, submenus, separators, shortcuts,
 //!   icons, access keys), [`menu`], [`context_menu`], [`menu_button`], [`menu_bar`]
@@ -76,7 +76,7 @@ pub use menu_bar::menu_bar;
 pub use menus::{MenuItem, close_menus_in, context_menu, context_menu_at, menu, menu_press_through};
 pub use overlays::{
     DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, full_text_tooltip,
-    lock_screen, modal, place_at, place_beside, place_near, place_near_within, popover, tooltip,
+    lock_screen, modal, modal_fitted, place_at, place_beside, place_near, place_near_within, popover, tooltip,
     trusted_prompt,
 };
 pub use rejection::Rejection;
