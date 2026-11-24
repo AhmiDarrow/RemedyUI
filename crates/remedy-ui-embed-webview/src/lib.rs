@@ -424,6 +424,7 @@ impl Hub {
 /// Wraps `script` so WebKitGTK's string result matches WebView2's `ExecuteScript`: one JSON
 /// value, with `undefined` encoded as `null`. Windows does not use this; WebView2 already
 /// JSON-encodes the completion value.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn json_eval(script: &str) -> String {
     let src = serde_json::to_string(script).unwrap_or_else(|_| "\"\"".into());
     format!("(function(){{const __v=eval({src});return JSON.stringify(__v===undefined?null:__v);}})()")

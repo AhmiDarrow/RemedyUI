@@ -2446,8 +2446,8 @@ fn page_and_home_end_keys_scroll_a_tall_list() {
     });
     let mut host = HeadlessHost::new();
     host.run_frames(&mut runner, 2);
-    let ui = runner.app().windows().first().and_then(|w| w.ui()).expect("a window");
-    let list = list_slot.borrow().clone().expect("the list");
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("a window"));
+    let list = list_slot.borrow().clone().unwrap_or_else(|| unreachable!("the list"));
     let id = first(&host);
     host.send(HostEvent::Pointer(id, press(100.0, 50.0, PointerPhase::Move)));
     host.run_frames(&mut runner, 1);

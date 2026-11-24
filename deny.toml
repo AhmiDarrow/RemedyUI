@@ -74,6 +74,9 @@ unused-allowed-license = "allow"
 # permissive data license; this exception is for that one crate only.
 exceptions = [
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+    # Twemoji Mozilla's artwork (the bundled color emoji) is CC-BY-4.0: attribution, shipped in
+    # the crate's license files. For the fonts crate only.
+    { allow = ["CC-BY-4.0"], crate = "remedy-ui-fonts" },
 ]
 
 [bans]

@@ -417,7 +417,7 @@ fn gradient_layers_stack_with_transparency() {
 #[test]
 fn color_emoji_keeps_its_yellow_when_the_run_is_black() {
     let Some(list) = text_list("👍", Color::BLACK) else { unreachable!("fonts load") };
-    let f = CpuRenderer::new().render(&list, 80, 80, 1.0, Color::WHITE).expect("render");
+    let f = render(&list, 80, 80, 1.0);
     // Over white, a yellow hand's pixels are washed toward white; they still have a warm
     // chroma. A coverage glyph tinted black would be a dark grey silhouette.
     let mut warm = 0usize;

@@ -36,11 +36,11 @@ fn middle_button_drag_pans_a_scroll_container() {
         });
     });
     app.frames(3);
-    let el = scroller.borrow().clone().expect("scroller");
-    let ui = app.ui().expect("ui");
+    let el = scroller.borrow().clone().unwrap_or_else(|| unreachable!("scroller"));
+    let ui = app.ui().unwrap_or_else(|| unreachable!("ui"));
     assert_eq!(ui.scroll_offset(el.id()).y, 0.0, "starts at the top");
 
-    let window = app.host().window_ids().first().copied().expect("window");
+    let window = app.host().window_ids().first().copied().unwrap_or_else(|| unreachable!("window"));
     let at = |y: f32, phase: PointerPhase, buttons: Buttons| {
         PointerEvent::new(phase, Point::new(80.0, y)).with_buttons(buttons)
     };
@@ -49,7 +49,7 @@ fn middle_button_drag_pans_a_scroll_container() {
     app.host().send(HostEvent::Pointer(window, at(40.0, PointerPhase::Up, Buttons::default())));
     app.frames(3);
 
-    let ui = app.ui().expect("ui");
+    let ui = app.ui().unwrap_or_else(|| unreachable!("ui"));
     let offset = ui.scroll_offset(el.id());
     assert!(offset.y >= 70.0, "dragging 80 px up should pan content down, got {offset:?}");
     let _ = Vec2::ZERO;

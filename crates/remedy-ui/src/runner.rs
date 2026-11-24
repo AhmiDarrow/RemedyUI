@@ -3799,10 +3799,9 @@ impl remedy_ui_host::App for Runner {
                             *p = unzoom(*p, w.zoom);
                         }
                     }
-                    if w.autoscroll.is_some() {
+                    if let Some(a) = w.autoscroll.as_mut() {
                         // While autoscrolling the pointer steers it and nothing else.
                         let middle = e.buttons.contains(Buttons::MIDDLE);
-                        let a = w.autoscroll.as_mut().expect("checked");
                         a.at = e.position;
                         let far = (a.at.x - a.origin.x).abs().max((a.at.y - a.origin.y).abs())
                             > Autoscroll::DEAD_ZONE;

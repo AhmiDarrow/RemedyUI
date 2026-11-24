@@ -1906,7 +1906,7 @@ impl TextField {
 
     /// Selects the whole value when the field gains focus, including the first click
     /// that focuses it (a browser's address bar). A later click places the caret.
-    /// [`TextField::purpose`] with [`InputPurpose::Url`] turns this on.
+    /// [`TextField::purpose`] with [`InputPurpose::Url`](remedy_ui_host::InputPurpose::Url) turns this on.
     pub fn select_all_on_focus(self) -> Self {
         self.field.borrow_mut().select_all_on_focus = true;
         self

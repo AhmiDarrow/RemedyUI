@@ -759,24 +759,23 @@ mod json_feed_tests {
 
     #[test]
     fn tauri_keys_match_the_usual_os_and_arch_names() {
-        assert_eq!(tauri_platform_keys_for("windows", "x86_64")[0], "windows-x86_64");
+        assert_eq!(tauri_platform_keys_for("windows", "x86_64").first(), Some(&"windows-x86_64"));
         assert_eq!(tauri_platform_keys_for("linux", "x86_64"), &["linux-x86_64", "linux-x86-64"]);
-        assert_eq!(tauri_platform_keys_for("macos", "aarch64")[0], "darwin-aarch64");
+        assert_eq!(tauri_platform_keys_for("macos", "aarch64").first(), Some(&"darwin-aarch64"));
         assert!(tauri_platform_keys_for("fuchsia", "x86_64").is_empty());
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_replaced_program_starts_only_after_the_old_one_exits() {
+    fn a_replaced_program_starts_only_after_the_old_one_exits() -> std::io::Result<()> {
         let dir = std::env::temp_dir().join(format!("remedy-update-wait-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let mark = dir.join("started");
-        let mut old = std::process::Command::new("sleep").arg("0.6").spawn().expect("sleep");
+        let mut old = std::process::Command::new("sleep").arg("0.6").spawn()?;
         let started = std::time::Instant::now();
         let mut new =
             super::wait_then_exec(old.id(), std::path::Path::new("touch"), &[mark.display().to_string()])
-                .spawn()
-                .expect("sh");
+                .spawn()?;
         std::thread::sleep(std::time::Duration::from_millis(250));
         assert!(!mark.exists(), "not while the old one runs");
         let _ = old.wait();
@@ -786,29 +785,31 @@ mod json_feed_tests {
             "once it has gone"
         );
         let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     #[test]
-    fn a_tauri_latest_json_picks_this_platform_and_its_alias() {
+    fn a_tauri_latest_json_picks_this_platform_and_its_alias() -> Result<(), UpdateError> {
         let v = tauri_doc();
-        let win = json_release_on(&v, "windows", "x86_64").expect("windows");
+        let win = json_release_on(&v, "windows", "x86_64")?;
         assert_eq!(win.version, "v1.0.0");
         assert_eq!(win.notes, "first RemedyUI build");
         assert!(win.url.ends_with("_x64-setup.exe"));
         assert_eq!(win.signature, "win-sig");
 
         // linux-x86_64 is absent; the linux-x86-64 alias still matches.
-        let linux = json_release_on(&v, "linux", "x86_64").expect("linux alias");
+        let linux = json_release_on(&v, "linux", "x86_64")?;
         assert!(linux.url.ends_with(".AppImage"));
         assert_eq!(linux.signature, "linux-alias-sig");
 
-        let mac = json_release_on(&v, "macos", "aarch64").expect("darwin");
+        let mac = json_release_on(&v, "macos", "aarch64")?;
         assert!(mac.url.contains("aarch64"));
         assert_eq!(mac.signature, "mac-sig");
+        Ok(())
     }
 
     #[test]
-    fn a_flat_json_feed_is_unchanged() {
+    fn a_flat_json_feed_is_unchanged() -> Result<(), UpdateError> {
         let v = serde_json::json!({
             "version": "2.0.0",
             "url": "https://example.com/app.bin",
@@ -816,24 +817,25 @@ mod json_feed_tests {
             "sha256": "ab",
             "notes": "flat"
         });
-        let r = json_release_on(&v, "linux", "x86_64").expect("flat");
+        let r = json_release_on(&v, "linux", "x86_64")?;
         assert_eq!(
             (r.version.as_str(), r.url.as_str(), r.signature.as_str(), r.sha256.as_deref(), r.notes.as_str()),
             ("2.0.0", "https://example.com/app.bin", "sig", Some("ab"), "flat")
         );
+        Ok(())
     }
 
     #[test]
     fn a_tauri_feed_without_this_platform_or_a_signature_is_refused() {
         let v = tauri_doc();
-        let err = json_release_on(&v, "linux", "aarch64").expect_err("no linux arm");
-        assert!(matches!(&err, UpdateError::Feed(e) if e.contains("linux-aarch64")), "{err:?}");
+        let err = json_release_on(&v, "linux", "aarch64").map(|r| r.url);
+        assert!(matches!(&err, Err(UpdateError::Feed(e)) if e.contains("linux-aarch64")), "{err:?}");
 
         let empty_sig = serde_json::json!({
             "version": "1.0.0",
             "platforms": { "windows-x86_64": { "url": "https://example.com/app.exe", "signature": "" } }
         });
-        let err = json_release_on(&empty_sig, "windows", "x86_64").expect_err("empty sig");
-        assert!(matches!(&err, UpdateError::Feed(e) if e.contains("signature")), "{err:?}");
+        let err = json_release_on(&empty_sig, "windows", "x86_64").map(|r| r.url);
+        assert!(matches!(&err, Err(UpdateError::Feed(e)) if e.contains("signature")), "{err:?}");
     }
 }
