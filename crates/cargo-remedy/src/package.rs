@@ -320,7 +320,8 @@ begin
 "#;
     // Pascal strings: a quote is doubled. The names in `r` were checked to hold none.
     let files: String = r.files[1..].iter().map(|f| format!("  DeleteFile(OldDir + '\\{f}');\n")).collect();
-    let keys: String = r.registry.iter().map(|k| format!("  RegDeleteKeyIncludingSubkeys(HKCU, '{k}');\n")).collect();
+    let keys: String =
+        r.registry.iter().map(|k| format!("  RegDeleteKeyIncludingSubkeys(HKCU, '{k}');\n")).collect();
     CODE.replace("@KEY@", &r.uninstall_key)
         .replace("@MSI_WANTED@", if r.msi_name.is_some() { "True" } else { "False" })
         .replace("@MSI@", r.msi_name.as_deref().unwrap_or(""))
@@ -518,7 +519,10 @@ mod tests {
             "notes_1.2.3_x64-setup",
         );
         assert!(iss.contains("AppId=app.remedy.notes") && iss.contains("PrivilegesRequired=lowest"), "{iss}");
-        assert!(iss.contains("UninstallDisplayName=Notes, \"\"Plus\"\""), "the name as installed apps list it: {iss}");
+        assert!(
+            iss.contains("UninstallDisplayName=Notes, \"\"Plus\"\""),
+            "the name as installed apps list it: {iss}"
+        );
         assert!(
             iss.contains("{localappdata}") && iss.contains("{cm:LaunchProgram,Notes%2c \"Plus\"}"),
             "{iss}"

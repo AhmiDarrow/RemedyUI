@@ -764,7 +764,12 @@ impl ResolvedStyle {
     pub fn inner_insets(&self) -> Insets {
         let b = self.border_insets();
         let p = self.padding;
-        Insets { top: p.top + b.top, end: p.end + b.end, bottom: p.bottom + b.bottom, start: p.start + b.start }
+        Insets {
+            top: p.top + b.top,
+            end: p.end + b.end,
+            bottom: p.bottom + b.bottom,
+            start: p.start + b.start,
+        }
     }
 
     /// The defaults for a child of an element styled `self`: text properties (color, size,

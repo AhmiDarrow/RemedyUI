@@ -46,17 +46,11 @@ fn middle_button_drag_pans_a_scroll_container() {
     };
     app.host().send(HostEvent::Pointer(window, at(120.0, PointerPhase::Down, Buttons::MIDDLE)));
     app.host().send(HostEvent::Pointer(window, at(40.0, PointerPhase::Move, Buttons::MIDDLE)));
-    app.host().send(HostEvent::Pointer(
-        window,
-        at(40.0, PointerPhase::Up, Buttons::default()),
-    ));
+    app.host().send(HostEvent::Pointer(window, at(40.0, PointerPhase::Up, Buttons::default())));
     app.frames(3);
 
     let ui = app.ui().expect("ui");
     let offset = ui.scroll_offset(el.id());
-    assert!(
-        offset.y >= 70.0,
-        "dragging 80 px up should pan content down, got {offset:?}"
-    );
+    assert!(offset.y >= 70.0, "dragging 80 px up should pan content down, got {offset:?}");
     let _ = Vec2::ZERO;
 }

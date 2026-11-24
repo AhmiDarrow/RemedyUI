@@ -125,7 +125,9 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
         v.as_array()
             .ok_or_else(|| bad(&format!("{key} must be a list of strings")))?
             .iter()
-            .map(|i| i.as_str().map(str::to_owned).ok_or_else(|| bad(&format!("{key} must be a list of strings"))))
+            .map(|i| {
+                i.as_str().map(str::to_owned).ok_or_else(|| bad(&format!("{key} must be a list of strings")))
+            })
             .collect()
     };
     let key = r.get("uninstall_key").and_then(|k| k.as_str()).unwrap_or_default().to_owned();
@@ -135,14 +137,20 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
     let files = list("files")?;
     // Plain names only: a path or a wildcard could reach past the old program's own files.
     let plain = |f: &String| {
-        !f.is_empty() && f != "." && f != ".." && !f.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|', '\''])
+        !f.is_empty()
+            && f != "."
+            && f != ".."
+            && !f.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|', '\''])
     };
     if files.is_empty() || !files.iter().all(plain) {
-        return Err(bad("files must list the old program's file names, the program first, such as [\"notes.exe\"]"));
+        return Err(bad(
+            "files must list the old program's file names, the program first, such as [\"notes.exe\"]",
+        ));
     }
     let registry = list("registry")?;
     let under_software = |k: &String| {
-        k.strip_prefix("Software\\").is_some_and(|rest| !rest.is_empty() && !rest.contains('\'') && !rest.ends_with('\\'))
+        k.strip_prefix("Software\\")
+            .is_some_and(|rest| !rest.is_empty() && !rest.contains('\'') && !rest.ends_with('\\'))
             && !k.contains("\\\\")
     };
     if !registry.iter().all(under_software) {
@@ -157,14 +165,21 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
             },
         }
     };
-    Ok(Some(Replaces { uninstall_key: key, files, registry, mutex: text("mutex")?, msi_name: text("msi_name")? }))
+    Ok(Some(Replaces {
+        uninstall_key: key,
+        files,
+        registry,
+        mutex: text("mutex")?,
+        msi_name: text("msi_name")?,
+    }))
 }
 
 /// `[linux] glibc`: a version such as `2.28` (digits and one or two dots).
 fn linux_glibc(t: &toml::Table) -> Result<Option<String>, String> {
     let Some(v) = string(t, "linux", "glibc") else { return Ok(None) };
     let parts: Vec<&str> = v.split('.').collect();
-    let ok = (2..=3).contains(&parts.len()) && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let ok = (2..=3).contains(&parts.len())
+        && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     if !ok {
         return Err(format!("remedy.toml: [linux] glibc: `{v}` is not a glibc version such as 2.28"));
     }

@@ -160,12 +160,15 @@ fn dashed_and_dotted_borders_follow_the_corners() {
     use remedy_ui_style::BorderStyle;
     let ui = ui();
     let top = CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO };
-    let dashed = StylePatch::default().border(Color::BLACK).border_width(2.0).border_style(BorderStyle::Dashed);
+    let dashed =
+        StylePatch::default().border(Color::BLACK).border_width(2.0).border_style(BorderStyle::Dashed);
     let card = boxed(&ui, Style::from(dashed.corners(top)));
     ui.root().padding(20.0).child(card);
     let (tree, frame) = draw(&ui);
     assert!(
-        items(&tree).iter().any(|i| matches!(i, Item::StrokePath { stroke, .. } if stroke.dashes == [6.0, 6.0])),
+        items(&tree)
+            .iter()
+            .any(|i| matches!(i, Item::StrokePath { stroke, .. } if stroke.dashes == [6.0, 6.0])),
         "a dashed border is a dashed stroke"
     );
     let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
@@ -178,7 +181,9 @@ fn dashed_and_dotted_borders_follow_the_corners() {
     let theme = Theme::dark_forest();
     let s = Style::new().border_style(BorderStyle::Dotted).resolve(&theme);
     assert_eq!(s.border_style, Some(BorderStyle::Dotted));
-    let kept = StylePatch::default().border_style(BorderStyle::Dotted).merge(&StylePatch::default().border_width(4.0));
+    let kept = StylePatch::default()
+        .border_style(BorderStyle::Dotted)
+        .merge(&StylePatch::default().border_width(4.0));
     assert_eq!(kept.border_style, Some(BorderStyle::Dotted));
 }
 
@@ -186,7 +191,8 @@ fn dashed_and_dotted_borders_follow_the_corners() {
 fn a_wide_dotted_border_is_round_dots() {
     use remedy_ui_style::BorderStyle;
     let ui = ui();
-    let dotted = StylePatch::default().border(Color::BLACK).border_width(4.0).border_style(BorderStyle::Dotted);
+    let dotted =
+        StylePatch::default().border(Color::BLACK).border_width(4.0).border_style(BorderStyle::Dotted);
     ui.root().padding(20.0).child(boxed(&ui, Style::from(dotted)));
     let (_, frame) = draw(&ui);
     let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
@@ -224,7 +230,9 @@ fn each_side_can_have_its_own_border() {
     assert_eq!(at(98, 40), [255, 255, 255, 255], "no border at the end");
     assert_eq!(at(60, 58), [255, 255, 255, 255], "nor at the bottom");
     assert!(
-        items(&tree).iter().any(|i| matches!(i, Item::StrokePath { stroke, brush: remedy_ui_paint::Brush::Solid(c), .. }
+        items(&tree)
+            .iter()
+            .any(|i| matches!(i, Item::StrokePath { stroke, brush: remedy_ui_paint::Brush::Solid(c), .. }
             if *c == blue && stroke.dashes == [6.0, 6.0])),
         "the start is a dashed blue stroke"
     );
@@ -251,7 +259,8 @@ fn text_lines_follow_the_elements_alignment_wrapped_or_not() {
     let ui = Ui::new(Theme::dark_forest(), sheet, fonts);
     let dark = StylePatch::default().foreground(Color::BLACK);
     // Inherited: the box says end, its text follows over two lines.
-    let label = ui.el("label").style(dark).text("Wide words wrap here").layout(|l| l.width = Length::Px(90.0));
+    let label =
+        ui.el("label").style(dark).text("Wide words wrap here").layout(|l| l.width = Length::Px(90.0));
     let host = ui.el("box").text_align(TextAlign::End).child(label.clone());
     ui.root().padding(10.0).child(host);
     let (_, frame) = draw(&ui);
@@ -270,8 +279,14 @@ fn text_lines_follow_the_elements_alignment_wrapped_or_not() {
     let mid = b.min.y + b.height() / 2.0;
     let (first, second) = (ink(b.min.y, mid), ink(mid, b.max.y));
     assert!(b.height() > 24.0, "two lines: {b:?}");
-    assert!(first.1 as f32 > b.max.x - 4.0 && second.1 as f32 > b.max.x - 4.0, "both end at the end: {first:?} {second:?}");
-    assert!(first.0 as f32 > b.min.x + 2.0 || second.0 as f32 > b.min.x + 2.0, "a shorter line starts in from the start");
+    assert!(
+        first.1 as f32 > b.max.x - 4.0 && second.1 as f32 > b.max.x - 4.0,
+        "both end at the end: {first:?} {second:?}"
+    );
+    assert!(
+        first.0 as f32 > b.min.x + 2.0 || second.0 as f32 > b.min.x + 2.0,
+        "a shorter line starts in from the start"
+    );
 }
 
 /// Black and white stripes across the window, behind everything.

@@ -278,7 +278,9 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
             let field = field.on_change(move || *s3.typed.borrow_mut() = f2.value());
             s2.caps.set(Some(ui.pointer_caps()));
             let purposed = |label: &str, p| w::text_input(ui, label).purpose(p).el().height(32.0);
-            let user = w::text_input(ui, "User").purpose(InputPurpose::Username).enter_key(remedy_ui::EnterKey::Next);
+            let user = w::text_input(ui, "User")
+                .purpose(InputPurpose::Username)
+                .enter_key(remedy_ui::EnterKey::Next);
             let pass = w::secret_input(ui, "Pass").purpose(InputPurpose::CurrentPassword);
             *s2.login.borrow_mut() = Some((user.clone(), pass.clone()));
             let s4 = s2.clone();
@@ -532,9 +534,11 @@ async fn an_app_runs_in_the_page() {
             assert!(until(30, || field.len() == 3).await, "{label}: inserted text reached the field");
             if label == "Pass" {
                 assert_eq!(field.take_secret().expose(), "ab1", "the secret holds the inserted text");
-                let cleared = until(30, || query(&hidden).is_some_and(|h| {
-                    h.dyn_ref::<web_sys::HtmlInputElement>().is_some_and(|i| i.value().is_empty())
-                }))
+                let cleared = until(30, || {
+                    query(&hidden).is_some_and(|h| {
+                        h.dyn_ref::<web_sys::HtmlInputElement>().is_some_and(|i| i.value().is_empty())
+                    })
+                })
                 .await;
                 assert!(cleared, "the hidden password field does not keep the secret");
             }
@@ -982,8 +986,10 @@ async fn a_dashed_border_draws_dashes_and_a_maximum_length_cuts_input() {
         *h.borrow_mut() = Some(app.clone());
         let t = t.clone();
         app.open(WindowSpec::new("Limits"), move |ui, _| {
-            let look =
-                StylePatch::default().border(Color::rgb8(255, 60, 60)).border_width(2.0).border_style(BorderStyle::Dashed);
+            let look = StylePatch::default()
+                .border(Color::rgb8(255, 60, 60))
+                .border_width(2.0)
+                .border_style(BorderStyle::Dashed);
             let card = ui
                 .el("dashed_box")
                 .style(look)

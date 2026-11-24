@@ -641,7 +641,8 @@ impl A11yTree {
     pub fn remove(&mut self, id: u64) {
         if self.focus == id {
             // A focus id the consumer cannot look up panics in accesskit_consumer.
-            self.focus = self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
+            self.focus =
+                self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
             self.mark(self.focus);
         }
         self.nodes.remove(&id);
@@ -954,7 +955,8 @@ impl A11yTree {
     /// each of its ancestors. With several, the newest element's.
     fn inert_now(&self) -> HashSet<u64> {
         let mut out = HashSet::new();
-        let modal = self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
+        let modal =
+            self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
         let Some(mut cur) = modal else { return out };
         while let Some(&p) = self.parents.get(&cur) {
             if let Some((_, kids)) = self.nodes.get(&p) {

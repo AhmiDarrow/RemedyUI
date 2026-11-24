@@ -746,7 +746,9 @@ fn a_small_change_in_a_big_layer_rasters_only_the_tiles_it_touches() {
         let mut l = DisplayList::new();
         l.fill_rect(Rect::new(0.0, 0.0, 1600.0, 1000.0), Brush::Solid(Color::BLACK));
         l.push_clip(Rect::new(0.0, 0.0, 1600.0, 1000.0), CornerRadii::ZERO);
-        l.push(remedy_ui_paint::Item::PushTransform(remedy_ui_paint::Affine::translate(Vec2::new(20.0, 20.0))));
+        l.push(remedy_ui_paint::Item::PushTransform(remedy_ui_paint::Affine::translate(Vec2::new(
+            20.0, 20.0,
+        ))));
         l.fill_rect(Rect::new(0.0, 0.0, 10.0 + turn, 10.0), Brush::Solid(Color::WHITE));
         l.push(remedy_ui_paint::Item::PopTransform);
         l.fill_rect(Rect::new(900.0, 600.0, 1000.0, 700.0), Brush::Solid(Color::WHITE));
