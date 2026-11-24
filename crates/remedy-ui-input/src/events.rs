@@ -311,6 +311,44 @@ impl KeyEvent {
         KeyEvent { pressed: false, text: None, ..KeyEvent::press(key) }
     }
 
+    /// The key a shortcut is matched on. It is [`key`](Self::key), except on a layout whose
+    /// key types a letter outside ASCII (Russian, Greek, Hebrew, Arabic): there it is the
+    /// letter or digit in that key's place on a US keyboard, taken from
+    /// [`physical`](Self::physical), so Ctrl+C, Ctrl+V and Ctrl+F are the same keys on every
+    /// layout, as desktops have them. Layouts that type ASCII letters elsewhere (AZERTY,
+    /// Dvorak) keep their own.
+    ///
+    /// ```
+    /// use remedy_ui_input::{Key, KeyEvent, Modifiers};
+    ///
+    /// // Ctrl with the key that types "с" on a Russian layout: the C key.
+    /// let copy = KeyEvent::press(Key::char('с')).with_physical("KeyC").with_modifiers(Modifiers::CTRL);
+    /// assert_eq!(copy.shortcut_key(), Key::char('c'));
+    /// assert!(copy.is_shortcut_key("c"));
+    /// // AZERTY's A is where a US keyboard has Q: it stays A.
+    /// let all = KeyEvent::press(Key::char('a')).with_physical("KeyQ").with_modifiers(Modifiers::CTRL);
+    /// assert!(all.is_shortcut_key("a") && !all.is_shortcut_key("q"));
+    /// ```
+    pub fn shortcut_key(&self) -> Key {
+        let Key::Character(c) = &self.key else { return self.key.clone() };
+        if c.is_ascii() {
+            return self.key.clone();
+        }
+        let place = self.physical.strip_prefix("Key").or_else(|| self.physical.strip_prefix("Digit"));
+        match place {
+            Some(p) if p.len() == 1 && p.chars().all(|c| c.is_ascii_alphanumeric()) => {
+                Key::Character(p.to_ascii_lowercase())
+            }
+            _ => self.key.clone(),
+        }
+    }
+
+    /// True when a shortcut on `letter` (a lower-case ASCII letter or a digit) is this key:
+    /// see [`shortcut_key`](Self::shortcut_key).
+    pub fn is_shortcut_key(&self, letter: &str) -> bool {
+        matches!(self.shortcut_key(), Key::Character(k) if k == letter)
+    }
+
     /// As `key` instead (a bridge mapping a platform key, the view turning Back into Escape).
     pub fn with_key(mut self, key: Key) -> Self {
         self.key = key;

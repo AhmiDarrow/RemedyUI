@@ -181,3 +181,211 @@ fn text_fields_move_and_edit_by_word_and_line_and_accept_the_usual_chords() {
     ui.key(&ctrl("y"));
     assert_eq!(field.value(), "world", "Ctrl+Y redoes it");
 }
+
+/// A multi-line field 240 wide and `height` tall, focused, holding `text`.
+fn multi(ui: &Ui, text: &str, height: f32) -> remedy_ui_view::TextField {
+    let field = ui.text_field("text_area", FieldKind::Multi);
+    ui.root().child(field.el().layout(move |l| {
+        l.width = Length::Px(240.0);
+        l.height = Length::Px(height);
+    }));
+    field.set_value(text);
+    field.el().focus();
+    frame(ui);
+    field
+}
+
+fn press(ui: &Ui, k: Key, m: Modifiers) -> bool {
+    let took = ui.key(&key(k, None, m));
+    frame(ui);
+    took
+}
+
+#[test]
+fn up_and_down_move_through_the_lines_keeping_the_column() {
+    let ui = ui();
+    let text = "first line\nab\nthird line";
+    let field = multi(&ui, text, 120.0);
+    assert_eq!(field.caret(), text.len(), "set_value leaves the caret at the end");
+
+    assert!(press(&ui, Key::ArrowUp, Modifiers::NONE));
+    assert_eq!(field.caret(), 13, "Up from the end of line three: the end of the short line two");
+    assert!(press(&ui, Key::ArrowUp, Modifiers::NONE));
+    assert_eq!(field.caret(), 10, "and on up to the same column of line one, not the short line's");
+    assert!(press(&ui, Key::ArrowDown, Modifiers::NONE));
+    assert!(press(&ui, Key::ArrowDown, Modifiers::NONE));
+    assert_eq!(field.caret(), text.len(), "Down twice comes back to where it began");
+
+    // On the first line Up goes to the start of the text, on the last Down to its end.
+    assert!(press(&ui, Key::ArrowUp, Modifiers::NONE));
+    assert!(press(&ui, Key::ArrowUp, Modifiers::NONE));
+    assert!(press(&ui, Key::ArrowUp, Modifiers::NONE));
+    assert_eq!(field.caret(), 0);
+    assert!(!press(&ui, Key::ArrowUp, Modifiers::NONE), "Up at the very start is not taken: a page scrolls");
+    assert!(press(&ui, Key::ArrowDown, Modifiers::SHIFT));
+    assert_eq!(field.selection(), 0..11, "Shift+Down selects the first line");
+    assert!(press(&ui, Key::ArrowDown, Modifiers::SHIFT));
+    assert!(press(&ui, Key::ArrowDown, Modifiers::SHIFT));
+    assert_eq!(field.selection(), 0..text.len(), "and on to the end of the text from the last line");
+    assert!(!press(&ui, Key::ArrowDown, Modifiers::SHIFT), "nothing further to select");
+}
+
+#[test]
+fn up_and_down_follow_wrapped_lines() {
+    let ui = ui();
+    let text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen ".repeat(3);
+    let field = multi(&ui, text.trim_end(), 200.0);
+    let top = |f: &remedy_ui_view::TextField| f.caret_rect().map_or(0.0, |r| r.min.y);
+    let mut seen = vec![(field.caret(), top(&field))];
+    while press(&ui, Key::ArrowUp, Modifiers::NONE) {
+        seen.push((field.caret(), top(&field)));
+    }
+    assert!(seen.len() >= 4, "the text wraps to several lines: {seen:?}");
+    assert!(
+        seen.windows(2).all(|w| matches!(w, [a, b] if b.0 < a.0)),
+        "each step is earlier in the text: {seen:?}"
+    );
+    // Every step but the last (to the start of the text, on the first line) is a line up.
+    let lines_up = seen.windows(2).filter(|w| matches!(w, [a, b] if b.1 < a.1 - 0.5)).count();
+    assert!(lines_up >= seen.len() - 2, "each step is a line up: {seen:?}");
+    assert_eq!(field.caret(), 0);
+}
+
+#[test]
+fn home_and_end_go_to_the_line_edges_and_with_ctrl_to_the_text_edges() {
+    let ui = ui();
+    let text = "first line\nsecond\nthird line";
+    let field = multi(&ui, text, 120.0);
+    press(&ui, Key::ArrowUp, Modifiers::NONE);
+    assert!(press(&ui, Key::Home, Modifiers::NONE));
+    assert_eq!(field.caret(), 11, "Home: the start of line two, not of the text");
+    assert!(press(&ui, Key::End, Modifiers::NONE));
+    assert_eq!(field.caret(), 17, "End: the end of line two, before its line break");
+    assert!(press(&ui, Key::Home, Modifiers::SHIFT));
+    assert_eq!(field.selection(), 11..17, "Shift+Home selects the line");
+    assert!(press(&ui, Key::Home, Modifiers::CTRL));
+    assert_eq!(field.caret(), 0, "Ctrl+Home: the start of the text");
+    assert!(press(&ui, Key::End, Modifiers { ctrl: true, shift: true, ..Modifiers::NONE }));
+    assert_eq!(field.selection(), 0..text.len(), "Ctrl+Shift+End selects to the end of the text");
+
+    // A wrapped line: End stays on the line the caret is drawn on.
+    let wrapped = "one two three four five six seven eight nine ten eleven twelve";
+    field.set_value(wrapped);
+    frame(&ui);
+    press(&ui, Key::Home, Modifiers::CTRL);
+    assert!(press(&ui, Key::End, Modifiers::NONE));
+    let first_end = field.caret();
+    assert!(first_end > 0 && first_end < wrapped.len(), "End stops at the first line's end, at {first_end}");
+    let top = field.caret_rect().map(|r| r.min.y);
+    press(&ui, Key::Home, Modifiers::CTRL);
+    assert_eq!(field.caret_rect().map(|r| r.min.y), top, "and the caret is drawn on that first line");
+    press(&ui, Key::End, Modifiers::NONE);
+    assert!(press(&ui, Key::Home, Modifiers::NONE));
+    assert_eq!(field.caret(), 0, "Home from a wrapped line's end goes to that line's start");
+}
+
+#[test]
+fn page_keys_move_a_page_and_scroll_the_caret_into_view() {
+    let ui = ui();
+    let text = (1..=40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let field = multi(&ui, &text, 80.0);
+    press(&ui, Key::Home, Modifiers::CTRL);
+    assert!(press(&ui, Key::PageDown, Modifiers::NONE));
+    let after = field.caret();
+    let line = text.get(..after).map_or(0, |t| t.matches('\n').count());
+    assert!((2..=6).contains(&line), "Page Down moves about a page of an 80 px box, to line {line}");
+    let (b, c) = (field.el().bounds().unwrap_or_default(), field.caret_rect().unwrap_or_default());
+    assert!(c.min.y >= b.min.y - 0.5 && c.max.y <= b.max.y + 0.5, "the caret stays in view: {c:?} in {b:?}");
+    assert!(press(&ui, Key::PageUp, Modifiers::NONE));
+    assert_eq!(field.caret(), 0, "Page Up goes back");
+    assert!(press(&ui, Key::PageUp, Modifiers::SHIFT) || field.caret() == 0);
+    press(&ui, Key::End, Modifiers::CTRL);
+    assert_eq!(field.caret(), text.len());
+    assert!(!press(&ui, Key::PageDown, Modifiers::NONE), "Page Down at the end is not taken");
+}
+
+#[test]
+fn single_line_fields_leave_up_and_down_alone() {
+    let ui = ui();
+    let (field, x, y) = field_at(&ui, FieldKind::Single);
+    field.set_value("hello world");
+    frame(&ui);
+    click(&ui, x, y, Duration::ZERO);
+    let at = field.caret();
+    let _ = ui.key(&key(Key::ArrowDown, None, Modifiers::NONE));
+    let _ = ui.key(&key(Key::ArrowUp, None, Modifiers::NONE));
+    assert_eq!(field.caret(), at, "a suggestion list or a spin button owns Up and Down");
+}
+
+#[test]
+fn the_older_clipboard_chords_cut_copy_and_paste() {
+    let ui = ui();
+    let (field, x, y) = field_at(&ui, FieldKind::Single);
+    field.set_value("hello");
+    frame(&ui);
+    click(&ui, x, y, Duration::ZERO);
+    ui.key(&ctrl("a"));
+    let insert = || Key::Named("Insert".into());
+    let copied = |ui: &Ui, what: &str| {
+        ui.take_requests()
+            .iter()
+            .any(|r| matches!(r, remedy_ui_view::Request::Copy { text, .. } if text == what))
+    };
+    assert!(ui.key(&key(insert(), None, Modifiers::CTRL)));
+    assert!(copied(&ui, "hello"), "Ctrl+Insert copies");
+    assert_eq!(field.value(), "hello");
+    assert!(ui.key(&key(Key::Delete, None, Modifiers::SHIFT)));
+    assert!(copied(&ui, "hello"), "Shift+Delete cuts");
+    assert_eq!(field.value(), "");
+    assert!(ui.key(&key(insert(), None, Modifiers::SHIFT)));
+    assert!(ui.take_requests().contains(&remedy_ui_view::Request::Paste), "Shift+Insert pastes");
+}
+
+#[test]
+fn an_app_selects_a_range_and_it_scrolls_into_view_without_focus() {
+    let ui = ui();
+    let text = (1..=40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let field = multi(&ui, &text, 80.0);
+    press(&ui, Key::Home, Modifiers::CTRL);
+    field.el().blur();
+    frame(&ui);
+    let at = text.find("line 30").unwrap_or(0);
+    assert!(field.set_selection(at..at + 7));
+    frame(&ui);
+    assert_eq!(field.selection(), at..at + 7);
+    let (b, c) = (field.el().bounds().unwrap_or_default(), field.caret_rect().unwrap_or_default());
+    assert!(c.min.y >= b.min.y - 0.5 && c.max.y <= b.max.y + 0.5, "the match is in view: {c:?} in {b:?}");
+    assert!(!field.set_selection(0..text.len() + 1), "a range off the text is refused");
+    field.set_decorations(vec![remedy_ui_view::Decoration::highlight(at..at + 7)]);
+    frame(&ui);
+    assert_eq!(field.decorations().len(), 1);
+}
+
+#[test]
+fn the_clipboard_and_undo_chords_work_on_a_layout_without_latin_letters() {
+    let ui = ui();
+    let (field, x, y) = field_at(&ui, FieldKind::Single);
+    field.set_value("привет");
+    frame(&ui);
+    click(&ui, x, y, Duration::ZERO);
+    // A Russian layout: the A, C, X, V and Z keys type ф, с, ч, м and я.
+    let chord = |typed: &str, place: &str| {
+        key(Key::Character(typed.into()), None, Modifiers::CTRL).with_physical(place.to_owned())
+    };
+    assert!(ui.key(&chord("ф", "KeyA")));
+    assert_eq!(field.selection(), 0..field.value().len(), "Ctrl+A selects all");
+    assert!(ui.key(&chord("с", "KeyC")));
+    let copied = |ui: &Ui| {
+        ui.take_requests()
+            .iter()
+            .any(|r| matches!(r, remedy_ui_view::Request::Copy { text, .. } if text == "привет"))
+    };
+    assert!(copied(&ui), "Ctrl+C copies");
+    assert!(ui.key(&chord("ч", "KeyX")));
+    assert!(copied(&ui), "Ctrl+X cuts");
+    assert_eq!(field.value(), "");
+    assert!(ui.key(&chord("м", "KeyV")));
+    assert!(ui.take_requests().contains(&remedy_ui_view::Request::Paste), "Ctrl+V pastes");
+    assert!(ui.key(&chord("я", "KeyZ")));
+    assert_eq!(field.value(), "привет", "Ctrl+Z undoes the cut");
+}

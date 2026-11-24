@@ -16,7 +16,7 @@ use remedy_ui_text::{
 };
 use remedy_ui_tree::Dirty;
 
-use crate::decoration::{self, Decoration};
+use crate::decoration::{self, Decoration, DecorationKind};
 use crate::element::{El, Ui};
 use crate::{Request, frame};
 
@@ -189,6 +189,12 @@ pub(crate) struct Field {
     drag_unit: DragUnit,
     /// The word selected on the double-click that started a word drag.
     word_anchor: Option<Range<usize>>,
+    /// The x the caret keeps while Up, Down, Page Up and Page Down move it through lines of
+    /// different lengths (in the paragraph's coordinates); forgotten by any other move.
+    goal_x: Option<f32>,
+    /// The app moved the selection ([`TextField::set_selection`]): the next paint scrolls it
+    /// into view even while the field is not focused (a search's current match).
+    bring: bool,
 }
 
 /// An editor as it was before an edit, to go back to when the edit takes the text past the
@@ -546,13 +552,14 @@ impl Field {
         let size = Size::new(p.width().max(c.max.x + x0), p.height().max(c.max.y));
         self.extent = (size, content.size());
         let mark = (self.caret_index(), self.version);
-        if focused && (mark != self.followed || self.show_caret) {
+        if (focused && (mark != self.followed || self.show_caret)) || self.bring {
             self.scroll = Vec2::new(
                 follow(self.scroll.x, c.min.x + x0, c.max.x + x0, content.width()),
                 follow(self.scroll.y, c.min.y, c.max.y, content.height()),
             );
             self.followed = mark;
             self.show_caret = false;
+            self.bring = false;
         }
         self.scroll = clamp_scroll(self.scroll, size, content.size());
         let o = Point::new(
@@ -574,6 +581,19 @@ impl Field {
                 crate::frame::span_backgrounds_in(list, &p, o, band);
             } else {
                 crate::frame::span_backgrounds(list, &p, o);
+            }
+        }
+        // What a search found is filled under the glyphs (and under the selection).
+        self.sync_decorations();
+        if !text.is_empty() {
+            for d in self.decorations.iter().filter(|d| d.kind == DecorationKind::Highlight) {
+                let Some(r) = self.to_display(&d.range) else { continue };
+                if r.start >= r.end || r.end > text.len() {
+                    continue;
+                }
+                for rect in p.selection_rects(r) {
+                    list.fill_rect(rect.translate(o.to_vec2()), Brush::Solid(d.color.unwrap_or(tokens.mark)));
+                }
             }
         }
         if focused {
@@ -623,7 +643,7 @@ impl Field {
                     && r.end <= text.len()
                     && text.is_char_boundary(r.start)
                     && text.is_char_boundary(r.end);
-                if !valid {
+                if !valid || d.kind == DecorationKind::Highlight {
                     continue;
                 }
                 let color = d.color.unwrap_or(theme.colors.danger);
@@ -809,6 +829,7 @@ impl Field {
     /// A press: one click places (or Shift-extends) the caret, two select the word, three
     /// select all. Remembers how a following drag should grow the selection.
     pub(crate) fn pointer_down(&mut self, at: Point, extend: bool, clicks: u32) -> bool {
+        self.goal_x = None;
         self.drag_unit = match clicks {
             2 => DragUnit::Word,
             n if n >= 3 => DragUnit::All,
@@ -893,6 +914,7 @@ impl Field {
     }
 
     fn changed(&mut self) {
+        self.goal_x = None;
         self.invalidate();
         self.version += 1;
         self.deco_stale = true;
@@ -926,8 +948,137 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
     f.caret_side = side.get();
     if !matches!(out, KeyOutcome::Ignored) {
         f.show_caret = true;
+        // Only a run of Up, Down and page keys keeps the caret's column.
+        if !matches!(e.key, Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown) {
+            f.goal_x = None;
+        }
     }
     out
+}
+
+/// Line breaks a line's range can end with: End stops before them.
+const LINE_BREAKS: [char; 4] = ['\n', '\r', '\u{2028}', '\u{2029}'];
+
+/// Where Up, Down, Page Up or Page Down takes the caret in `p`, the paragraph as drawn: the
+/// line above or below (a page: the box's height less a line), at the x the caret had when
+/// the run of such keys began. Past the first line it is the start of the text, past the
+/// last its end. Returns the place and that x.
+fn vertical_target(f: &Field, p: &Paragraph, down: bool, page: bool) -> (TextPosition, Option<f32>) {
+    let len = f.display().0.len();
+    let c = p.caret(f.caret_position(len), 1.0);
+    let x = f.goal_x.unwrap_or(c.min.x);
+    let h = (c.max.y - c.min.y).max(1.0);
+    let edge = TextPosition { index: if down { len } else { 0 }, ..TextPosition::default() };
+    // A place on another line, that way.
+    let try_at = |y: f32| {
+        if y < 0.0 || y > p.height() {
+            return None;
+        }
+        let mut pos = p.hit_test(Point::new(x, y));
+        pos.index = pos.index.min(len);
+        let r = p.caret(pos, 1.0);
+        let moved = if down { r.min.y > c.min.y + 0.5 } else { r.min.y < c.min.y - 0.5 };
+        moved.then_some(pos)
+    };
+    let found = if page {
+        let step = (f.extent.1.height - h).max(h);
+        let mid = (c.min.y + c.max.y) / 2.0;
+        try_at(if down { mid + step } else { mid - step })
+    } else {
+        // Just past the caret's line; further where lines have space between them.
+        [1.0, h * 0.5, h, h * 2.0]
+            .into_iter()
+            .find_map(|off| try_at(if down { c.max.y + off } else { c.min.y - off }))
+    };
+    // At the text's edge the column starts over from there.
+    (found.unwrap_or(edge), found.map(|_| x))
+}
+
+/// Where Home or End takes the caret in `p`: the start or end of the line it is drawn on
+/// (a wrapped line's end is before the next line's first word, a hard line's before its
+/// line break).
+fn line_edge(f: &Field, p: &Paragraph, end: bool) -> Option<TextPosition> {
+    let (text, _) = f.display();
+    let c = p.caret(f.caret_position(text.len()), 1.0);
+    let mid = (c.min.y + c.max.y) / 2.0;
+    let line = p.lines_in(mid - 0.5..mid + 0.5).into_iter().find(|l| l.top <= mid && mid < l.bottom)?;
+    let start = line.range.start.min(text.len());
+    if !end {
+        return Some(TextPosition { index: start, ..TextPosition::default() });
+    }
+    let whole = line.range.end.min(text.len());
+    let shown = text.get(start..whole)?;
+    let trimmed = shown.trim_end_matches(LINE_BREAKS);
+    let index = start + trimmed.len();
+    // At a wrap the same index is also the next line's start: stay on this one.
+    let affinity = if trimmed.len() == shown.len() && index < text.len() {
+        remedy_ui_text::Affinity::Upstream
+    } else {
+        remedy_ui_text::Affinity::Downstream
+    };
+    Some(TextPosition { index, affinity })
+}
+
+/// The keys that move through a multi-line field's lines as they are drawn: Up and Down a
+/// line, Page Up and Page Down a page, Home and End to the line's edges, and with the
+/// primary modifier Home and End (on Apple platforms Up and Down) to the text's. Shift
+/// extends the selection. `None` for any other key, a single-line field, a field not drawn
+/// yet, or text being composed; a key that cannot move the caret further is not taken, so it
+/// goes on to what is around the field (a page scrolls).
+fn line_key(
+    f: &mut Field,
+    e: &KeyEvent,
+    platform: Platform,
+    cmd: bool,
+    side: &std::cell::Cell<Option<(usize, remedy_ui_text::Affinity)>>,
+) -> Option<KeyOutcome> {
+    if !matches!(f.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code) || e.modifiers.alt {
+        return None;
+    }
+    let vertical = matches!(e.key, Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown);
+    let ends = matches!(e.key, Key::Home | Key::End);
+    if !vertical && !ends {
+        return None;
+    }
+    let core = f.core()?;
+    if core.composition().is_some() {
+        return None;
+    }
+    let (sel, len) = (core.selection(), core.len());
+    let p = f.shown.as_ref().map(|(_, p, _)| p.clone());
+    let forward = matches!(e.key, Key::ArrowDown | Key::PageDown | Key::End);
+    let whole =
+        cmd && (ends || (platform == Platform::Apple && matches!(e.key, Key::ArrowUp | Key::ArrowDown)));
+    // The place in the text, and in the shown text with the side of a wrap it is on.
+    let (model, shown, goal) = if whole {
+        (if forward { len } else { 0 }, None, None)
+    } else if cmd || (ends && f.kind == FieldKind::Code) {
+        // Ctrl+Up and Ctrl+Down are not caret keys; code has its own Home and End.
+        return None;
+    } else if ends {
+        let pos = line_edge(f, p.as_ref()?, forward)?;
+        (f.text_index(pos.index)?, Some(pos), None)
+    } else {
+        let (pos, x) = vertical_target(f, p.as_ref()?, forward, matches!(e.key, Key::PageUp | Key::PageDown));
+        (f.text_index(pos.index)?, Some(pos), Some(x))
+    };
+    let vertical_goal = goal.flatten();
+    let anchor = if e.modifiers.shift { sel.anchor } else { model };
+    if (anchor, model) == (sel.anchor, sel.focus) {
+        // Home and End are the field's even where the caret already is (it scrolls back
+        // into view); Up, Down and the page keys go on to what is around the field.
+        return Some(if ends { KeyOutcome::Handled { changed: false } } else { KeyOutcome::Ignored });
+    }
+    if let Editor::Code(c) = &mut f.editor {
+        c.ed.single_cursor();
+    }
+    f.set_sel(anchor, model);
+    if let Editor::Code(c) = &mut f.editor {
+        c.shown = std::cell::OnceCell::new();
+    }
+    side.set(shown.map(|p| (p.index, p.affinity)));
+    f.goal_x = vertical_goal;
+    Some(KeyOutcome::Handled { changed: false })
 }
 
 /// One press of Left or Right through text as it is shown: the caret moves to the visual
@@ -984,7 +1135,27 @@ fn field_key(
         && (e.modifiers.ctrl || e.modifiers.meta);
     let extend = e.modifiers.shift;
     let word = if platform == Platform::Apple { e.modifiers.alt } else { e.modifiers.ctrl };
-    let ch = |c: &str| matches!(&e.key, Key::Character(k) if k == c);
+    // The clipboard chords Windows and Linux had before Ctrl+X, C and V, and still have:
+    // Shift+Delete cuts, Ctrl+Insert copies, Shift+Insert pastes.
+    if platform != Platform::Apple && !e.modifiers.alt && !e.modifiers.meta {
+        let insert = matches!(&e.key, Key::Named(n) if n == "Insert");
+        let letter = match (&e.key, e.modifiers.shift, e.modifiers.ctrl) {
+            (Key::Delete, true, false) => Some("x"),
+            (_, false, true) if insert => Some("c"),
+            (_, true, false) if insert => Some("v"),
+            _ => None,
+        };
+        if let Some(letter) = letter {
+            let chord =
+                e.clone().with_key(Key::Character(letter.into())).with_modifiers(primary).with_text(None);
+            return field_key(f, &chord, now, platform, side);
+        }
+    }
+    if let Some(out) = line_key(f, e, platform, cmd, side) {
+        return out;
+    }
+    // By the layout's letter, or on a non-Latin layout by the key's place (Ctrl+C in Russian).
+    let ch = |c: &str| e.is_shortcut_key(c);
     let handled = || KeyOutcome::Handled { changed: false };
     let edited = || KeyOutcome::Handled { changed: true };
     let room = f.room();
@@ -1317,6 +1488,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
         return ime(f, &fitted, now);
     }
     f.show_caret = true;
+    f.goal_x = None;
     if let Editor::Code(c) = &mut f.editor {
         let ed = &mut c.ed;
         match e {
@@ -1396,6 +1568,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
 
 pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
     f.show_caret = true;
+    f.goal_x = None;
     let text = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code) {
         text.replace("\r\n", "\n").replace('\r', "\n")
     } else {
@@ -1525,6 +1698,8 @@ impl Ui {
             select_all_on_focus: false,
             drag_unit: DragUnit::Char,
             word_anchor: None,
+            goal_x: None,
+            bring: false,
         }));
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
@@ -1780,6 +1955,31 @@ impl TextField {
     /// The caret as a byte index of the text (the selection's moving end).
     pub fn caret(&self) -> usize {
         self.field.borrow().core().map_or(0, |e| e.selection().focus)
+    }
+
+    /// Selects the bytes in `range`, caret at its end, and scrolls it into view at the next
+    /// paint, also while the field is not focused (a search's current match, shown while
+    /// focus stays in the find bar). A range off the text or inside a character is refused
+    /// (`false`), and secret fields refuse every range.
+    pub fn set_selection(&self, range: Range<usize>) -> bool {
+        {
+            let mut f = self.field.borrow_mut();
+            let Some(whole) = f.core().map(TextEditor::text) else { return false };
+            if range.start > range.end
+                || range.end > whole.len()
+                || !whole.is_char_boundary(range.start)
+                || !whole.is_char_boundary(range.end)
+            {
+                return false;
+            }
+            f.goal_x = None;
+            f.caret_side = None;
+            f.set_sel(range.start, range.end);
+            f.bring = true;
+        }
+        self.el.ui.mark(self.el.id, Dirty::PAINT | Dirty::SEMANTICS);
+        notify_caret(&self.field);
+        true
     }
 
     /// Replaces the bytes in `range` with `text` as one undoable edit, caret after it, and
