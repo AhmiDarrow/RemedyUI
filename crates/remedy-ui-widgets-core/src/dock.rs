@@ -266,11 +266,7 @@ fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
                 DockSide::Start => !cur.collapsed,
                 DockSide::End => cur.collapsed,
             };
-            if inward {
-                "‹".to_string()
-            } else {
-                "›".to_string()
-            }
+            if inward { "‹".to_string() } else { "›".to_string() }
         }
     };
     let btn = crate::button(ui, mark, move || {

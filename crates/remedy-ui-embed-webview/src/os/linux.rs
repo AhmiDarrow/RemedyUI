@@ -682,10 +682,8 @@ impl Native {
                     }
                 }
                 Command::Devtools { id, .. } => {
-                    i.hub.finish_script(
-                        id,
-                        Err("the DevTools protocol is not available in WebKitGTK".into()),
-                    );
+                    i.hub
+                        .finish_script(id, Err("the DevTools protocol is not available in WebKitGTK".into()));
                 }
             }
         }

@@ -1933,13 +1933,7 @@ fn captions_control(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player, open:
         })
         .text(move || caption_words(&tu, &p, true));
     let glyph = glyph.layout(|l| l.shrink = 0.0);
-    let button = ui
-        .el("button")
-        .row()
-        .align(Align::Center)
-        .gap(u * 1.5)
-        .child(glyph.clone())
-        .child(words);
+    let button = ui.el("button").row().align(Align::Center).gap(u * 1.5).child(glyph.clone()).child(words);
     let (me, p, mu) = (button.clone(), player.clone(), ui.clone());
     let button = button
         .on_click(move || {

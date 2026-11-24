@@ -641,7 +641,8 @@ impl A11yTree {
     pub fn remove(&mut self, id: u64) {
         if self.focus == id {
             // A focus id the consumer cannot look up panics in accesskit_consumer.
-            self.focus = self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
+            self.focus =
+                self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
             self.mark(self.focus);
         }
         self.nodes.remove(&id);
@@ -954,7 +955,8 @@ impl A11yTree {
     /// each of its ancestors. With several, the newest element's.
     fn inert_now(&self) -> HashSet<u64> {
         let mut out = HashSet::new();
-        let modal = self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
+        let modal =
+            self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
         let Some(mut cur) = modal else { return out };
         while let Some(&p) = self.parents.get(&cur) {
             if let Some((_, kids)) = self.nodes.get(&p) {
@@ -966,22 +968,32 @@ impl A11yTree {
     }
 
     /// True when `id` is in the tree (each parent up to the root lists it). Hidden nodes
-    /// still count: they are sent to AccessKit as hidden, not dropped.
-    fn attached(&self, id: u64) -> bool {
+    /// still count: they are sent to AccessKit as hidden, not dropped. `known` holds the
+    /// answers found so far in one update, so a chain of ancestors is walked once however
+    /// many of its nodes are asked about (a tree 20,000 levels deep stays linear work).
+    fn attached(&self, id: u64, known: &mut HashMap<u64, bool>) -> bool {
+        let mut path = Vec::new();
         let mut cur = id;
-        loop {
-            if !self.nodes.contains_key(&cur) {
-                return false;
+        let answer = loop {
+            if let Some(&a) = known.get(&cur) {
+                break a;
+            }
+            // Longer than the tree: the parent links loop, so nothing here reaches the root.
+            if !self.nodes.contains_key(&cur) || path.len() > self.nodes.len() {
+                break false;
             }
             if cur == self.root {
-                return true;
+                break true;
             }
-            let Some(&p) = self.parents.get(&cur) else { return false };
+            path.push(cur);
+            let Some(&p) = self.parents.get(&cur) else { break false };
             if !self.nodes.get(&p).is_some_and(|(_, kids)| kids.contains(&cur)) {
-                return false;
+                break false;
             }
             cur = p;
-        }
+        };
+        known.extend(path.into_iter().map(|n| (n, answer)));
+        answer
     }
 
     /// True when `id` is in the tree (each parent up to the root lists it) and neither it nor
@@ -1043,20 +1055,21 @@ impl A11yTree {
             // The walk never goes into a merging element: nothing in it is merged away.
             (all, HashMap::new())
         };
-        self.focus = self.resolved_focus();
+        let mut attached = HashMap::new();
+        self.focus = self.resolved_focus(&mut attached);
         // Orphan dirty nodes must not go in the same update as a parent that dropped them:
         // accesskit_consumer then both "updates" and removes the id, and unwraps at tree.rs:647.
         let nodes: Vec<(NodeId, Node)> = ids
             .into_iter()
             .filter(|id| !inside.get(id).copied().unwrap_or(false))
-            .filter(|id| self.attached(*id))
+            .filter(|id| self.attached(*id, &mut attached))
             .filter_map(|id| self.build(id).map(|n| (NodeId(id), n)))
             .collect();
         // The consumer panics if `focus` names a node that is in neither this update nor the
         // tree it already has. An attached, buildable node was sent earlier or is here; if
         // ours is not, fall back to the window. Do not re-send the focused node just because
         // it has focus: that would turn a no-op frame into a root-only update.
-        if !self.attached(self.focus) || self.build(self.focus).is_none() {
+        if !self.attached(self.focus, &mut attached) || self.build(self.focus).is_none() {
             self.focus = self.root;
         }
         if nodes.is_empty() && self.sent_once {
@@ -1073,7 +1086,7 @@ impl A11yTree {
 
     /// A node the AccessKit consumer can look up: attached to the root and not merged away.
     /// Otherwise the nearest exposed ancestor, or the window.
-    fn resolved_focus(&self) -> u64 {
+    fn resolved_focus(&self, attached: &mut HashMap<u64, bool>) -> u64 {
         let mut cur = self.focus;
         // A cycle or a long parent chain must not loop; the root is always a safe landing.
         for _ in 0..self.nodes.len().saturating_add(1) {
@@ -1081,7 +1094,7 @@ impl A11yTree {
                 return self.root;
             }
             let merge = self.nodes.get(&cur).is_some_and(|(s, _)| s.merge);
-            if self.attached(cur) && !merge {
+            if self.attached(cur, attached) && !merge {
                 return cur;
             }
             cur = self.parents.get(&cur).copied().unwrap_or(self.root);

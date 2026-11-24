@@ -2283,8 +2283,8 @@ impl Player {
     }
 
     /// Hears the player's keys wherever focus is inside `el` (the window's
-    /// [`root`](Ui::root), for the whole window), as Portal's page does: [`handle_key`]
-    /// (Self::handle_key) for each key nothing focused took, except that a focused text field
+    /// [`root`](Ui::root), for the whole window), as Portal's page does:
+    /// [`handle_key`](Self::handle_key) for each key nothing focused took, except that a focused text field
     /// keeps every key, a focused slider its own (the arrows, Home, End, Page Up and Down), a
     /// focused button or other control Space and Enter, and nothing reaches the player while
     /// focus is in a menu or dialog or one is open. Only while the player shows (a

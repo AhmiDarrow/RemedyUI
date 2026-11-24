@@ -22,11 +22,11 @@ use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CallDevToolsProtocolMethodCompletedHandler,
     CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, DocumentTitleChangedEventHandler, DownloadStartingEventHandler,
-    ExecuteScriptCompletedHandler, HistoryChangedEventHandler, LaunchingExternalUriSchemeEventHandler,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    PermissionRequestedEventHandler, ProcessFailedEventHandler, SourceChangedEventHandler,
-    WebMessageReceivedEventHandler, take_pwstr,
+    CreateCoreWebView2EnvironmentCompletedHandler, DocumentTitleChangedEventHandler,
+    DownloadStartingEventHandler, ExecuteScriptCompletedHandler, HistoryChangedEventHandler,
+    LaunchingExternalUriSchemeEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
+    SourceChangedEventHandler, WebMessageReceivedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -373,16 +373,15 @@ fn run(hub: &Rc<Hub>, controller: &ICoreWebView2Controller, webview: &ICoreWebVi
                 // context menu; some Input.* methods still want it on, which the app sets
                 // with WebViewOptions::devtools.
                 let waiting = Rc::clone(hub);
-                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
-                    move |result, json| {
+                let handler =
+                    CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
                         let out = match result {
                             Ok(()) => Ok(json),
                             Err(e) => Err(e.to_string()),
                         };
                         waiting.finish_script(id, out);
                         Ok(())
-                    },
-                ));
+                    }));
                 if let Err(e) = webview.CallDevToolsProtocolMethod(
                     &HSTRING::from(method.as_str()),
                     &HSTRING::from(params.as_str()),

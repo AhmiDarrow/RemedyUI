@@ -130,9 +130,9 @@ impl Mirror {
         }
         // Asked before pruning: a removed node that had focus (a menu entry closing) leaves the
         // page's focus on the body, and it must still come back to the window.
-        let inside = super::driver().and_then(|d| d.window(self.window)).is_some_and(|w| {
-            dom::active_element().is_some_and(|a| w.frame.contains(Some(&a)))
-        });
+        let inside = super::driver()
+            .and_then(|d| d.window(self.window))
+            .is_some_and(|w| dom::active_element().is_some_and(|a| w.frame.contains(Some(&a))));
         let mut changed: Vec<NodeId> = Vec::with_capacity(update.nodes.len());
         {
             let mut nodes = self.nodes.borrow_mut();

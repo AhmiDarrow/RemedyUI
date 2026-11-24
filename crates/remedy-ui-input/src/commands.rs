@@ -677,18 +677,23 @@ impl CommandTable {
         if !e.pressed || e.composing {
             return None;
         }
-        let chord = Chord { modifiers: e.modifiers, key: e.key.clone() };
+        // The key as the layout has it, then (a Russian or Greek layout's letters) the key
+        // in its place on a US keyboard: Ctrl+S is the same key on every layout.
+        let typed = Chord { modifiers: e.modifiers, key: e.key.clone() };
+        let placed = Chord { modifiers: e.modifiers, key: e.shortcut_key() };
         let mut scopes = active.to_vec();
         scopes.sort_by(|a, b| b.cmp(a));
-        for scope in scopes {
-            let found = self
-                .commands
-                .iter()
-                .rev()
-                .filter(|(s, c)| *s == scope && c.enabled)
-                .find(|(_, c)| self.chords(&c.id).contains(&chord));
-            if let Some((_, c)) = found {
-                return Some(c);
+        for chord in if placed == typed { vec![typed] } else { vec![typed, placed] } {
+            for scope in &scopes {
+                let found = self
+                    .commands
+                    .iter()
+                    .rev()
+                    .filter(|(s, c)| s == scope && c.enabled)
+                    .find(|(_, c)| self.chords(&c.id).contains(&chord));
+                if let Some((_, c)) = found {
+                    return Some(c);
+                }
             }
         }
         None

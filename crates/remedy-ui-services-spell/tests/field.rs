@@ -345,6 +345,8 @@ fn the_menu_adds_words_to_the_dictionary_and_ignores_them() {
     // Ignore: only for the session.
     f.set_value("hello qqwx");
     t.until(|| !h.is_checking());
+    // The right click focused the field, so the word at the caret is marked once typing pauses.
+    t.fire(|_| true);
     t.frame();
     let at = over_mark(&f);
     t.ui.pointer(&pointer(PointerPhase::Down, at, Buttons::SECONDARY));

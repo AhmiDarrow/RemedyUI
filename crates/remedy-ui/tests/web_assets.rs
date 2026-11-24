@@ -98,10 +98,17 @@ async fn fallback_faces_are_fetched_when_text_first_needs_them() {
 
     // Arabic text: its face is fetched, and the text drawn with it once it arrives.
     let _ = ui.root().child(ui.el("label").text("مرحبا بالعالم"));
-    assert!(until(600, || has("Noto Sans Arabic")).await, "the Arabic face arrived: {:?}", ui.font_families());
+    assert!(
+        until(600, || has("Noto Sans Arabic")).await,
+        "the Arabic face arrived: {:?}",
+        ui.font_families()
+    );
     let got = fetched();
     assert!(got.iter().any(|f| f.ends_with("fonts/NotoSansArabic-Regular.ttf")), "{got:?}");
-    assert!(!got.iter().any(|f| f.contains("NotoSansSC") || f.contains("NotoSansJP")), "only what was needed: {got:?}");
+    assert!(
+        !got.iter().any(|f| f.contains("NotoSansSC") || f.contains("NotoSansJP")),
+        "only what was needed: {got:?}"
+    );
     app.quit();
     assert!(until(60, || !remedy_ui::web::is_running()).await);
 }
@@ -153,7 +160,11 @@ fn language_names_come_from_the_browsers_own_cldr_data() {
     assert_eq!(language_name_in("en", "pt-BR"), "Brazilian Portuguese");
     assert_eq!(language_name_in("en", "zh-Hant"), "Traditional Chinese");
     assert_eq!(language_name_in("ko", "de"), "독일어");
-    assert_eq!(language_name_in("en", "qqq-not-a-language"), "qqq-not-a-language", "unnamed comes back as given");
+    assert_eq!(
+        language_name_in("en", "qqq-not-a-language"),
+        "qqq-not-a-language",
+        "unnamed comes back as given"
+    );
 }
 
 #[wasm_bindgen_test]
@@ -170,7 +181,11 @@ async fn plain_items_are_the_pages_own_shared_with_its_other_pages() {
     store.save(&theme, "paper").must("saves");
     store.save(&fonts, &serde_json::json!({"text": "remedy-sans", "headings": "ahmi-pixel"})).must("saves");
     store.flush().must("written");
-    assert_eq!(s.get_item("remedy-test-theme").must("get").as_deref(), Some("paper"), "no quotes, no envelope");
+    assert_eq!(
+        s.get_item("remedy-test-theme").must("get").as_deref(),
+        Some("paper"),
+        "no quotes, no envelope"
+    );
     assert_eq!(
         s.get_item("remedy-test-fonts").must("get").as_deref(),
         Some(r#"{"headings":"ahmi-pixel","text":"remedy-sans"}"#)
@@ -184,13 +199,21 @@ async fn plain_items_are_the_pages_own_shared_with_its_other_pages() {
 #[wasm_bindgen_test]
 fn session_items_are_the_tabs_own_session_storage() {
     let s = web_sys::window().and_then(|w| w.session_storage().ok().flatten()).must("sessionStorage");
-    s.set_item("remedy-test-seasons", r#"{"seasonToShow":"tt1","seasonNumber":3,"showName":"Show","labels":{"1":"One"}}"#)
-        .must("set");
+    s.set_item(
+        "remedy-test-seasons",
+        r#"{"seasonToShow":"tt1","seasonNumber":3,"showName":"Show","labels":{"1":"One"}}"#,
+    )
+    .must("set");
     let store = PersistStore::local_storage("Session test").must("a page store");
     let seasons = Persist::new("remedy-test-seasons").session();
     let v: serde_json::Value = store.load(&seasons).must("reads").must("there");
     assert_eq!(v.get("seasonNumber").and_then(serde_json::Value::as_u64), Some(3));
-    store.save(&seasons, &serde_json::json!({"labels": {}, "seasonNumber": 4, "seasonToShow": "tt2", "showName": "Other"})).must("saves");
+    store
+        .save(
+            &seasons,
+            &serde_json::json!({"labels": {}, "seasonNumber": 4, "seasonToShow": "tt2", "showName": "Other"}),
+        )
+        .must("saves");
     // Written at once, with no debounce: a tab may close at any moment.
     assert_eq!(
         s.get_item("remedy-test-seasons").must("get").as_deref(),

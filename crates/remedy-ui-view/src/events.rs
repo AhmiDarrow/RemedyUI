@@ -203,7 +203,9 @@ impl Ui {
             self.0.borrow_mut().consumed = true;
             return true;
         }
-        if self.middle_scroll(e, hit) {
+        // A middle-button pan under way keeps the pointer; a new one starts below, only when
+        // no element takes the press (a terminal pastes on it).
+        if e.phase != PointerPhase::Down && self.middle_scroll(e, hit) {
             self.0.borrow_mut().consumed = true;
             return true;
         }
@@ -356,6 +358,10 @@ impl Ui {
         }
         if matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel) {
             self.0.borrow_mut().captured = None;
+        }
+        if e.phase == PointerPhase::Down && !self.0.borrow().consumed && self.middle_scroll(e, hit) {
+            self.0.borrow_mut().consumed = true;
+            return true;
         }
         handled
     }
@@ -525,7 +531,7 @@ impl Ui {
         if e.pressed
             && cmd
             && !own_text
-            && matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case("c"))
+            && e.is_shortcut_key("c")
             && let Some(text) = self.selected_text()
         {
             self.request(Request::Copy { text, sensitive: false, html: None });
@@ -542,8 +548,7 @@ impl Ui {
             return false;
         }
         // Undo and redo for the window's changes, when nothing above took the keys.
-        let letter =
-            |l: &str| matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case(l));
+        let letter = |l: &str| e.is_shortcut_key(l);
         if cmd && letter("z") && !e.modifiers.shift {
             return self.undo_change();
         }

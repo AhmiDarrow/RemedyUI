@@ -105,30 +105,23 @@ fn a_secret_fields_context_menu_disables_cut_and_copy() {
     let items: Vec<_> = t.ui.reader_view().into_iter().filter(|n| n.role == Role::MenuItem).collect();
     let cut = items.iter().find(|n| n.name.as_deref() == Some("Cut"));
     let copy = items.iter().find(|n| n.name.as_deref() == Some("Copy"));
-    assert!(
-        cut.is_some_and(|n| n.states.iter().any(|s| *s == "disabled")),
-        "secrets are never cut: {items:?}"
-    );
-    assert!(
-        copy.is_some_and(|n| n.states.iter().any(|s| *s == "disabled")),
-        "secrets are never copied: {items:?}"
-    );
+    assert!(cut.is_some_and(|n| n.states.contains(&"disabled")), "secrets are never cut: {items:?}");
+    assert!(copy.is_some_and(|n| n.states.contains(&"disabled")), "secrets are never copied: {items:?}");
     let copy_id = copy.map(|n| n.id);
     // Choosing Copy must not request a clipboard write.
     let _ = t.ui.take_requests();
-    if let Some(el) = copy_id.and_then(|id| t.ui.element_by_node_id(id)) {
-        if let Some(cb) = el.bounds() {
-            let click = Point::new(cb.min.x + 8.0, cb.min.y + cb.height() / 2.0);
-            let _ = t.ui.pointer(
-                &PointerEvent::new(PointerPhase::Down, click)
-                    .with_buttons(Buttons::PRIMARY)
-                    .with_time(Duration::from_millis(400)),
-            );
-            let _ = t
-                .ui
-                .pointer(&PointerEvent::new(PointerPhase::Up, click).with_time(Duration::from_millis(420)));
-            t.frame();
-        }
+    if let Some(el) = copy_id.and_then(|id| t.ui.element_by_node_id(id))
+        && let Some(cb) = el.bounds()
+    {
+        let click = Point::new(cb.min.x + 8.0, cb.min.y + cb.height() / 2.0);
+        let _ = t.ui.pointer(
+            &PointerEvent::new(PointerPhase::Down, click)
+                .with_buttons(Buttons::PRIMARY)
+                .with_time(Duration::from_millis(400)),
+        );
+        let _ =
+            t.ui.pointer(&PointerEvent::new(PointerPhase::Up, click).with_time(Duration::from_millis(420)));
+        t.frame();
     }
     assert!(
         !t.ui.take_requests().iter().any(|r| matches!(r, Request::Copy { .. })),

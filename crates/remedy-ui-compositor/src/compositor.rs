@@ -1059,7 +1059,7 @@ impl Compositor {
                         if let Some(c) = changed.get(id)
                             && Drawn { version: new.version, ..old.clone() } == *new =>
                     {
-                        c.into_iter().for_each(|b| damage.add(*b));
+                        c.iter().for_each(|b| damage.add(*b));
                     }
                     Some(old) => {
                         old.bounds.into_iter().chain(new.bounds).for_each(|b| damage.add(b));
@@ -1253,7 +1253,11 @@ impl Compositor {
             bounds = local_to_device.apply_rect(layer.local_box()).intersect(clip).filter(|r| !r.is_empty());
             if bounds.is_some() {
                 let radii = layer.clip.unwrap_or(CornerRadii::ZERO);
-                w.plan.ops.push(CompositeOp::Clear { transform: local_to_device, rect: layer.local_box(), radii });
+                w.plan.ops.push(CompositeOp::Clear {
+                    transform: local_to_device,
+                    rect: layer.local_box(),
+                    radii,
+                });
             }
         } else if let Some(extent) = layer.content_extent() {
             let screen = clip.intersect(w.viewport);

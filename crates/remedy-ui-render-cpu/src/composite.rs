@@ -226,7 +226,10 @@ impl CompositeTarget for Recorder<'_> {
     }
     fn clear(&mut self, path: &kurbo::BezPath) {
         // A layer clipped to the path, composited with Clear: nothing is left inside it.
-        let copy = vello_cpu::peniko::BlendMode::new(vello_cpu::peniko::Mix::Normal, vello_cpu::peniko::Compose::Clear);
+        let copy = vello_cpu::peniko::BlendMode::new(
+            vello_cpu::peniko::Mix::Normal,
+            vello_cpu::peniko::Compose::Clear,
+        );
         self.ctx.push_layer(Some(path), Some(copy), None, None, None);
         self.ctx.set_paint(color(Color::BLACK));
         self.ctx.fill_path(path);

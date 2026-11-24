@@ -15,6 +15,9 @@ pub enum DecorationKind {
     Underline,
     /// A dotted line.
     Dotted,
+    /// A fill behind the text, under its glyphs: what a search found. Without a color it is
+    /// the theme's mark color.
+    Highlight,
 }
 
 /// A line under a range of a field's text.
@@ -31,7 +34,8 @@ pub struct Decoration {
     pub range: Range<usize>,
     /// How it is drawn.
     pub kind: DecorationKind,
-    /// The color; `None` uses the theme's danger color.
+    /// The color; `None` uses the theme's danger color (the theme's mark color for a
+    /// [`Highlight`](DecorationKind::Highlight)).
     pub color: Option<Color>,
 }
 
@@ -39,6 +43,11 @@ impl Decoration {
     /// A wavy line under `range` in the theme's danger color.
     pub fn squiggle(range: Range<usize>) -> Self {
         Decoration { range, kind: DecorationKind::Squiggle, color: None }
+    }
+
+    /// A fill behind `range` in the theme's mark color: what a search found.
+    pub fn highlight(range: Range<usize>) -> Self {
+        Decoration { range, kind: DecorationKind::Highlight, color: None }
     }
 
     /// The same decoration in `color`.
@@ -118,6 +127,8 @@ pub(crate) fn draw(list: &mut DisplayList, r: Rect, kind: DecorationKind, color:
     let thickness = 1.0;
     let base = r.max.y - 1.0;
     match kind {
+        // Filled under the glyphs by the field, before they are drawn.
+        DecorationKind::Highlight => {}
         DecorationKind::Underline => {
             list.fill_rect(Rect::new(r.min.x, base, r.max.x, base + thickness), Brush::Solid(color));
         }

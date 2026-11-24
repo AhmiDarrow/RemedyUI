@@ -35,7 +35,10 @@ macro_rules! face {
         #[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
         let (data, source): (&'static [u8], &'static str) = (
             &[],
-            remedy_ui_fonts::asset_mark!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
+            remedy_ui_fonts::asset_mark!(
+                concat!("fonts/", $file),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)
+            ),
         );
         Face { family: $family, weight: $weight, style: Style::Normal, data, file: $file, source }
     }};

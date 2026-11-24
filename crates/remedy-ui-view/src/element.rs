@@ -2884,7 +2884,11 @@ impl El {
                     i.els
                         .get(&self.id)
                         .map(|d| {
-                            (crate::frame::text_style_for(d, &i.theme), d.resolved.max_lines, d.resolved.text_align)
+                            (
+                                crate::frame::text_style_for(d, &i.theme),
+                                d.resolved.max_lines,
+                                d.resolved.text_align,
+                            )
                         })
                         .unwrap_or_default()
                 };
