@@ -12,7 +12,7 @@
 //! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Light, Semilight, Regular, Semibold, Bold |
 //! | `ahmi-pixel` | Ahmi Pixel: pixel face | Regular, Bold |
 //! | `remedy-symbols` (default) | Remedy Symbols: interface symbols the text faces lack, for fallback (9 KB) | Regular |
-//! | `remedy-emoji` (default) | Remedy Emoji: our own color emoji, for fallback, COLRv1 (1.8 MB) | Regular |
+//! | `remedy-emoji` (default) | Remedy Emoji: our own color emoji, for fallback, COLRv1 (3.4 MB) | Regular |
 //! | `noto-arabic` | Noto Sans Arabic: Arabic, Persian and Urdu letters, digits and marks, for fallback | Regular, Bold |
 //! | `noto-devanagari` | Noto Sans Devanagari: Hindi, Marathi, Nepali and the other Devanagari languages, for fallback | Regular, Bold |
 //! | `noto-bengali` | Noto Sans Bengali: Bengali and Assamese, for fallback | Regular, Bold |
@@ -168,8 +168,8 @@ pub const AHMI_PIXEL: &[Face] =
 #[cfg(feature = "remedy-symbols")]
 pub const REMEDY_SYMBOLS: &[Face] = &[face!("Remedy Symbols", 400, "RemedySymbols-Regular.ttf")];
 
-/// Remedy Emoji, the bundled color emoji fallback: our own art (COLRv1). It has the emoji
-/// drawn so far (389 with a Unicode code point); others come from the system's emoji font.
+/// Remedy Emoji, the bundled color emoji fallback: our own art (COLRv1). It has every
+/// standard single emoji (1,386); flags and other sequences come from the system's emoji font.
 #[cfg(feature = "remedy-emoji")]
 pub const REMEDY_EMOJI: &[Face] = &[face!("Remedy Emoji", 400, "RemedyEmoji.ttf")];
 
