@@ -570,6 +570,15 @@ impl Field {
             shown.2 = o;
         }
         let tokens = theme.derive();
+        // A field in a text color of its own sits on a surface that is not the theme's (a
+        // colored note, a chip): its caret, selection, marks and placeholder are made from
+        // that color, so they show there and the selected text stays readable.
+        let own = s.foreground != tokens.text;
+        let tint = |alpha: f32, themed: remedy_ui_core::Color| {
+            if own { s.foreground.with_alpha(alpha) } else { themed }
+        };
+        let (selected, muted, mark) =
+            (tint(0.25, tokens.selected), tint(0.55, tokens.muted), tint(0.3, tokens.mark));
         // Nothing of the text draws outside the box; the caret may sit on its side edges.
         let clip = Rect::new(content.min.x - 2.0, content.min.y, content.max.x + 2.0, content.max.y);
         list.push_clip(clip, remedy_ui_core::CornerRadii::ZERO);
@@ -592,17 +601,17 @@ impl Field {
                     continue;
                 }
                 for rect in p.selection_rects(r) {
-                    list.fill_rect(rect.translate(o.to_vec2()), Brush::Solid(d.color.unwrap_or(tokens.mark)));
+                    list.fill_rect(rect.translate(o.to_vec2()), Brush::Solid(d.color.unwrap_or(mark)));
                 }
             }
         }
         if focused {
             for r in p.selection_rects(self.display_selection()) {
-                list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));
+                list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(selected));
             }
             for c in self.extra_cursors() {
                 for r in p.selection_rects(c.range()) {
-                    list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));
+                    list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(selected));
                 }
             }
         }
@@ -610,7 +619,7 @@ impl Field {
             if !self.placeholder.is_empty() {
                 let style = {
                     let mut v_ = self.style.clone();
-                    v_.color = tokens.muted;
+                    v_.color = muted;
                     v_
                 };
                 let plain = RichText::plain(self.placeholder.clone());
@@ -624,7 +633,7 @@ impl Field {
                     list,
                     &ph,
                     Point::new(content.min.x + ph.x_offset(content.width()), content.min.y),
-                    tokens.muted,
+                    muted,
                 );
             }
         } else if p.is_lazy() {
@@ -665,10 +674,10 @@ impl Field {
         if focused {
             let at = self.caret_position(text.len());
             let caret = p.caret(at, 1.5);
-            list.fill_rect(caret.translate(o.to_vec2()), Brush::Solid(tokens.text));
+            list.fill_rect(caret.translate(o.to_vec2()), Brush::Solid(s.foreground));
             for c in self.extra_cursors() {
                 let at = TextPosition { index: c.focus.min(text.len()), ..TextPosition::default() };
-                list.fill_rect(p.caret(at, 1.5).translate(o.to_vec2()), Brush::Solid(tokens.text));
+                list.fill_rect(p.caret(at, 1.5).translate(o.to_vec2()), Brush::Solid(s.foreground));
             }
         }
         list.pop_clip();
