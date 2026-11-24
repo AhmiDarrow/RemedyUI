@@ -203,7 +203,9 @@ impl Ui {
             self.0.borrow_mut().consumed = true;
             return true;
         }
-        if self.middle_scroll(e, hit) {
+        // A middle-button pan under way keeps the pointer; a new one starts below, only when
+        // no element takes the press (a terminal pastes on it).
+        if e.phase != PointerPhase::Down && self.middle_scroll(e, hit) {
             self.0.borrow_mut().consumed = true;
             return true;
         }
@@ -356,6 +358,10 @@ impl Ui {
         }
         if matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel) {
             self.0.borrow_mut().captured = None;
+        }
+        if e.phase == PointerPhase::Down && !self.0.borrow().consumed && self.middle_scroll(e, hit) {
+            self.0.borrow_mut().consumed = true;
+            return true;
         }
         handled
     }
