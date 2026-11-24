@@ -525,7 +525,7 @@ impl Ui {
         if e.pressed
             && cmd
             && !own_text
-            && matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case("c"))
+            && e.is_shortcut_key("c")
             && let Some(text) = self.selected_text()
         {
             self.request(Request::Copy { text, sensitive: false, html: None });
@@ -542,8 +542,7 @@ impl Ui {
             return false;
         }
         // Undo and redo for the window's changes, when nothing above took the keys.
-        let letter =
-            |l: &str| matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case(l));
+        let letter = |l: &str| e.is_shortcut_key(l);
         if cmd && letter("z") && !e.modifiers.shift {
             return self.undo_change();
         }

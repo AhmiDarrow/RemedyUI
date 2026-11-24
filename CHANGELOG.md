@@ -20,6 +20,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A text field's selection can be set, and what a search found highlighted**:
+  `TextField::set_selection` selects a byte range and scrolls it into view at the next
+  paint, also while the field is not focused (a find bar keeps the focus while the match
+  shows). `Decoration::highlight` (`DecorationKind::Highlight`) fills behind a range of a
+  field's text, under its glyphs, in the theme's mark color or the decoration's own.
+
 - **Toasts stack, and can sit in a corner**: toasts showing at the same time used to lie on
   top of each other at the bottom center. They now share one layer and stack, the newest
   lowest, and stay above a dialog opened while they show (its scrim used to dim them).
@@ -1847,6 +1853,33 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   scale (hinting and rounding still land on device pixels) and reports widths, heights,
   baselines, lines, glyph runs, inline objects, carets and selections in logical pixels, and
   takes wrap widths and hit-test points in them; at scale 1 nothing changes.
+
+### Fixed
+
+- **Up, Down, Page Up, Page Down, Home and End work in multi-line text.** In a text area, a
+  rich field and a code field, Up and Down did nothing and Page Up and Page Down only
+  scrolled what was around the field; in a text area and a rich field Home and End jumped
+  to the start and end of the whole text. Up and Down now move the caret a line as the text
+  is drawn (wrapped lines too), keeping its column through shorter lines; Page Up and Page
+  Down move it a page; Home and End go to the edges of the line the caret is on; Ctrl+Home
+  and Ctrl+End (Command+Up and Command+Down on Apple platforms) go to the edges of the text;
+  Shift extends the selection with each. On the first line Up goes to the start of the text
+  and on the last Down goes to its end; a key that cannot move the caret further is not
+  taken, so the page around the field scrolls as before. Single-line fields are unchanged:
+  Up and Down stay with what is around them (a suggestion list, a spin button).
+
+- **Shortcuts work on keyboard layouts without Latin letters.** With a Russian, Greek,
+  Hebrew or Arabic layout active, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z and Ctrl+Y in text
+  fields, Ctrl+C on selected text, the window's undo and redo, and an app's commands
+  (`CommandTable::match_key`) did nothing: the key was matched by the letter it types
+  there. A key that types a letter outside ASCII is now matched by its place on a US
+  keyboard, as desktops do (new `KeyEvent::shortcut_key` and `KeyEvent::is_shortcut_key`,
+  for an app's own key handlers). Layouts that type ASCII letters in other places (AZERTY,
+  Dvorak) keep their own letters.
+
+- **Shift+Delete cuts, Ctrl+Insert copies and Shift+Insert pastes** in text fields on
+  Windows and Linux, as they do in every other app there. Shift+Delete deleted one
+  character and the other two did nothing.
 
 ## [1.0.0-rc.1] - 2026-11-18
 
