@@ -223,7 +223,8 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
             let mut build = Command::new(cargo());
             build.current_dir(&p.root).args(["zigbuild", "--release", "--bin", &p.bin]);
             build.args(["--target", &format!("x86_64-unknown-linux-gnu.{glibc}")]);
-            status(&mut build).map_err(|e| format!("{e} (`[linux] glibc` builds with cargo-zigbuild and zig)"))?;
+            status(&mut build)
+                .map_err(|e| format!("{e} (`[linux] glibc` builds with cargo-zigbuild and zig)"))?;
             notes.push(format!("built for glibc {glibc} and later"));
             p.target_dir.join("x86_64-unknown-linux-gnu").join("release").join(&p.bin)
         }

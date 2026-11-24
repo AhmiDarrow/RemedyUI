@@ -2431,14 +2431,10 @@ fn page_and_home_end_keys_scroll_a_tall_list() {
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
         let slot = slot.clone();
         app.open(WindowSpec::new("List").size(200.0, 160.0), move |ui, _| {
-            let list = ui
-                .el("scroll")
-                .scroll()
-                .column()
-                .layout(|l| {
-                    l.width = Length::Px(200.0);
-                    l.height = Length::Px(100.0);
-                });
+            let list = ui.el("scroll").scroll().column().layout(|l| {
+                l.width = Length::Px(200.0);
+                l.height = Length::Px(100.0);
+            });
             let list = list.child(ui.el("spacer").layout(|l| {
                 l.height = Length::Px(400.0);
                 l.width = Length::Px(200.0);

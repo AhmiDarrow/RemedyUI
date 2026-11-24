@@ -442,12 +442,19 @@ pub(crate) enum Command {
     Post(String),
     Focus,
     /// Runs `script` in the page. The platform calls [`Hub::finish_script`] with JSON text.
-    Eval { id: u64, script: String },
+    Eval {
+        id: u64,
+        script: String,
+    },
     /// The page's user agent. Empty restores the engine default.
     UserAgent(String),
     /// A Chrome DevTools protocol call. `params` is a JSON object. The platform calls
     /// [`Hub::finish_script`] with the protocol's JSON result.
-    Devtools { id: u64, method: String, params: String },
+    Devtools {
+        id: u64,
+        method: String,
+        params: String,
+    },
 }
 
 struct Shared {
@@ -834,7 +841,11 @@ mod tests {
         let eval_id = h.begin_script(Box::new(move |r| *e2.borrow_mut() = Some(r)));
         let dev_id = h.begin_script(Box::new(move |r| *d2.borrow_mut() = Some(r)));
         h.abandon(&Command::Eval { id: eval_id, script: "1".into() });
-        h.abandon(&Command::Devtools { id: dev_id, method: "Browser.getVersion".into(), params: "{}".into() });
+        h.abandon(&Command::Devtools {
+            id: dev_id,
+            method: "Browser.getVersion".into(),
+            params: "{}".into(),
+        });
         h.abandon(&Command::Navigate("https://help.example".into()));
         assert!(matches!(eval_got.borrow().as_ref(), Some(Err(e)) if e.contains("missing")));
         assert!(matches!(dev_got.borrow().as_ref(), Some(Err(e)) if e.contains("missing")));

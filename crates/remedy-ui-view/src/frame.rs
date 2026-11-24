@@ -1251,8 +1251,11 @@ impl Ui {
             let (pad, scrolls) = (d.resolved.inner_insets(), d.scroll);
             // An element drawn in a compositor layer of its own puts its children in that
             // layer, which the compositor places on whole device pixels.
-            let own_layer =
-                d.scroll || d.isolate.is_some() || d.ambient_layer || d.see_through || d.resolved.backdrop_blur > 0.0;
+            let own_layer = d.scroll
+                || d.isolate.is_some()
+                || d.ambient_layer
+                || d.see_through
+                || d.resolved.backdrop_blur > 0.0;
             let pad = if i.layout.is_rtl(d.node) { pad.mirrored() } else { pad };
             let own = Rect::from_origin_size(Point::ZERO, r.size()).deflate(pad);
             if i.frame.bounds_stale {

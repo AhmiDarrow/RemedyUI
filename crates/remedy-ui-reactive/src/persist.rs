@@ -803,7 +803,9 @@ impl PersistStore {
             Some(Plain::Text) => match serde_json::to_value(value).map_err(format)? {
                 JsonValue::String(s) => s.into_bytes(),
                 other => {
-                    return Err(PersistError::Format(format!("a plain text value must be a string, not {other}")));
+                    return Err(PersistError::Format(format!(
+                        "a plain text value must be a string, not {other}"
+                    )));
                 }
             },
             None => {
@@ -1189,14 +1191,18 @@ mod tests {
         let store = ok(PersistStore::with_debounce(&dir, Duration::from_secs(60)));
         let seasons = Persist::new("portal-seasons-test").session();
         assert_eq!(ok(store.load::<JsonValue>(&seasons)), None);
-        let memory = serde_json::json!({"seasonToShow": "x", "seasonNumber": 2, "showName": "S", "labels": {}});
+        let memory =
+            serde_json::json!({"seasonToShow": "x", "seasonNumber": 2, "showName": "S", "labels": {}});
         ok(store.save(&seasons, &memory));
         // Another store of the same run (another window's) sees it at once; nothing is on disk.
         let kv = Arc::new(MemoryKv::default());
         let other = page_store("Other", &kv, Duration::from_secs(60));
         assert_eq!(ok(other.load::<JsonValue>(&seasons)), Some(memory));
         assert!(!store.path_of("portal-seasons-test").exists() && lock(&kv.map).is_empty());
-        assert_eq!(ok(session::get("portal-seasons-test")).map(|t| t.contains("\"seasonNumber\":2")), Some(true));
+        assert_eq!(
+            ok(session::get("portal-seasons-test")).map(|t| t.contains("\"seasonNumber\":2")),
+            Some(true)
+        );
         ok(other.forget(&seasons));
         assert_eq!(ok(store.load::<JsonValue>(&seasons)), None);
         let _ = std::fs::remove_dir_all(&dir);

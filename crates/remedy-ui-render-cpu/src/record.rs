@@ -196,9 +196,9 @@ fn walk<T: CompositeTarget>(
                 | CompositeOp::PushFilter { .. } => skip += 1,
                 CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => skip -= 1,
                 CompositeOp::Tile { .. }
-            | CompositeOp::Backdrop { .. }
-            | CompositeOp::Fill { .. }
-            | CompositeOp::Clear { .. } => {}
+                | CompositeOp::Backdrop { .. }
+                | CompositeOp::Fill { .. }
+                | CompositeOp::Clear { .. } => {}
             }
             continue;
         }

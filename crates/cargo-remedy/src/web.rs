@@ -214,12 +214,16 @@ const MARK: &[u8] = b"\x01remedy-asset:";
 fn marks(module: &[u8]) -> Vec<(std::ops::Range<usize>, String)> {
     let mut out = Vec::new();
     let mut at = 0;
-    while let Some(found) = module.get(at..).and_then(|rest| rest.windows(MARK.len()).position(|w| w == MARK)) {
+    while let Some(found) = module.get(at..).and_then(|rest| rest.windows(MARK.len()).position(|w| w == MARK))
+    {
         let start = at + found;
         let body = start + MARK.len();
         let Some(len) = module.get(body..).and_then(|rest| rest.iter().position(|&b| b == 1)) else { break };
         let end = body + len + 1;
-        out.push((start..end, String::from_utf8_lossy(module.get(body..body + len).unwrap_or_default()).into_owned()));
+        out.push((
+            start..end,
+            String::from_utf8_lossy(module.get(body..body + len).unwrap_or_default()).into_owned(),
+        ));
         at = end;
     }
     out
@@ -445,8 +449,18 @@ mod tests {
     fn the_worker_caches_exactly_this_build() {
         let files = vec!["index.html".to_owned(), "app.js".to_owned()];
         let later = vec!["fonts/NotoSansSC-Regular.woff2".to_owned()];
-        let a = service_worker("app.remedy.notes", &files, &later, &[b"one".to_vec(), b"two".to_vec(), b"f".to_vec()]);
-        let b = service_worker("app.remedy.notes", &files, &later, &[b"one".to_vec(), b"two".to_vec(), b"g".to_vec()]);
+        let a = service_worker(
+            "app.remedy.notes",
+            &files,
+            &later,
+            &[b"one".to_vec(), b"two".to_vec(), b"f".to_vec()],
+        );
+        let b = service_worker(
+            "app.remedy.notes",
+            &files,
+            &later,
+            &[b"one".to_vec(), b"two".to_vec(), b"g".to_vec()],
+        );
         assert!(a.contains(r#"const FILES = ["./", "./index.html", "./app.js"];"#), "{a}");
         assert!(a.contains(r#"const LATER = ["./fonts/NotoSansSC-Regular.woff2"];"#), "{a}");
         assert!(a.contains(r#"k.startsWith("remedy-app.remedy.notes-")"#), "{a}");
@@ -457,7 +471,9 @@ mod tests {
     #[test]
     fn the_modules_assets_are_found_by_their_marks_and_blanked() {
         let mut m = b"\0asm\x01\0\0\0data".to_vec();
-        for line in ["fonts/A.ttf\t/src/fonts/A.ttf", "fonts/B.woff2\t/src/B.woff2", "fonts/A.ttf\t/src/fonts/A.ttf"] {
+        for line in
+            ["fonts/A.ttf\t/src/fonts/A.ttf", "fonts/B.woff2\t/src/B.woff2", "fonts/A.ttf\t/src/fonts/A.ttf"]
+        {
             m.extend_from_slice(b"\x01remedy-asset:");
             m.extend_from_slice(line.as_bytes());
             m.extend_from_slice(b"\x01 more");
@@ -465,13 +481,19 @@ mod tests {
         let got = assets(&m).unwrap_or_default();
         assert_eq!(
             got,
-            [("fonts/A.ttf".to_owned(), PathBuf::from("/src/fonts/A.ttf")), ("fonts/B.woff2".to_owned(), PathBuf::from("/src/B.woff2"))]
+            [
+                ("fonts/A.ttf".to_owned(), PathBuf::from("/src/fonts/A.ttf")),
+                ("fonts/B.woff2".to_owned(), PathBuf::from("/src/B.woff2"))
+            ]
         );
         let b = blank_marks(&m);
         assert_eq!(b.len(), m.len(), "the layout stays");
         assert!(assets(&b).is_ok_and(|a| a.is_empty()) && !b.windows(4).any(|w| w == b"/src"), "gone");
         assert!(b.ends_with(b"\0 more"));
-        assert!(assets(b"\x01remedy-asset:../etc/passwd\t/x\x01").is_err(), "nothing is served outside the page");
+        assert!(
+            assets(b"\x01remedy-asset:../etc/passwd\t/x\x01").is_err(),
+            "nothing is served outside the page"
+        );
     }
 
     #[test]

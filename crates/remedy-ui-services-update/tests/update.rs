@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use remedy_ui_services_update::{check, download, verify, Feed, Release, UpdateConfig, UpdateError};
+use remedy_ui_services_update::{Feed, Release, UpdateConfig, UpdateError, check, download, verify};
 
 /// A tiny HTTP server answering GETs from a path → body map, on its own thread.
 fn serve(routes: Vec<(String, Vec<u8>)>) -> String {

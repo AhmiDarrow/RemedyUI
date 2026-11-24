@@ -100,7 +100,8 @@ impl TileGrid {
     pub(crate) fn carry_over(&mut self, from: u64, to: u64, changed: Rect) {
         let e = self.content_edge();
         // A pixel more, for anti-aliasing at the change's edge.
-        let near = Rect::new(changed.min.x - 1.0, changed.min.y - 1.0, changed.max.x + 1.0, changed.max.y + 1.0);
+        let near =
+            Rect::new(changed.min.x - 1.0, changed.min.y - 1.0, changed.max.x + 1.0, changed.max.y + 1.0);
         for (&(col, row), version) in &mut self.valid {
             let cell = Rect::new(col as f32 * e, row as f32 * e, (col + 1) as f32 * e, (row + 1) as f32 * e);
             if *version == from && (changed.is_empty() || cell.intersect(near).is_none_or(|r| r.is_empty())) {

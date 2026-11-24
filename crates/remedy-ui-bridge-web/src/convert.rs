@@ -645,9 +645,7 @@ pub fn parse_px(css: &str) -> f32 {
 pub fn device_size(exact: Option<(f64, f64)>, css: (f64, f64), dpr: f64) -> (f64, f64) {
     let scaled = ((css.0 * dpr).round(), (css.1 * dpr).round());
     let slack = dpr.ceil() + 1.0;
-    exact
-        .filter(|&(w, h)| (w - scaled.0).abs() <= slack && (h - scaled.1).abs() <= slack)
-        .unwrap_or(scaled)
+    exact.filter(|&(w, h)| (w - scaled.0).abs() <= slack && (h - scaled.1).abs() <= slack).unwrap_or(scaled)
 }
 
 /// An `<input type=file>` `accept` list from a dialog's filters (`.png,.jpg`); empty

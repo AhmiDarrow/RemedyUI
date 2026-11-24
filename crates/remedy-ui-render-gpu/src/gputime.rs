@@ -121,7 +121,11 @@ impl GpuTimer {
         for f in done {
             if f.state.load(Ordering::SeqCst) == READY {
                 if let Some(ns) = measured(&f) {
-                    remedy_ui_core::trace::gpu_slice("frame", f.submitted_ns, f.submitted_ns.saturating_add(ns));
+                    remedy_ui_core::trace::gpu_slice(
+                        "frame",
+                        f.submitted_ns,
+                        f.submitted_ns.saturating_add(ns),
+                    );
                 }
                 f.readback.unmap();
             }

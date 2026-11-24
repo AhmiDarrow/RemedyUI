@@ -266,7 +266,6 @@ fn version(v: &str) -> Result<semver::Version, UpdateError> {
         .map_err(|e| UpdateError::Feed(format!("version {v}: {e}")))
 }
 
-
 /// Keys Tauri writes under `platforms` in `latest.json`, preferred first, including aliases.
 fn tauri_platform_keys_for(os: &str, arch: &str) -> &'static [&'static str] {
     match (os, arch) {
@@ -308,7 +307,13 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
                 return Err(UpdateError::Feed(format!("no signature for {key}")));
             }
             let sha256 = entry.get("sha256").and_then(|x| x.as_str()).map(str::to_owned);
-            return Ok(Release { version, notes, url: url.to_owned(), signature: signature.to_owned(), sha256 });
+            return Ok(Release {
+                version,
+                notes,
+                url: url.to_owned(),
+                signature: signature.to_owned(),
+                sha256,
+            });
         }
         return Err(UpdateError::Feed(format!("no platform in the feed for {os}-{arch}")));
     }
@@ -768,14 +773,18 @@ mod json_feed_tests {
         let mark = dir.join("started");
         let mut old = std::process::Command::new("sleep").arg("0.6").spawn().expect("sleep");
         let started = std::time::Instant::now();
-        let mut new = super::wait_then_exec(old.id(), std::path::Path::new("touch"), &[mark.display().to_string()])
-            .spawn()
-            .expect("sh");
+        let mut new =
+            super::wait_then_exec(old.id(), std::path::Path::new("touch"), &[mark.display().to_string()])
+                .spawn()
+                .expect("sh");
         std::thread::sleep(std::time::Duration::from_millis(250));
         assert!(!mark.exists(), "not while the old one runs");
         let _ = old.wait();
         let _ = new.wait();
-        assert!(mark.exists() && started.elapsed() >= std::time::Duration::from_millis(600), "once it has gone");
+        assert!(
+            mark.exists() && started.elapsed() >= std::time::Duration::from_millis(600),
+            "once it has gone"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -808,8 +817,10 @@ mod json_feed_tests {
             "notes": "flat"
         });
         let r = json_release_on(&v, "linux", "x86_64").expect("flat");
-        assert_eq!((r.version.as_str(), r.url.as_str(), r.signature.as_str(), r.sha256.as_deref(), r.notes.as_str()),
-            ("2.0.0", "https://example.com/app.bin", "sig", Some("ab"), "flat"));
+        assert_eq!(
+            (r.version.as_str(), r.url.as_str(), r.signature.as_str(), r.sha256.as_deref(), r.notes.as_str()),
+            ("2.0.0", "https://example.com/app.bin", "sig", Some("ab"), "flat")
+        );
     }
 
     #[test]

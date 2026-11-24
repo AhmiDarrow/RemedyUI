@@ -1127,8 +1127,10 @@ impl App {
             let app = self.clone();
             remedy_ui_bridge_web::fonts::system_ui_faces(move |got| {
                 let read = got.and_then(|(chosen, bytes)| {
-                    let files: Vec<FontFile> = bytes.into_iter().filter_map(|b| FontFile::from_vec(b).ok()).collect();
-                    let mut families: Vec<String> = files.iter().flat_map(|f| f.families().to_vec()).collect();
+                    let files: Vec<FontFile> =
+                        bytes.into_iter().filter_map(|b| FontFile::from_vec(b).ok()).collect();
+                    let mut families: Vec<String> =
+                        files.iter().flat_map(|f| f.families().to_vec()).collect();
                     families.sort_by_key(|f| *f != chosen);
                     families.dedup();
                     if files.is_empty() {
@@ -2473,7 +2475,8 @@ impl Runner {
         {
             let app = Rc::downgrade(&runner.app.0);
             crate::web_fonts::on_arrival(move || {
-                let uis: Vec<Ui> = app.upgrade().map(|s| s.borrow().uis.values().cloned().collect()).unwrap_or_default();
+                let uis: Vec<Ui> =
+                    app.upgrade().map(|s| s.borrow().uis.values().cloned().collect()).unwrap_or_default();
                 for ui in uis {
                     ui.fonts_changed();
                 }
@@ -3400,9 +3403,10 @@ impl Runner {
                     // A page's canvas can show through: its elements (a playing `<video>`) show in the
                     // holes the window leaves clear (`El::set_see_through`), the background stays opaque.
                     let see_through = w.spec.options.transparent || cfg!(target_arch = "wasm32");
-                    let surface = host.window_handles(w.host).ok().and_then(|hd| {
-                        gpu.create_surface_paced(hd, pw, ph, see_through, vsync).ok()
-                    });
+                    let surface = host
+                        .window_handles(w.host)
+                        .ok()
+                        .and_then(|hd| gpu.create_surface_paced(hd, pw, ph, see_through, vsync).ok());
                     if self.app.0.borrow().adapter.is_none() {
                         let a = gpu.adapter();
                         self.app.0.borrow_mut().adapter = Some(GraphicsAdapter {
@@ -3800,7 +3804,8 @@ impl remedy_ui_host::App for Runner {
                         let middle = e.buttons.contains(Buttons::MIDDLE);
                         let a = w.autoscroll.as_mut().expect("checked");
                         a.at = e.position;
-                        let far = (a.at.x - a.origin.x).abs().max((a.at.y - a.origin.y).abs()) > Autoscroll::DEAD_ZONE;
+                        let far = (a.at.x - a.origin.x).abs().max((a.at.y - a.origin.y).abs())
+                            > Autoscroll::DEAD_ZONE;
                         let end = match e.phase {
                             PointerPhase::Down => !(a.held && middle && e.buttons == Buttons::MIDDLE),
                             PointerPhase::Up | PointerPhase::Cancel => {
@@ -3997,7 +4002,8 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_occluded(true);
                 }
                 // A suspended app may be ended without another word.
-                let why = if matches!(event, HostEvent::Closing) { Leaving::Closing } else { Leaving::Frozen };
+                let why =
+                    if matches!(event, HostEvent::Closing) { Leaving::Closing } else { Leaving::Frozen };
                 self.save_now(host, why);
             }
             HostEvent::Destroyed(window) => {
@@ -4175,7 +4181,13 @@ mod tests {
     #[test]
     fn autoscroll_rests_near_its_spot_and_speeds_up_with_distance() {
         let o = Point::new(100.0, 100.0);
-        let at = |x: f32, y: f32| Autoscroll { origin: o, at: Point::new(x, y), held: false, dragged: false, last: None };
+        let at = |x: f32, y: f32| Autoscroll {
+            origin: o,
+            at: Point::new(x, y),
+            held: false,
+            dragged: false,
+            last: None,
+        };
         assert_eq!(at(108.0, 92.0).delta(0.016), Vec2::ZERO, "inside the dead zone");
         let near = at(100.0, 132.0).delta(0.5).y;
         let far = at(100.0, 212.0).delta(0.5).y;

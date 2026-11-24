@@ -99,8 +99,20 @@ fn platform_candidates() -> Vec<&'static str> {
 /// Weight and width words a family's further faces add to its name in older fonts
 /// (`Segoe UI Semibold`): faces of the same family.
 const STYLE_WORDS: [&str; 14] = [
-    "Thin", "Hairline", "ExtraLight", "UltraLight", "Light", "Semilight", "SemiLight", "Medium", "Semibold",
-    "SemiBold", "DemiBold", "ExtraBold", "Black", "Heavy",
+    "Thin",
+    "Hairline",
+    "ExtraLight",
+    "UltraLight",
+    "Light",
+    "Semilight",
+    "SemiLight",
+    "Medium",
+    "Semibold",
+    "SemiBold",
+    "DemiBold",
+    "ExtraBold",
+    "Black",
+    "Heavy",
 ];
 
 /// The family the browser draws `system-ui` in, among `families` (installed ones, from the
@@ -142,8 +154,10 @@ pub(crate) async fn system_ui_faces() -> Result<(String, Vec<Vec<u8>>), String> 
                 .into(),
         );
     }
-    let fonts: Array =
-        wait(call(&window, "queryLocalFonts", &[])?).await?.dyn_into().map_err(|_| "no font list".to_owned())?;
+    let fonts: Array = wait(call(&window, "queryLocalFonts", &[])?)
+        .await?
+        .dyn_into()
+        .map_err(|_| "no font list".to_owned())?;
     let fonts: Vec<JsValue> = fonts.iter().collect();
     let family_of = |f: &JsValue| get(f, "family").ok().and_then(|v| v.as_string()).unwrap_or_default();
     let mut families: Vec<String> = fonts.iter().map(family_of).filter(|f| !f.is_empty()).collect();
