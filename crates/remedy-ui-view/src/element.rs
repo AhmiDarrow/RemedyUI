@@ -786,6 +786,10 @@ pub(crate) struct Inner {
     pub(crate) captured: Option<ElementId>,
     /// Middle-button drag on a scroll container: the scroller and the last pointer position.
     pub(crate) middle_scroll: Option<(ElementId, remedy_ui_core::Point)>,
+    /// Primary-button drag on a painted scrollbar thumb (or a jump on its track).
+    /// `(scroller, vertical, grab)`: grab is the pointer's offset from the thumb start
+    /// along that axis, so the thumb stays under the cursor while dragging.
+    pub(crate) bar_scroll: Option<(ElementId, bool, f32)>,
     /// The element a touchpad pinch started on keeps it until the pinch ends.
     pub(crate) pinching: Option<ElementId>,
     /// The drag under way, and a press that may become one.
@@ -1043,6 +1047,7 @@ impl Ui {
             wake: None,
             captured: None,
             middle_scroll: None,
+            bar_scroll: None,
             pinching: None,
             drag: None,
             drag_pending: None,

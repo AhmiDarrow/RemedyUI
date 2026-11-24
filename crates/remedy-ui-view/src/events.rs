@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::{Point, Vec2};
+use remedy_ui_core::{Point, Size, Vec2};
 
 /// How far an arrow key scrolls by default ([`Ui::set_scroll_step`]), in logical pixels.
 pub const SCROLL_STEP: f32 = 40.0;
@@ -200,6 +200,12 @@ impl Ui {
         // A wrapped link's further lines are that link too.
         let hit = self.link_at(hit, e.position).or(hit);
         if self.drag_pointer(e, hit) {
+            self.0.borrow_mut().consumed = true;
+            return true;
+        }
+        // Painted scrollbar thumbs sit over the content. Hit-testing the tree would miss
+        // them (they are compositor decorations, not elements), so a grab is handled here.
+        if self.scrollbar_pointer(e, hit) {
             self.0.borrow_mut().consumed = true;
             return true;
         }
@@ -601,6 +607,143 @@ impl Ui {
         self.0.borrow().scroll_step
     }
 
+
+    /// Primary-button grab and drag of a scroll container's painted thumb, or a click on its
+    /// track that jumps the thumb there. These bars are drawn by the compositor, so they are
+    /// not in the element hit-test tree; without this, they appear on scroll but cannot be
+    /// dragged.
+    fn scrollbar_pointer(&self, e: &PointerEvent, hit: Option<ElementId>) -> bool {
+        match e.phase {
+            PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => {
+                let tree = self.tree();
+                let mut cur = hit;
+                while let Some(p) = cur {
+                    if self.begin_bar_scroll(p, e.position) {
+                        return true;
+                    }
+                    cur = tree.parent(p);
+                }
+                false
+            }
+            PointerPhase::Move => {
+                let Some((id, vertical, grab)) = self.0.borrow().bar_scroll else {
+                    return false;
+                };
+                let Some(next) = self.bar_offset_for(id, vertical, grab, e.position) else {
+                    return true;
+                };
+                self.request(Request::ScrollTo { scroller: id, offset: next });
+                true
+            }
+            PointerPhase::Up | PointerPhase::Cancel => self.0.borrow_mut().bar_scroll.take().is_some(),
+            _ => false,
+        }
+    }
+
+    /// Starts a thumb drag or track jump on `id` when `pos` is over a visible overflow bar.
+    fn begin_bar_scroll(&self, id: ElementId, pos: Point) -> bool {
+        let Some((vertical, grab, offset)) = self.bar_hit(id, pos) else {
+            return false;
+        };
+        self.0.borrow_mut().bar_scroll = Some((id, vertical, grab));
+        let off = self.scroll_offset(id);
+        let next = if vertical { Vec2::new(off.x, offset) } else { Vec2::new(offset, off.y) };
+        if next != off {
+            self.request(Request::ScrollTo { scroller: id, offset: next });
+        }
+        true
+    }
+
+    /// If `pos` is on this scroller's thumb or track, the axis, the grab (pointer minus thumb
+    /// start), and the scroll offset that puts the thumb under the pointer.
+    fn bar_hit(&self, id: ElementId, pos: Point) -> Option<(bool, f32, f32)> {
+        if !self.0.borrow().els.get(&id).is_some_and(|d| d.scroll) {
+            return None;
+        }
+        let tree = self.tree();
+        let view = tree.bounds(id)?;
+        let (bars, content, off) = self.bar_metrics(id, view)?;
+        let parts = bars.parts(view.size(), content, off);
+        let local = Point::new(pos.x - view.min.x, pos.y - view.min.y);
+        // Vertical first (right edge), then horizontal (bottom), matching `Scrollbars::parts`.
+        for (vertical, slot) in [(true, parts[0]), (false, parts[1])] {
+            let Some((track, thumb)) = slot else { continue };
+            let slop = 2.0;
+            let hit_track = inflate(track, slop).contains(local);
+            let hit_thumb = inflate(thumb, slop).contains(local);
+            if !hit_track && !hit_thumb {
+                continue;
+            }
+            let (len, view_len, content_len, _at, pointer) = if vertical {
+                (track.height(), view.height(), content.height, off.y, local.y)
+            } else {
+                (track.width(), view.width(), content.width, off.x, local.x)
+            };
+            let thumb_start = if vertical { thumb.min.y } else { thumb.min.x };
+            let thumb_len = if vertical { thumb.height() } else { thumb.width() };
+            let grab = if hit_thumb {
+                pointer - thumb_start
+            } else {
+                // Track click: jump so the thumb is centered on the pointer when it fits.
+                let start = (pointer - thumb_len / 2.0).clamp(0.0, (len - thumb_len).max(0.0));
+                pointer - start
+            };
+            let start = (pointer - grab).clamp(0.0, (len - thumb_len).max(0.0));
+            let travel = (content_len - view_len).max(f32::MIN_POSITIVE);
+            let span = (len - thumb_len).max(f32::MIN_POSITIVE);
+            let offset = travel * (start / span);
+            return Some((vertical, grab, offset));
+        }
+        None
+    }
+
+    fn bar_offset_for(&self, id: ElementId, vertical: bool, grab: f32, pos: Point) -> Option<Vec2> {
+        let tree = self.tree();
+        let view = tree.bounds(id)?;
+        let (bars, content, off) = self.bar_metrics(id, view)?;
+        let parts = bars.parts(view.size(), content, off);
+        let slot = if vertical { parts[0] } else { parts[1] };
+        let Some((track, thumb)) = slot else {
+            return Some(off);
+        };
+        let local = Point::new(pos.x - view.min.x, pos.y - view.min.y);
+        let (len, view_len, content_len, pointer) = if vertical {
+            (track.height(), view.height(), content.height, local.y)
+        } else {
+            (track.width(), view.width(), content.width, local.x)
+        };
+        let thumb_len = if vertical { thumb.height() } else { thumb.width() };
+        let start = (pointer - grab).clamp(0.0, (len - thumb_len).max(0.0));
+        let travel = (content_len - view_len).max(f32::MIN_POSITIVE);
+        let span = (len - thumb_len).max(f32::MIN_POSITIVE);
+        let at = travel * (start / span);
+        Some(if vertical { Vec2::new(off.x, at) } else { Vec2::new(at, off.y) })
+    }
+
+    fn bar_metrics(
+        &self,
+        id: ElementId,
+        view: remedy_ui_core::Rect,
+    ) -> Option<(remedy_ui_compositor::Scrollbars, Size, Vec2)> {
+        let bars = {
+            let i = self.0.borrow();
+            let d = i.els.get(&id)?;
+            crate::frame::scrollbars(&d.resolved, &i.theme)?
+        };
+        let off = self.scroll_offset(id);
+        let tree = self.tree();
+        let union = tree
+            .children(id)
+            .iter()
+            .filter_map(|k| tree.bounds(*k))
+            .fold(view, |u, r| u.union(r));
+        let content = Size::new(
+            (union.max.x - view.max.x + off.x + view.width()).max(view.width()),
+            (union.max.y - view.max.y + off.y + view.height()).max(view.height()),
+        );
+        Some((bars, content, off))
+    }
+
     /// Middle-button drag pans the scroll container under the pointer (or the one the drag
     /// started on). Wheel and keyboard scrolling stay as they are.
     fn middle_scroll(&self, e: &PointerEvent, hit: Option<ElementId>) -> bool {
@@ -875,3 +1018,8 @@ pub(crate) fn focus_changed(ui: &Ui) {
         f(focused);
     }
 }
+
+fn inflate(r: remedy_ui_core::Rect, slop: f32) -> remedy_ui_core::Rect {
+    remedy_ui_core::Rect::new(r.min.x - slop, r.min.y - slop, r.max.x + slop, r.max.y + slop)
+}
+

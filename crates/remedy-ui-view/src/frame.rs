@@ -885,7 +885,7 @@ impl Walk<'_> {
 
 /// The scroll bars a scroll container styled `s` draws: its `scrollbar-*` style, the colors
 /// the platform's (from `theme`) when it sets none. `None` when it shows none.
-fn scrollbars(
+pub(crate) fn scrollbars(
     s: &remedy_ui_style::ResolvedStyle,
     theme: &remedy_ui_style::Theme,
 ) -> Option<remedy_ui_compositor::Scrollbars> {
