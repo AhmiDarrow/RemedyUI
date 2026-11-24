@@ -16,7 +16,9 @@ default and can be changed, or lifted with `None`:
 | Time for the whole request | 30 seconds | `Http::timeout`, `Request::timeout` |
 | Body read, kept or streamed | 256 MiB | `Http::max_body`, `Request::max_body` |
 | Redirects followed (natively) | 10 | `Http::max_redirects` (`0` follows none) |
-| Cookies a jar keeps | 3000 | `CookieJar::max_cookies` | A [`Request`](crate::net::Request) is a method, a path
+| Cookies a jar keeps | 3000 | `CookieJar::max_cookies` |
+
+A [`Request`](crate::net::Request) is a method, a path
 and a body: JSON, raw bytes or a [`Multipart`](crate::net::Multipart) form.
 [`Http::send_json`](crate::net::Http::send_json) decodes the answer into your type.
 

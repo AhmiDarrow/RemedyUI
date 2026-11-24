@@ -319,14 +319,17 @@ begin
 @DELETE_KEYS@end;
 "#;
     // Pascal strings: a quote is doubled. The names in `r` were checked to hold none.
-    let files: String = r.files[1..].iter().map(|f| format!("  DeleteFile(OldDir + '\\{f}');\n")).collect();
-    let keys: String = r.registry.iter().map(|k| format!("  RegDeleteKeyIncludingSubkeys(HKCU, '{k}');\n")).collect();
+    // The first file is the program; project.rs refuses a list without one.
+    let Some((program, others)) = r.files.split_first() else { return String::new() };
+    let files: String = others.iter().map(|f| format!("  DeleteFile(OldDir + '\\{f}');\n")).collect();
+    let keys: String =
+        r.registry.iter().map(|k| format!("  RegDeleteKeyIncludingSubkeys(HKCU, '{k}');\n")).collect();
     CODE.replace("@KEY@", &r.uninstall_key)
         .replace("@MSI_WANTED@", if r.msi_name.is_some() { "True" } else { "False" })
         .replace("@MSI@", r.msi_name.as_deref().unwrap_or(""))
         .replace("@MUTEX_WANTED@", if r.mutex.is_some() { "True" } else { "False" })
         .replace("@MUTEX@", r.mutex.as_deref().unwrap_or(""))
-        .replace("@PROGRAM@", &r.files[0])
+        .replace("@PROGRAM@", program)
         .replace("@DELETE_FILES@", &files)
         .replace("@DELETE_KEYS@", &keys)
         .replace("@NAME@", &p.name.replace('\'', "''"))
@@ -518,7 +521,10 @@ mod tests {
             "notes_1.2.3_x64-setup",
         );
         assert!(iss.contains("AppId=app.remedy.notes") && iss.contains("PrivilegesRequired=lowest"), "{iss}");
-        assert!(iss.contains("UninstallDisplayName=Notes, \"\"Plus\"\""), "the name as installed apps list it: {iss}");
+        assert!(
+            iss.contains("UninstallDisplayName=Notes, \"\"Plus\"\""),
+            "the name as installed apps list it: {iss}"
+        );
         assert!(
             iss.contains("{localappdata}") && iss.contains("{cm:LaunchProgram,Notes%2c \"Plus\"}"),
             "{iss}"

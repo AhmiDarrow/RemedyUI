@@ -183,7 +183,8 @@ fn draw_rgba(video: &JsValue, (w, h): (u32, u32), slot: &mut Option<(JsValue, Js
 /// The element while no surface shows it: in the page and over everything, so the browser
 /// composites (and calls back for) its frames, a covered element's being skipped; but unseen
 /// and out of the way.
-const HIDDEN: &str = "position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:2147483647";
+const HIDDEN: &str =
+    "position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:2147483647";
 
 /// Shows `video` under the window's canvas at `at` (window logical pixels, which are the CSS
 /// pixels of the canvas's box), or out of the way again for `None`.
@@ -198,7 +199,8 @@ fn place_element(video: &JsValue, at: Option<remedy_ui_paint::PagePlacement>) {
         return;
     };
     // shortcut: the first window's canvas; a page with several windows shows it in that one.
-    let Ok(canvas) = call(&doc, "querySelector", &["[data-remedy-window] canvas[data-raw-handle]".into()]) else {
+    let Ok(canvas) = call(&doc, "querySelector", &["[data-remedy-window] canvas[data-raw-handle]".into()])
+    else {
         return;
     };
     let surface = get(&canvas, "parentElement");

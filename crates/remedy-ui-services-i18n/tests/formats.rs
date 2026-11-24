@@ -105,7 +105,10 @@ fn numeric_dates_with_seconds_match_the_browsers_to_locale_string() {
     assert_eq!(numeric("en-GB"), "21/11/2026, 13:32:31");
     assert_eq!(numeric("ko"), "2026. 11. 21. 오후 1:32:31");
     // Before 1970 and at midnight.
-    assert_eq!(CalendarSymbols::for_locale("en-US").format_instant(-1, DateTimeStyle::Numeric), "12/31/1969, 11:59:59 PM");
+    assert_eq!(
+        CalendarSymbols::for_locale("en-US").format_instant(-1, DateTimeStyle::Numeric),
+        "12/31/1969, 11:59:59 PM"
+    );
     // The medium style is the minute-precise `date_time`.
     let cal = CalendarSymbols::for_locale("en");
     assert_eq!(cal.format_date_time(DATE, time(), 9, DateTimeStyle::Medium), date_time("en"));

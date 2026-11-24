@@ -155,6 +155,7 @@ impl GlyphRasterizer {
 
     /// [`Self::rasterize`], passing `foreground` to color glyphs that use the text color
     /// (COLR palette index `0xFFFF`).
+    #[allow(clippy::too_many_arguments, reason = "the glyph, its size, bin, hinting, antialiasing and color")]
     pub fn rasterize_foreground(
         &mut self,
         font: &RunFont,

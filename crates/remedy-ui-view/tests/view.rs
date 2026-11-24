@@ -1171,6 +1171,54 @@ fn field_decorations_draw_under_ranges_and_follow_edits() {
     field.set_decorations(vec![Decoration::squiggle(0..5).of_kind(DecorationKind::Underline).colored(BLUE)]);
     s.frame();
     assert!(blue_pixels(&s, b) > 8, "a straight underline draws too");
+    field.set_decorations(vec![Decoration::highlight(0..5).colored(BLUE)]);
+    s.frame();
+    assert!(blue_pixels(&s, b) > 100, "a highlight fills behind the word");
+}
+
+#[test]
+fn a_field_in_its_own_text_color_shows_its_caret_and_selection_on_its_own_surface() {
+    // A yellow note with near-black text, in a dark theme: the theme's selection fill is a
+    // dark block and its caret a light line, neither of which shows on the note.
+    let (note, ink) = (Color::rgb8(255, 229, 102), Color::rgb8(26, 21, 8));
+    let ui = ui();
+    let field = ui.text_field("text_input", FieldKind::Single);
+    field.set_value("hello world");
+    ui.root().child(
+        field
+            .el()
+            .style(StylePatch::new().background(note).foreground(ink))
+            .layout(|l| l.width = Length::Px(190.0)),
+    );
+    let mut s = Screen::new(ui.clone());
+    field.el().focus();
+    s.frame();
+    let b = field.el().bounds().unwrap_or_default();
+    let count = |s: &Screen, want: &dyn Fn([u8; 4]) -> bool| {
+        let mut n = 0;
+        for y in b.min.y.max(0.0) as u32 + 2..(b.max.y.max(0.0) as u32).saturating_sub(2) {
+            for x in b.min.x.max(0.0) as u32 + 2..(b.max.x.max(0.0) as u32).saturating_sub(2) {
+                n += usize::from(want(s.px(x, y)));
+            }
+        }
+        n
+    };
+    let dark = |p: [u8; 4]| p[0] < 110 && p[1] < 110 && p[2] < 110;
+    let plain = |p: [u8; 4]| p[0] > 245 && p[1] > 215 && p[2] < 120;
+    let (glyphs, clear) = (count(&s, &dark), count(&s, &plain));
+    assert!(glyphs > 20, "dark text and a dark caret on the note: {glyphs}");
+
+    ui.key(&ctrl("a"));
+    s.frame();
+    let (selected_dark, selected_clear) = (count(&s, &dark), count(&s, &plain));
+    assert!(
+        selected_clear < clear.saturating_sub(200),
+        "the selection is filled: {selected_clear} of {clear}"
+    );
+    assert!(
+        selected_dark < glyphs * 2 + 40,
+        "the fill is a tint of the text color, not a dark block under dark text: {selected_dark} dark, {glyphs} before"
+    );
 }
 
 #[test]

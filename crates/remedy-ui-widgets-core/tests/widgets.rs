@@ -1183,10 +1183,10 @@ fn a_modal_taller_than_the_window_fits_and_scrolls() {
 fn find_widget(root: &El, name: &str) -> Option<El> {
     let mut stack = vec![root.clone()];
     while let Some(e) = stack.pop() {
-        if e.info().is_some_and(|i| i.widget == name) {
-            if e.bounds().is_some_and(|b| b.width() > 0.0 && b.height() > 0.0) {
-                return Some(e);
-            }
+        if e.info().is_some_and(|i| i.widget == name)
+            && e.bounds().is_some_and(|b| b.width() > 0.0 && b.height() > 0.0)
+        {
+            return Some(e);
         }
         stack.extend(e.child_elements());
     }
@@ -1212,7 +1212,7 @@ fn dock_pane_resizes_collapses_and_redocks() {
         l.height = remedy_ui_layout::Length::Percent(1.0);
         l.grow = 1.0;
     });
-    let dock = w::dock(&t.ui, state.clone(), spec, body.clone(), main.clone()).width(400.0).height(200.0);
+    let dock = w::dock(&t.ui, state, spec, body.clone(), main.clone()).width(400.0).height(200.0);
     t.ui.root().child(dock.clone());
     t.frame();
 
@@ -1224,7 +1224,7 @@ fn dock_pane_resizes_collapses_and_redocks() {
     assert!(chat.max.x <= 401.0 && chat.width() > 80.0, "main has the rest of the row: {chat:?}");
 
     // Arrow keys on the handle move the divider in pixels, clamped to min/max.
-    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| panic!("resize handle"));
+    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| unreachable!("resize handle"));
     handle.focus();
     t.key(Key::ArrowRight);
     t.key(Key::ArrowRight);
@@ -1245,7 +1245,8 @@ fn dock_pane_resizes_collapses_and_redocks() {
     t.frame();
 
     // Dragging the divider past the midpoint docks the pane on the other side.
-    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| panic!("resize handle after clamp"));
+    let handle =
+        find_widget(&dock, "dock-handle").unwrap_or_else(|| unreachable!("resize handle after clamp"));
     let hb = handle.bounds().unwrap_or_default();
     let y = (hb.min.y + hb.max.y) / 2.0;
     t.ui.pointer(&ptr(PointerPhase::Down, Point::new(hb.min.x + 4.0, y), Buttons::PRIMARY));
@@ -1259,7 +1260,7 @@ fn dock_pane_resizes_collapses_and_redocks() {
     assert!(chat.max.x <= right.min.x + 8.0, "main sits before the end pane: {chat:?} {right:?}");
 
     // The chevron collapses the pane to the slim strip.
-    let btn = find_widget(&dock, "button").unwrap_or_else(|| panic!("collapse chevron"));
+    let btn = find_widget(&dock, "button").unwrap_or_else(|| unreachable!("collapse chevron"));
     t.click(&btn);
     assert!(state.get().collapsed, "the chevron collapses the pane");
     t.frame();
@@ -1279,7 +1280,7 @@ fn dock_pane_resizes_collapses_and_redocks() {
 
     // Dragging the grip across the row flips the side without changing width.
     let width = state.get().width;
-    let grip = find_widget(&dock, "dock-grip").unwrap_or_else(|| panic!("move grip"));
+    let grip = find_widget(&dock, "dock-grip").unwrap_or_else(|| unreachable!("move grip"));
     let gb = grip.bounds().unwrap_or_default();
     let gy = (gb.min.y + gb.max.y) / 2.0;
     let gx = (gb.min.x + gb.max.x) / 2.0;

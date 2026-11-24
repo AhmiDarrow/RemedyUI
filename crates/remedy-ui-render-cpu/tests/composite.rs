@@ -228,7 +228,8 @@ fn a_hole_clears_its_box_and_what_draws_after_it_draws_over() {
     let plan = comp.frame(Duration::ZERO);
     let mut cpu = CpuCompositor::new();
     let f = cpu.present(&plan, 100, 100, Color::BLACK).unwrap_or_else(|e| unreachable!("{e:?}"));
-    let px = |x: usize, y: usize| f.pixels[(y * 100 + x) * 4..][..4].to_vec();
+    let px =
+        |x: usize, y: usize| f.pixels.iter().skip((y * 100 + x) * 4).take(4).copied().collect::<Vec<u8>>();
     assert_eq!(px(5, 5), vec![0, 0, 0, 255], "the page around it");
     assert_eq!(px(25, 25), vec![0, 0, 0, 0], "cleared: what is under the window shows");
     assert_eq!(px(50, 50), vec![255, 255, 255, 255], "the control over it");
