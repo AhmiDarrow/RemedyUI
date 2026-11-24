@@ -1868,6 +1868,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   taken, so the page around the field scrolls as before. Single-line fields are unchanged:
   Up and Down stay with what is around them (a suggestion list, a spin button).
 
+- **A text field in its own text color shows its caret and selection.** A field styled
+  onto a surface that is not the theme's (dark text on a yellow note, in a dark theme) drew
+  the theme's selection fill and caret: a dark block under dark text, which hid what was
+  selected, and a light caret that did not show. A field whose text color is not the
+  theme's now makes its caret, selection fill, search highlights and placeholder from that
+  color. Fields in the theme's text color look as before.
+
 - **Shortcuts work on keyboard layouts without Latin letters.** With a Russian, Greek,
   Hebrew or Arabic layout active, Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z and Ctrl+Y in text
   fields, Ctrl+C on selected text, the window's undo and redo, and an app's commands
