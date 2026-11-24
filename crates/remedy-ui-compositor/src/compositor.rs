@@ -1059,7 +1059,7 @@ impl Compositor {
                         if let Some(c) = changed.get(id)
                             && Drawn { version: new.version, ..old.clone() } == *new =>
                     {
-                        c.into_iter().for_each(|b| damage.add(*b));
+                        c.iter().for_each(|b| damage.add(*b));
                     }
                     Some(old) => {
                         old.bounds.into_iter().chain(new.bounds).for_each(|b| damage.add(b));

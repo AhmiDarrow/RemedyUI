@@ -165,13 +165,10 @@ fn decode_bitmap(glyph: &BitmapGlyph<'_>) -> Option<(u32, u32, Vec<u8>)> {
             let w = glyph.width;
             let h = glyph.height;
             let n = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
-            if bytes.len() < n {
-                return None;
-            }
             // Already premultiplied BGRA; swizzle to RGBA.
             let mut out = Vec::with_capacity(n);
-            for px in bytes[..n].chunks_exact(4) {
-                out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+            for &[b, g, r, a] in bytes.get(..n)?.as_chunks::<4>().0 {
+                out.extend_from_slice(&[r, g, b, a]);
             }
             Some((w, h, out))
         }
@@ -198,44 +195,30 @@ fn decode_png(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let w = info.width;
     let h = info.height;
     let n = (w as usize).checked_mul(h as usize)?;
-    let src = &buf[..info.buffer_size()];
-    let mut out = Vec::with_capacity(n * 4);
+    let src = buf.get(..info.buffer_size())?;
+    // The first `n * channels` bytes of the frame, or None when the frame is shorter.
+    let pixels = |channels: usize| n.checked_mul(channels).and_then(|len| src.get(..len));
+    let premul = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+    let mut out = Vec::with_capacity(n.checked_mul(4)?);
     match info.color_type {
         png::ColorType::Rgba => {
-            if src.len() < n * 4 {
-                return None;
-            }
-            for px in src[..n * 4].chunks_exact(4) {
-                let a = px[3] as u16;
-                out.push(((px[0] as u16 * a + 127) / 255) as u8);
-                out.push(((px[1] as u16 * a + 127) / 255) as u8);
-                out.push(((px[2] as u16 * a + 127) / 255) as u8);
-                out.push(px[3]);
+            for &[r, g, b, a] in pixels(4)?.as_chunks::<4>().0 {
+                out.extend_from_slice(&[premul(r, a), premul(g, a), premul(b, a), a]);
             }
         }
         png::ColorType::Rgb => {
-            if src.len() < n * 3 {
-                return None;
-            }
-            for px in src[..n * 3].chunks_exact(3) {
-                out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            for &[r, g, b] in pixels(3)?.as_chunks::<3>().0 {
+                out.extend_from_slice(&[r, g, b, 255]);
             }
         }
         png::ColorType::GrayscaleAlpha => {
-            if src.len() < n * 2 {
-                return None;
-            }
-            for px in src[..n * 2].chunks_exact(2) {
-                let a = px[1] as u16;
-                let g = ((px[0] as u16 * a + 127) / 255) as u8;
-                out.extend_from_slice(&[g, g, g, px[1]]);
+            for &[g, a] in pixels(2)?.as_chunks::<2>().0 {
+                let g = premul(g, a);
+                out.extend_from_slice(&[g, g, g, a]);
             }
         }
         png::ColorType::Grayscale => {
-            if src.len() < n {
-                return None;
-            }
-            for &g in &src[..n] {
+            for &g in pixels(1)? {
                 out.extend_from_slice(&[g, g, g, 255]);
             }
         }
@@ -246,10 +229,10 @@ fn decode_png(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
 
 fn scale_rgba(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     // Bilinear, premultiplied. Tight loops; emoji strikes are a few hundred pixels.
-    let mut out = vec![0u8; dw as usize * dh as usize * 4];
     if sw == 0 || sh == 0 {
-        return out;
+        return vec![0u8; dw as usize * dh as usize * 4];
     }
+    let mut out = Vec::with_capacity(dw as usize * dh as usize * 4);
     let x_ratio = (sw as f32) / (dw as f32);
     let y_ratio = (sh as f32) / (dh as f32);
     for y in 0..dh {
@@ -262,25 +245,23 @@ fn scale_rgba(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
             let x0 = fx.floor().clamp(0.0, (sw - 1) as f32) as u32;
             let x1 = (x0 + 1).min(sw - 1);
             let tx = (fx - x0 as f32).clamp(0.0, 1.0);
-            let sample = |xx: u32, yy: u32| {
-                let i = ((yy * sw + xx) as usize) * 4;
-                [src[i] as f32, src[i + 1] as f32, src[i + 2] as f32, src[i + 3] as f32]
+            // A pixel past the end of a short source reads as transparent.
+            let sample = |xx: u32, yy: u32| match src.get((yy * sw + xx) as usize * 4..) {
+                Some(&[r, g, b, a, ..]) => [r, g, b, a].map(f32::from),
+                _ => [0.0; 4],
             };
-            let s00 = sample(x0, y0);
-            let s10 = sample(x1, y0);
-            let s01 = sample(x0, y1);
-            let s11 = sample(x1, y1);
-            let mut px = [0u8; 4];
-            for c in 0..4 {
-                let a = s00[c] * (1.0 - tx) + s10[c] * tx;
-                let b = s01[c] * (1.0 - tx) + s11[c] * tx;
-                px[c] = (a * (1.0 - ty) + b * ty).round().clamp(0.0, 255.0) as u8;
-            }
-            let i = ((y * dw + x) as usize) * 4;
-            out[i..i + 4].copy_from_slice(&px);
+            let top = mix(sample(x0, y0), sample(x1, y0), tx);
+            let bottom = mix(sample(x0, y1), sample(x1, y1), tx);
+            let px = mix(top, bottom, ty).map(|v| v.round().clamp(0.0, 255.0) as u8);
+            out.extend_from_slice(&px);
         }
     }
     out
+}
+
+fn mix([a0, a1, a2, a3]: [f32; 4], [b0, b1, b2, b3]: [f32; 4], t: f32) -> [f32; 4] {
+    let s = 1.0 - t;
+    [a0 * s + b0 * t, a1 * s + b1 * t, a2 * s + b2 * t, a3 * s + b3 * t]
 }
 
 #[derive(Clone, Copy)]
@@ -294,6 +275,8 @@ struct Mat {
 }
 
 impl Mat {
+    const IDENTITY: Self = Self { xx: 1.0, yx: 0.0, xy: 0.0, yy: 1.0, dx: 0.0, dy: 0.0 };
+
     fn mul(self, t: Self) -> Self {
         // self * t: apply t first, then self.
         Self {
@@ -340,7 +323,8 @@ struct BoundsPainter<'a> {
 
 impl BoundsPainter<'_> {
     fn ctm(&self) -> Mat {
-        *self.ctm.last().expect("transform stack")
+        // The root transform is never popped, so the identity is not reached.
+        self.ctm.last().copied().unwrap_or(Mat::IDENTITY)
     }
 
     fn include(&mut self, x: f32, y: f32) {
@@ -425,7 +409,8 @@ struct LayerPainter<'a> {
 
 impl LayerPainter<'_> {
     fn ctm(&self) -> Mat {
-        *self.ctm.last().expect("transform stack")
+        // The root transform is never popped, so the identity is not reached.
+        self.ctm.last().copied().unwrap_or(Mat::IDENTITY)
     }
 
     fn resolve(&self, palette_index: u16, alpha: f32) -> [f32; 4] {
@@ -445,51 +430,26 @@ impl LayerPainter<'_> {
         [r * a, g * a, b * a, a]
     }
 
-    fn coverage_of(&self, glyph_id: GlyphId) -> Option<(GlyphImage, i32, i32)> {
+    /// The glyph's coverage in pixmap pixels. The map is already y-down and relative to the
+    /// pixmap's origin, so `rasterize_mapped`'s image sits at (`left`, `-top`) in the pixmap.
+    fn coverage_of(&self, glyph_id: GlyphId) -> Option<GlyphImage> {
         let path = outline_path(&self.font, glyph_id)?;
         let m = self.ctm();
         let (ox, oy) = self.origin;
-        let img = path.rasterize_mapped(|x, y| {
+        path.rasterize_mapped(|x, y| {
             let (dx, dy) = m.apply(x, y);
             (dx - ox, dy - oy)
-        })?;
-        // rasterize_mapped uses y-up input and flips y (`-y` in the default path is done by
-        // the map we pass: our CTM already maps to device y-down). left/top are relative to
-        // the glyph origin in the mapped space; our pixmap origin is (ox, oy) in device space,
-        // so the image's top-left in pixmap pixels is (img.left, -img.top) wait...
-        //
-        // PathRecorder::rasterize_mapped: map returns device-like coords, then it uses those
-        // as-is (not flipping). Bounds: left = min x, top in image is min y; GlyphImage.top is
-        // `-min_y` only in the y-up `rasterize()` helper. rasterize_mapped sets
-        // `top: -top` where top was min y after mapping... see raster.rs. So GlyphImage.left
-        // is min mapped-x, GlyphImage.top is -min mapped-y. Pixmap coords of the image's
-        // top-left: (left, -top) if top is "up from origin", i.e. (img.left, -img.top).
-        Some((img, 0, 0))
+        })
     }
 
     fn blit_coverage(&mut self, img: &GlyphImage, color: [f32; 4]) {
-        let dest = self.layers.last_mut().expect("layer stack");
-        // Mapped space origin is the glyph origin. After rasterize_mapped, left is the image's
-        // left in mapped pixels, top is the offset up from the origin to the image top (because
-        // rasterize_mapped stores top: -min_y, and min_y is the top in y-down mapped space...
-        // READ CAREFULLY).
-        //
-        // rasterize_mapped:
-        //   map returns (x,y) in the caller's space.
-        //   left = floor(min x), top_bound = floor(min y)
-        //   GlyphImage { left, top: -top_bound, ... }
-        //
-        // If map is already y-down (device pixels relative to pixmap origin 0), then
-        // min y is the top of the ink, GlyphImage.top = -min_y (negative if ink is below
-        // origin, which it usually is in y-down). Pixmap y of the image top = -img.top = min y.
-        let x0 = img.left;
-        let y0 = -img.top;
+        let Some(dest) = self.layers.last_mut() else { return };
         let clip = self.clips.last().unwrap_or(&Clip::None);
-        dest.blit_coverage(x0, y0, img, color, clip);
+        dest.blit_coverage(img.left, -img.top, img, color, clip);
     }
 
     fn fill_clip(&mut self, color: [f32; 4]) {
-        let dest = self.layers.last_mut().expect("layer stack");
+        let Some(dest) = self.layers.last_mut() else { return };
         let clip = self.clips.last().unwrap_or(&Clip::None);
         dest.fill_clip(color, clip);
     }
@@ -506,10 +466,8 @@ impl ColorPainter for LayerPainter<'_> {
         }
     }
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
-        if let Some((img, _, _)) = self.coverage_of(glyph_id) {
-            let x0 = img.left;
-            let y0 = -img.top;
-            self.clips.push(Clip::Mask(img.data, img.width, img.height, x0, y0));
+        if let Some(img) = self.coverage_of(glyph_id) {
+            self.clips.push(Clip::Mask(img.data, img.width, img.height, img.left, -img.top));
         } else {
             self.clips.push(Clip::None);
         }
@@ -556,7 +514,7 @@ impl ColorPainter for LayerPainter<'_> {
         if let Some(t) = brush_transform {
             self.push_transform(t);
         }
-        if let Some((img, _, _)) = self.coverage_of(glyph_id) {
+        if let Some(img) = self.coverage_of(glyph_id) {
             match brush {
                 Brush::Solid { palette_index, alpha } => {
                     self.blit_coverage(&img, self.resolve(palette_index, alpha));
@@ -573,20 +531,20 @@ impl ColorPainter for LayerPainter<'_> {
         }
     }
     fn push_layer(&mut self, composite_mode: CompositeMode) {
-        let (w, h) = {
-            let p = self.layers.last().expect("layer stack");
-            (p.width, p.height)
-        };
-        self.layers.push(Pixmap::new(w, h));
+        // The base layer is never popped, so there is always one to size the new layer by.
+        let Some(&Pixmap { width, height, .. }) = self.layers.last() else { return };
+        self.layers.push(Pixmap::new(width, height));
         self.modes.push(composite_mode);
     }
     fn pop_layer(&mut self) {
         if self.layers.len() < 2 {
             return;
         }
-        let top = self.layers.pop().expect("layer");
+        let Some(top) = self.layers.pop() else { return };
         let mode = self.modes.pop().unwrap_or(CompositeMode::SrcOver);
-        self.layers.last_mut().expect("base").composite(&top, mode);
+        if let Some(base) = self.layers.last_mut() {
+            base.composite(&top, mode);
+        }
     }
 }
 
@@ -598,11 +556,9 @@ impl LayerPainter<'_> {
         stops: &[ColorStop],
     ) {
         let colors = resolved_stops(self, stops);
-        if colors.is_empty() {
-            return;
-        }
+        let Some(&(_, first)) = colors.first() else { return };
         if colors.len() == 1 {
-            self.fill_clip(colors[0].1);
+            self.fill_clip(first);
             return;
         }
         let m = self.ctm();
@@ -613,10 +569,10 @@ impl LayerPainter<'_> {
         let dy = y1 - y0;
         let len2 = dx * dx + dy * dy;
         if len2 < 1e-8 {
-            self.fill_clip(colors[0].1);
+            self.fill_clip(first);
             return;
         }
-        let dest = self.layers.last_mut().expect("layer stack");
+        let Some(dest) = self.layers.last_mut() else { return };
         let clip = self.clips.last().unwrap_or(&Clip::None);
         dest.fill_fn(clip, |x, y| {
             let px = x as f32 + 0.5 + ox;
@@ -630,39 +586,33 @@ impl LayerPainter<'_> {
         &mut self,
         c0: skrifa::raw::types::Point<f32>,
         r0: f32,
-        c1: skrifa::raw::types::Point<f32>,
+        _c1: skrifa::raw::types::Point<f32>,
         r1: f32,
         stops: &[ColorStop],
     ) {
         let colors = resolved_stops(self, stops);
-        if colors.is_empty() {
-            return;
-        }
+        let Some(&(_, first)) = colors.first() else { return };
         if colors.len() == 1 {
-            self.fill_clip(colors[0].1);
+            self.fill_clip(first);
             return;
         }
         let m = self.ctm();
         let (ox, oy) = self.origin;
         let (x0, y0) = m.apply(c0.x, c0.y);
-        let (x1, y1) = m.apply(c1.x, c1.y);
         // Radii are in font units; scale by the average axis length of the linear part.
         let scale = ((m.xx * m.xx + m.yx * m.yx).sqrt() + (m.xy * m.xy + m.yy * m.yy).sqrt()) / 2.0;
         let r0 = r0 * scale;
         let r1 = r1 * scale;
-        let dest = self.layers.last_mut().expect("layer stack");
+        let Some(dest) = self.layers.last_mut() else { return };
         let clip = self.clips.last().unwrap_or(&Clip::None);
+        // shortcut: t is the distance from c0 mixed between the radii, ignoring c1 (exact for
+        // concentric circles); solve the two-circle cone when a font with offset centers shows.
         dest.fill_fn(clip, |x, y| {
             let px = x as f32 + 0.5 + ox;
             let py = y as f32 + 0.5 + oy;
-            // Project onto the cone: approximate t by distance between the two circles.
-            let _dx = x1 - x0;
-            let _dy = y1 - y0;
             let dr = r1 - r0;
             let fx = px - x0;
             let fy = py - y0;
-            // Solve |P - (C0 + t (C1-C0))| = r0 + t (r1-r0) for the smaller non-negative t.
-            // A linear fallback: mix by normalized distance from c0.
             let d = (fx * fx + fy * fy).sqrt();
             let t = if dr.abs() > 1e-6 { (d - r0) / dr } else { d };
             sample_stops(&colors, t)
@@ -679,21 +629,24 @@ fn resolved_stops(painter: &LayerPainter<'_>, stops: &[ColorStop]) -> Vec<(f32, 
 
 fn sample_stops(stops: &[(f32, [f32; 4])], t: f32) -> [f32; 4] {
     let t = t.clamp(0.0, 1.0);
-    if t <= stops[0].0 {
-        return stops[0].1;
+    let (Some(&(first_at, first)), Some(&(_, last))) = (stops.first(), stops.last()) else {
+        return [0.0; 4];
+    };
+    if t <= first_at {
+        return first;
     }
-    for w in stops.windows(2) {
-        if t <= w[1].0 {
-            let span = (w[1].0 - w[0].0).max(1e-6);
-            let u = (t - w[0].0) / span;
-            return lerp_color(w[0].1, w[1].1, u);
+    for pair in stops.windows(2) {
+        let &[(a_at, a), (b_at, b)] = pair else { continue };
+        if t <= b_at {
+            let span = (b_at - a_at).max(1e-6);
+            return lerp_color(a, b, (t - a_at) / span);
         }
     }
-    stops[stops.len() - 1].1
+    last
 }
 
-fn lerp_color(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t]
+fn lerp_color([a0, a1, a2, a3]: [f32; 4], [b0, b1, b2, b3]: [f32; 4], t: f32) -> [f32; 4] {
+    [a0 + (b0 - a0) * t, a1 + (b1 - a1) * t, a2 + (b2 - a2) * t, a3 + (b3 - a3) * t]
 }
 
 fn outline_path(font: &FontRef<'_>, glyph_id: GlyphId) -> Option<PathRecorder> {
@@ -717,7 +670,7 @@ impl Pixmap {
     }
 
     fn has_ink(&self) -> bool {
-        self.data.chunks_exact(4).any(|p| p[3] > 0)
+        self.data.as_chunks::<4>().0.iter().any(|&[_, _, _, a]| a > 0)
     }
 
     fn blend_pixel(&mut self, x: i32, y: i32, src: [f32; 4], clip: &Clip) {
@@ -728,45 +681,44 @@ impl Pixmap {
         if cover <= 0.0 {
             return;
         }
-        let i = ((y as u32 * self.width + x as u32) as usize) * 4;
-        let sa = (src[3] * cover).clamp(0.0, 1.0);
+        let i = (y as u32 * self.width + x as u32) as usize;
+        let Some(px) = self.data.as_chunks_mut::<4>().0.get_mut(i) else { return };
+        let [sr, sg, sb, sa] = src;
+        let sa = (sa * cover).clamp(0.0, 1.0);
         if sa <= 0.0 {
             return;
         }
-        let sr = src[0] * cover;
-        let sg = src[1] * cover;
-        let sb = src[2] * cover;
-        let dr = self.data[i] as f32 / 255.0;
-        let dg = self.data[i + 1] as f32 / 255.0;
-        let db = self.data[i + 2] as f32 / 255.0;
-        let da = self.data[i + 3] as f32 / 255.0;
+        let [dr, dg, db, da] = px.map(|v| f32::from(v) / 255.0);
         let inv = 1.0 - sa;
-        self.data[i] = ((sr + dr * inv) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-        self.data[i + 1] = ((sg + dg * inv) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-        self.data[i + 2] = ((sb + db * inv) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-        self.data[i + 3] = ((sa + da * inv) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        *px = [sr * cover + dr * inv, sg * cover + dg * inv, sb * cover + db * inv, sa + da * inv]
+            .map(|v| (v * 255.0 + 0.5).clamp(0.0, 255.0) as u8);
     }
 
+    /// Blends `img` (one coverage byte per pixel, or premultiplied RGBA for a color image)
+    /// with its top-left at (`x0`, `y0`). Pixels past the end of a short image are skipped.
     fn blit_coverage(&mut self, x0: i32, y0: i32, img: &GlyphImage, color: [f32; 4], clip: &Clip) {
-        let bpp = if img.format == GlyphImageFormat::Color { 4 } else { 1 };
-        for yy in 0..img.height as i32 {
-            for xx in 0..img.width as i32 {
-                let i = (yy as u32 * img.width + xx as u32) as usize * bpp;
-                let cov = if bpp == 4 { img.data[i + 3] as f32 / 255.0 } else { img.data[i] as f32 / 255.0 };
-                if cov <= 0.0 {
+        let w = img.width as usize;
+        if w == 0 {
+            return;
+        }
+        let n = w * img.height as usize;
+        let at = |k: usize| (x0 + (k % w) as i32, y0 + (k / w) as i32);
+        if img.format == GlyphImageFormat::Color {
+            for (k, px) in img.data.as_chunks::<4>().0.iter().take(n).enumerate() {
+                if px[3] == 0 {
                     continue;
                 }
-                let src = if bpp == 4 {
-                    [
-                        img.data[i] as f32 / 255.0 * color[3],
-                        img.data[i + 1] as f32 / 255.0 * color[3],
-                        img.data[i + 2] as f32 / 255.0 * color[3],
-                        (img.data[i + 3] as f32 / 255.0) * color[3],
-                    ]
-                } else {
-                    [color[0] * cov, color[1] * cov, color[2] * cov, color[3] * cov]
-                };
-                self.blend_pixel(x0 + xx, y0 + yy, src, clip);
+                let (x, y) = at(k);
+                self.blend_pixel(x, y, px.map(|v| f32::from(v) / 255.0 * color[3]), clip);
+            }
+        } else {
+            for (k, &cov) in img.data.iter().take(n).enumerate() {
+                if cov == 0 {
+                    continue;
+                }
+                let cov = f32::from(cov) / 255.0;
+                let (x, y) = at(k);
+                self.blend_pixel(x, y, color.map(|c| c * cov), clip);
             }
         }
     }
@@ -788,19 +740,16 @@ impl Pixmap {
                 }
             }
             Clip::Mask(ref mask, w, h, x0, y0) => {
-                for yy in 0..h as i32 {
-                    for xx in 0..w as i32 {
-                        let cov = mask[(yy as u32 * w + xx as u32) as usize] as f32 / 255.0;
-                        if cov <= 0.0 {
-                            continue;
-                        }
-                        self.blend_pixel(
-                            x0 + xx,
-                            y0 + yy,
-                            [color[0] * cov, color[1] * cov, color[2] * cov, color[3] * cov],
-                            &Clip::None,
-                        );
+                if w == 0 {
+                    return;
+                }
+                for (k, &cov) in mask.iter().take(w as usize * h as usize).enumerate() {
+                    if cov == 0 {
+                        continue;
                     }
+                    let cov = f32::from(cov) / 255.0;
+                    let (x, y) = (x0 + (k % w as usize) as i32, y0 + (k / w as usize) as i32);
+                    self.blend_pixel(x, y, color.map(|c| c * cov), &Clip::None);
                 }
             }
         }
@@ -823,24 +772,14 @@ impl Pixmap {
     }
 
     fn composite(&mut self, top: &Pixmap, mode: CompositeMode) {
-        let n = self.data.len().min(top.data.len());
-        for i in (0..n).step_by(4) {
-            let sr = top.data[i] as f32 / 255.0;
-            let sg = top.data[i + 1] as f32 / 255.0;
-            let sb = top.data[i + 2] as f32 / 255.0;
-            let sa = top.data[i + 3] as f32 / 255.0;
-            if sa <= 0.0 && !matches!(mode, CompositeMode::Src | CompositeMode::Clear) {
+        let dest = self.data.as_chunks_mut::<4>().0.iter_mut();
+        for (d, s) in dest.zip(top.data.as_chunks::<4>().0) {
+            if s[3] == 0 && !matches!(mode, CompositeMode::Src | CompositeMode::Clear) {
                 continue;
             }
-            let dr = self.data[i] as f32 / 255.0;
-            let dg = self.data[i + 1] as f32 / 255.0;
-            let db = self.data[i + 2] as f32 / 255.0;
-            let da = self.data[i + 3] as f32 / 255.0;
-            let (or, og, ob, oa) = composite_premult(sr, sg, sb, sa, dr, dg, db, da, mode);
-            self.data[i] = (or * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-            self.data[i + 1] = (og * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-            self.data[i + 2] = (ob * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
-            self.data[i + 3] = (oa * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+            let unit = |px: [u8; 4]| px.map(|v| f32::from(v) / 255.0);
+            *d = composite_premult(unit(*s), unit(*d), mode)
+                .map(|v| (v * 255.0 + 0.5).clamp(0.0, 255.0) as u8);
         }
     }
 }
@@ -861,62 +800,52 @@ fn clip_coverage(clip: &Clip, x: i32, y: i32) -> f32 {
             if xx < 0 || yy < 0 || xx >= w as i32 || yy >= h as i32 {
                 0.0
             } else {
-                mask[(yy as u32 * w + xx as u32) as usize] as f32 / 255.0
+                mask.get((yy as u32 * w + xx as u32) as usize).map_or(0.0, |&v| f32::from(v) / 255.0)
             }
         }
     }
 }
 
-fn composite_premult(
-    sr: f32,
-    sg: f32,
-    sb: f32,
-    sa: f32,
-    dr: f32,
-    dg: f32,
-    db: f32,
-    da: f32,
-    mode: CompositeMode,
-) -> (f32, f32, f32, f32) {
-    let src_over = |sr, sg, sb, sa, dr, dg, db, da| {
+/// Composites premultiplied `src` onto premultiplied `dst` (both RGBA in 0..=1).
+fn composite_premult(src: [f32; 4], dst: [f32; 4], mode: CompositeMode) -> [f32; 4] {
+    let [sr, sg, sb, sa] = src;
+    let [dr, dg, db, da] = dst;
+    let src_over = |[sr, sg, sb, sa]: [f32; 4], [dr, dg, db, da]: [f32; 4]| {
         let inv = 1.0 - sa;
-        (sr + dr * inv, sg + dg * inv, sb + db * inv, sa + da * inv)
+        [sr + dr * inv, sg + dg * inv, sb + db * inv, sa + da * inv]
     };
     match mode {
-        CompositeMode::Clear => (0.0, 0.0, 0.0, 0.0),
-        CompositeMode::Src => (sr, sg, sb, sa),
-        CompositeMode::Dest => (dr, dg, db, da),
-        CompositeMode::SrcOver | CompositeMode::Plus => {
-            // Plus is additive; clamp.
-            if mode == CompositeMode::Plus {
-                ((sr + dr).min(1.0), (sg + dg).min(1.0), (sb + db).min(1.0), (sa + da).min(1.0))
-            } else {
-                src_over(sr, sg, sb, sa, dr, dg, db, da)
-            }
+        CompositeMode::Clear => [0.0; 4],
+        CompositeMode::Src => src,
+        CompositeMode::Dest => dst,
+        // Plus is additive; clamp.
+        CompositeMode::Plus => {
+            [(sr + dr).min(1.0), (sg + dg).min(1.0), (sb + db).min(1.0), (sa + da).min(1.0)]
         }
-        CompositeMode::DestOver => src_over(dr, dg, db, da, sr, sg, sb, sa),
-        CompositeMode::SrcIn => (sr * da, sg * da, sb * da, sa * da),
-        CompositeMode::DestIn => (dr * sa, dg * sa, db * sa, da * sa),
+        CompositeMode::SrcOver => src_over(src, dst),
+        CompositeMode::DestOver => src_over(dst, src),
+        CompositeMode::SrcIn => [sr * da, sg * da, sb * da, sa * da],
+        CompositeMode::DestIn => [dr * sa, dg * sa, db * sa, da * sa],
         CompositeMode::SrcOut => {
             let inv = 1.0 - da;
-            (sr * inv, sg * inv, sb * inv, sa * inv)
+            [sr * inv, sg * inv, sb * inv, sa * inv]
         }
         CompositeMode::DestOut => {
             let inv = 1.0 - sa;
-            (dr * inv, dg * inv, db * inv, da * inv)
+            [dr * inv, dg * inv, db * inv, da * inv]
         }
         CompositeMode::SrcAtop => {
             let inv = 1.0 - sa;
-            (sr * da + dr * inv, sg * da + dg * inv, sb * da + db * inv, da)
+            [sr * da + dr * inv, sg * da + dg * inv, sb * da + db * inv, da]
         }
         CompositeMode::DestAtop => {
             let inv = 1.0 - da;
-            (dr * sa + sr * inv, dg * sa + sg * inv, db * sa + sb * inv, sa)
+            [dr * sa + sr * inv, dg * sa + sg * inv, db * sa + sb * inv, sa]
         }
         CompositeMode::Xor => {
             let s = 1.0 - da;
             let d = 1.0 - sa;
-            (sr * s + dr * d, sg * s + dg * d, sb * s + db * d, sa * s + da * d)
+            [sr * s + dr * d, sg * s + dg * d, sb * s + db * d, sa * s + da * d]
         }
         CompositeMode::Screen => {
             // screen: 1 - (1-a)(1-b); inputs are premultiplied.
@@ -924,7 +853,7 @@ fn composite_premult(
             let og = sg + dg - sg * dg;
             let ob = sb + db - sb * db;
             let oa = sa + da - sa * da;
-            (or, og, ob, oa)
+            [or, og, ob, oa]
         }
         CompositeMode::Multiply => {
             // Multiply in straight, then premultiply. Degenerate when alpha is 0.
@@ -938,8 +867,8 @@ fn composite_premult(
             let or = (s_r * d_r) * oa;
             let og = (s_g * d_g) * oa;
             let ob = (s_b * d_b) * oa;
-            (or, og, ob, oa)
+            [or, og, ob, oa]
         }
-        _ => src_over(sr, sg, sb, sa, dr, dg, db, da),
+        _ => src_over(src, dst),
     }
 }

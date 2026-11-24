@@ -47,7 +47,7 @@
 //!   refuse (the manifest's declaration and permissions, microphone and camera permissions,
 //!   the app on screen for microphone and camera work); what Android ends later arrives as
 //!   `HostEvent::ForegroundStopped`;
-//! - keeping the process running out of sight ([`hold_process`]): the
+//! - keeping the process running out of sight (`hold_process`): the
 //!   `dev.remedyui.android.Keepalive` started service, so keepalive HTTP requests (an app's
 //!   last saves) finish when the app goes to the background instead of being frozen with it,
 //!   and the app's way out waits for them (up to 10 seconds), as on the desktop;

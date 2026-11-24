@@ -1888,6 +1888,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Windows and Linux, as they do in every other app there. Shift+Delete deleted one
   character and the other two did nothing.
 
+- **The middle button reaches the element under it first.** The middle-drag pan took the
+  press before any element saw it, so a terminal no longer pasted the primary selection on
+  a middle click. An element's own pointer handler now gets the press; the pan starts only
+  when nothing took it.
+- **Accessibility updates stay linear in deep trees.** Each changed node walked to the root
+  to check it was still attached, so an update of a tree 20,000 levels deep took minutes.
+  The walk is shared within one update.
+- **A malformed color font cannot panic the text renderer.** The COLR, CBDT and sbix painter
+  indexed its buffers unchecked; a short bitmap, PNG or mask is now skipped or not drawn.
+
 ## [1.0.0-rc.1] - 2026-11-18
 
 The first release candidate of 1.0: everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/ROADMAP.md)).

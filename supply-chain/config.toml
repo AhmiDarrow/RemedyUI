@@ -1275,6 +1275,10 @@ criteria = "safe-to-deploy"
 version = "0.8.11"
 criteria = "safe-to-deploy"
 
+[[exemptions.remedy-lua]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.renderdoc-sys]]
 version = "1.1.0"
 criteria = "safe-to-deploy"
@@ -1289,10 +1293,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rgb]]
 version = "0.8.53"
-criteria = "safe-to-deploy"
-
-[[exemptions.remedy-lua]]
-version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.ring]]

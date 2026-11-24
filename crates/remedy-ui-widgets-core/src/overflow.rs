@@ -154,7 +154,6 @@ impl OverflowRow {
         let more_w = Rc::new(RefCell::new(MIN_TARGET));
         let avail = Rc::new(Cell::new(0.0f32));
         let recompute = {
-            let hide = hide.clone();
             let items = items.clone();
             let cached = cached.clone();
             let more_w = more_w.clone();
@@ -190,10 +189,12 @@ impl OverflowRow {
                     })
                     .on_resize(move |s| {
                         if s.width > 1.0 {
-                            let mut c = cached.borrow_mut();
-                            if (c[i] - s.width).abs() > 0.5 {
-                                c[i] = s.width;
-                                drop(c);
+                            let changed = cached.borrow_mut().get_mut(i).is_some_and(|w| {
+                                let changed = (*w - s.width).abs() > 0.5;
+                                *w = if changed { s.width } else { *w };
+                                changed
+                            });
+                            if changed {
                                 rec();
                             }
                         }
@@ -206,7 +207,7 @@ impl OverflowRow {
 
         let ui_m = ui.clone();
         let items_m = items.clone();
-        let hide_m = hide.clone();
+        let hide_m = hide;
         let more = more_button(
             &ui,
             Rc::new(move || {
@@ -307,7 +308,7 @@ fn hide_count(avail: f32, items: &[Item], cached: &[f32], more_w: f32, gap: f32)
             if item.slot == Slot::Flex || hidden.contains(&i) {
                 continue;
             }
-            let w = if i < cached.len() && cached[i] > 1.0 { cached[i] } else { item.min };
+            let w = cached.get(i).copied().filter(|&w| w > 1.0).unwrap_or(item.min);
             add(w);
         }
         if n_hide > 0 {
