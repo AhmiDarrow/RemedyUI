@@ -51,10 +51,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   glyphs as premultiplied RGBA (it previously tried to hint an outline, so a thumbs-up
   from Noto Color Emoji or Twemoji was a blank gap even when the text was in the tree).
   The CPU and GPU renderers keep the glyph's own colours and only apply the run's alpha.
-  A bundled **Twemoji Mozilla** COLRv0 face (v0.7.0, CC-BY-4.0 artwork) is the default
-  emoji fallback in `remedy-ui-fonts` (`twemoji`, on by default), tried ahead of the
-  system's emoji font so a machine with no color emoji font, and one with a CBDT face,
-  paint the same glyphs.
+  A bundled **Remedy Emoji** face, our own art from the RemedyEmoji repository (COLRv1:
+  677 emoji and 46 stickers, 389 at Unicode code points, six skin tones), is the default
+  emoji fallback in `remedy-ui-fonts` (`remedy-emoji`, on by default), tried ahead of the
+  system's emoji font so the emoji it has paint the same on every machine. An emoji it
+  does not have yet comes from the system's emoji font. No third-party emoji art is
+  bundled, so the crate's licence is `(MIT OR Apache-2.0) AND OFL-1.1` again.
 
 - **Filled span backgrounds**: `SpanBackground` (color, inline and block padding, corner radius)
   paints behind a span, the way an inline code chip does. Set it with

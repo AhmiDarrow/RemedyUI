@@ -498,7 +498,7 @@ impl ColorPainter for LayerPainter<'_> {
             }
             Brush::SweepGradient { color_stops, .. } => {
                 // A sweep without a full conic rasterizer still fills with the last stop so
-                // the glyph is not a hole. COLRv0 (Twemoji) never takes this branch.
+                // the glyph is not a hole. Remedy Emoji has no sweep gradients.
                 if let Some(stop) = color_stops.last() {
                     self.fill_clip(self.resolve(stop.palette_index, stop.alpha));
                 }
