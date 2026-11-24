@@ -21,7 +21,7 @@ vello_cpu = { package = "remedy-vello-cpu", path = "../../vendor/vello_cpu", ver
 
 [dev-dependencies]
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-print", "twemoji"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-print", "remedy-emoji"] }
 
 [lints]
 workspace = true

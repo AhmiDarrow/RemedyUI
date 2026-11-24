@@ -40,7 +40,7 @@ fn every_face_matches_its_metadata() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn all_features_give_all_faces() {
     let mut n = 21;
-    if cfg!(feature = "twemoji") {
+    if cfg!(feature = "remedy-emoji") {
         n += 1;
     }
     assert_eq!(remedy_ui_fonts::all().len(), n);
@@ -101,19 +101,19 @@ fn script_faces_cover_their_scripts() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-/// The bundled Twemoji face is a COLRv0 color font and covers the reactions Remedy uses.
-#[cfg(feature = "twemoji")]
+/// The bundled Remedy Emoji face is a COLRv1 color font and covers the reactions Remedy uses.
+#[cfg(feature = "remedy-emoji")]
 #[test]
-fn twemoji_is_colr_v0_and_covers_reactions() -> Result<(), Box<dyn std::error::Error>> {
-    let face = remedy_ui_fonts::TWEMOJI_MOZILLA.first().ok_or("no twemoji face")?;
-    assert!(face.data.len() > 1_000_000, "full repertoire, not a subset");
+fn remedy_emoji_is_colr_v1_and_covers_reactions() -> Result<(), Box<dyn std::error::Error>> {
+    let face = remedy_ui_fonts::REMEDY_EMOJI.first().ok_or("no emoji face")?;
+    assert!(face.data.len() > 1_000_000, "the whole set, not a subset");
     let font = FontRef::new(face.data)?;
     let cmap = font.cmap()?;
     for c in ['👍', '👎', '❤', '💔', '😀'] {
-        assert!(cmap.map_codepoint(c).is_some_and(|g| g.to_u32() != 0), "Twemoji Mozilla lacks {c:?}");
+        assert!(cmap.map_codepoint(c).is_some_and(|g| g.to_u32() != 0), "Remedy Emoji lacks {c:?}");
     }
     let colr = font.colr()?;
-    assert_eq!(colr.version(), 0, "the bundled face is COLRv0");
+    assert_eq!(colr.version(), 1, "the bundled face is COLRv1");
     assert!(font.cpal().is_ok());
     Ok(())
 }
