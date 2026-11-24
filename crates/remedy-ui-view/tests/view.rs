@@ -1949,3 +1949,47 @@ fn a_text_field_is_as_tall_as_the_themes_text_makes_it() {
     assert!(l > 28.0, "the label is a line of 24 px text: {l}");
     assert!((f - l).abs() < 1.0, "the field's text is the theme's size too: {f} beside {l}");
 }
+
+#[test]
+fn scrollbar_thumbs_can_be_dragged() {
+    use remedy_ui_core::ScrollbarVisibility;
+    let ui = ui();
+    let list = ui
+        .el("list")
+        .scroll()
+        .style(StylePatch::default().scrollbar_visibility(ScrollbarVisibility::Always))
+        .layout(|l| {
+            l.width = Length::Px(200.0);
+            l.height = Length::Px(100.0);
+            l.display = remedy_ui_layout::Display::Flex;
+            l.axis = remedy_ui_layout::Axis::Column;
+        })
+        .child(ui.el("tall").layout(|l| {
+            l.width = Length::Px(200.0);
+            l.height = Length::Px(400.0);
+        }));
+    ui.root().child(list.clone());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    assert_eq!(ui.scroll_offset(list.id()), Vec2::ZERO);
+
+    let apply = |ui: &Ui| {
+        for r in ui.take_requests() {
+            if let Request::ScrollTo { scroller, offset } = r {
+                ui.set_scroll_offset(scroller, offset);
+            }
+        }
+    };
+
+    // Auto thickness is 12 px on the right edge (x 188..200). The thumb starts at the top.
+    ui.pointer(&pointer(PointerPhase::Down, 194.0, 10.0, true));
+    apply(&ui);
+    ui.pointer(&pointer(PointerPhase::Move, 194.0, 50.0, true));
+    apply(&ui);
+    ui.pointer(&pointer(PointerPhase::Up, 194.0, 50.0, false));
+    apply(&ui);
+    s.frame();
+    let off = ui.scroll_offset(list.id());
+    assert!(off.y > 80.0, "dragging the thumb down should scroll the pane, got {off:?}");
+    assert!(off.y < 300.0, "should not jump past the end, got {off:?}");
+}
