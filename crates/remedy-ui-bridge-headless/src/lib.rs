@@ -230,6 +230,14 @@ impl HeadlessHost {
         self.queue.push_back(HostEvent::Settings(settings));
     }
 
+    /// Sets maximized as the user would (Aero Snap, drag off a maximized window,
+    /// Win+Up/Down) without going through the app's `set_maximized`.
+    pub fn user_set_maximized(&mut self, window: WindowId, maximized: bool) {
+        if let Some(w) = self.window_mut(window) {
+            w.maximized = maximized;
+        }
+    }
+
     /// Queues an event as if the platform sent it.
     pub fn send(&mut self, event: HostEvent) {
         if matches!(event, HostEvent::ForegroundStopped(_)) {

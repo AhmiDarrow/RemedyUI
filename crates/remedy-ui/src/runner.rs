@@ -1950,8 +1950,20 @@ impl Window {
 
     /// True while the window is maximized, by the app or the user (tracked).
     pub fn is_maximized(&self) -> bool {
-        let s = self.app.0.borrow().maximized.get(&self.key).copied();
-        s.is_some_and(|s| s.get())
+        self.maximized().get()
+    }
+
+    /// Tracks whether the window is maximized: button, Aero Snap, dragging off a
+    /// maximized window, Win+Up/Down, double-click on the title bar. Bind a custom
+    /// title-bar icon to this so it follows the real window state.
+    pub fn maximized(&self) -> remedy_ui_reactive::Signal<bool> {
+        self.app
+            .0
+            .borrow()
+            .maximized
+            .get(&self.key)
+            .cloned()
+            .unwrap_or_else(|| remedy_ui_reactive::Signal::new(false))
     }
 
     /// Calls `f` with the window's desktop position and content size (logical pixels) after
@@ -3760,6 +3772,9 @@ impl remedy_ui_host::App for Runner {
                 self.remember_geometry(host, key);
             }
             HostEvent::Occluded(window, covered) => {
+                if let Some(&key) = self.by_host.get(&window) {
+                    self.sync_maximized(host, key);
+                }
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     w.ui.set_occluded(covered);
                     // Back in sight: the platform may not have kept what the window showed
@@ -3782,6 +3797,9 @@ impl remedy_ui_host::App for Runner {
                     if let Some(w) = self.wins.get(&key) {
                         w.ui.set_refresh_interval(host.refresh_interval(window));
                     }
+                    // Drag-unmaximize and some snap restores fire a move (sometimes
+                    // before, or without, a resize). The title-bar icon must follow.
+                    self.sync_maximized(host, key);
                     self.remember_geometry(host, key);
                 }
             }
@@ -3942,6 +3960,7 @@ impl remedy_ui_host::App for Runner {
             HostEvent::Focused(window, focused) => {
                 if let Some(&key) = self.by_host.get(&window) {
                     self.app.note_focus(key, focused);
+                    self.sync_maximized(host, key);
                 }
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     w.ui.set_window_focused(focused);
