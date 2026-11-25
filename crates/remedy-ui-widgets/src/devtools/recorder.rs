@@ -494,7 +494,8 @@ impl Subscriber for Sub {
         if !self.shared.capturing.load(Ordering::Relaxed) {
             return;
         }
-        let track = THREAD.with(|t| self.track(&mut t.borrow_mut()));
+        // A span or event from another thread-local's destructor finds this one gone.
+        let Ok(track) = THREAD.try_with(|t| self.track(&mut t.borrow_mut())) else { return };
         self.push_capture(Slice {
             track,
             name: meta.name().to_owned(),
@@ -515,7 +516,7 @@ impl Subscriber for Sub {
             Err(_) => return,
         };
         let start_ns = remedy_ui_core::trace::now_ns();
-        THREAD.with(|t| {
+        let _ = THREAD.try_with(|t| {
             let mut t = t.borrow_mut();
             let _ = self.track(&mut t);
             let parent = t.stack.last();
@@ -529,7 +530,7 @@ impl Subscriber for Sub {
     fn exit(&self, span: &Id) {
         let id = span.into_u64();
         let end = remedy_ui_core::trace::now_ns();
-        let Some((open, track)) = THREAD.with(|t| {
+        let entered = THREAD.try_with(|t| {
             let mut t = t.borrow_mut();
             let at = t.stack.iter().rposition(|o| o.id == id)?;
             let open = t.stack.remove(at);
@@ -539,9 +540,8 @@ impl Subscriber for Sub {
                 p.child_ns += dur;
             }
             Some((open, t.track))
-        }) else {
-            return;
-        };
+        });
+        let Ok(Some((open, track))) = entered else { return };
         let dur = end.saturating_sub(open.start_ns);
         let own = dur.saturating_sub(open.child_ns);
         let meta = match self.shared.spans.lock() {
@@ -562,7 +562,7 @@ impl Subscriber for Sub {
         if !open.engine || self.shared.sampling.load(Ordering::Relaxed) == 0 {
             return;
         }
-        let sample = THREAD.with(|t| {
+        let sample = THREAD.try_with(|t| {
             let mut t = t.borrow_mut();
             let session = self.shared.sessions.load(Ordering::Relaxed);
             if t.session != session {
@@ -594,7 +594,7 @@ impl Subscriber for Sub {
                 other_ns: other,
             })
         });
-        if let Some(s) = sample {
+        if let Ok(Some(s)) = sample {
             self.deliver(s);
         }
     }

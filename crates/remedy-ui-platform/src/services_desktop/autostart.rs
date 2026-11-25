@@ -169,7 +169,9 @@ pub fn launch_agent(e: &Entry) -> String {
     )
 }
 
-/// Quotes an argument for a desktop entry's `Exec` key.
+/// Quotes an argument as an `Exec` command line does (a desktop entry's key, a recent
+/// file's `exec`). In a desktop entry the result is a string value: [`entry_string`] then
+/// escapes it.
 pub(crate) fn exec_quote(s: &str) -> String {
     if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:".contains(c)) {
         return s.to_owned();
@@ -189,6 +191,13 @@ pub(crate) fn exec_quote(s: &str) -> String {
     out
 }
 
+/// `value` as a desktop entry writes a string: a launcher undoes these escapes before it
+/// reads an `Exec` key's quoting, so a backslash that quotes a character there is doubled
+/// (a literal one is four), and a line break never ends the key.
+pub(crate) fn entry_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r")
+}
+
 /// An XDG desktop entry that runs `e` when the session starts.
 pub fn desktop_entry(e: &Entry) -> String {
     let mut exec = exec_quote(&e.program.to_string_lossy());
@@ -197,7 +206,8 @@ pub fn desktop_entry(e: &Entry) -> String {
         exec.push_str(&exec_quote(a));
     }
     format!(
-        "[Desktop Entry]\nType=Application\nName={}\nExec={exec}\nX-GNOME-Autostart-enabled=true\nTerminal=false\n",
-        e.name
+        "[Desktop Entry]\nType=Application\nName={}\nExec={}\nX-GNOME-Autostart-enabled=true\nTerminal=false\n",
+        entry_string(&e.name),
+        entry_string(&exec)
     )
 }

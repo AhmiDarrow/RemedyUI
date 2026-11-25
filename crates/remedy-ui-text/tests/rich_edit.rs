@@ -249,3 +249,25 @@ fn a_soft_break_stays_in_the_block() {
     assert_eq!(e.doc().blocks, [Block::Bullet(0)]);
     assert_eq!(e.text(), "item\u{2028}more");
 }
+
+#[test]
+fn many_different_links_cost_one_pass_and_stay_in_order() {
+    let n = 20_000;
+    let marks = (0..n).rev().map(|i| (i * 2..i * 2 + 1, Mark::Link(format!("https://example.org/{i}"))));
+    let doc = RichDoc { text: "ab".repeat(n), marks: marks.collect(), blocks: Vec::new() }.normalized();
+    assert_eq!(doc.marks.len(), n);
+    assert!(doc.marks.windows(2).all(|w| matches!(w, [a, b] if a.0.start < b.0.start)));
+    // Touching runs of one mark still join; mentions side by side stay two.
+    let joined = RichDoc {
+        text: "abcd".into(),
+        marks: vec![
+            (2..4, Mark::Bold),
+            (0..2, Mark::Bold),
+            (0..2, Mark::Mention("a".into())),
+            (2..4, Mark::Mention("a".into())),
+        ],
+        blocks: Vec::new(),
+    }
+    .normalized();
+    assert_eq!(joined.marks.len(), 3, "{:?}", joined.marks);
+}

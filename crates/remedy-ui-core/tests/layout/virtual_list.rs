@@ -134,3 +134,16 @@ fn a_hundred_thousand_messages_arrive_quickly() {
     assert!(v.is_stuck_to_end());
     assert!(t.elapsed().as_secs_f32() < 2.0, "{:?}", t.elapsed());
 }
+
+#[test]
+fn rows_measured_with_no_height_do_not_collapse_the_rest_or_leave_the_view() {
+    let mut v = VirtualList::new(1000, 20.0, false);
+    v.set_viewport(100.0);
+    v.set_height(0, 0.0);
+    v.set_height(1, 0.0);
+    assert_eq!(v.estimate(), 20.0, "empty rows say nothing about the others");
+    assert_eq!(v.total_height(), 998.0 * 20.0);
+    let r = v.visible_range(0.0);
+    assert_eq!(r, 0..7, "the empty rows at the top edge stay mounted, and only rows in view join them");
+    assert_eq!(VirtualList::new(3, f32::INFINITY, false).total_height(), 3.0);
+}

@@ -98,7 +98,9 @@ impl fmt::Display for MissingDependency {
         if !self.install.is_empty() {
             let how: Vec<String> = self.install.iter().map(|(d, p)| format!("{d}: {p}")).collect();
             let verb = if matches!(self.state, DependencyState::NotInstalled) { "Install" } else { "Check" };
-            write!(f, " {verb} it with your package manager ({}).", how.join("; "))?;
+            // Windows has no package manager to send people to: its hint says where to look.
+            let with = if cfg!(windows) { "" } else { " with your package manager" };
+            write!(f, " {verb} it{with} ({}).", how.join("; "))?;
         }
         Ok(())
     }
@@ -391,7 +393,12 @@ mod tests {
         let m = nvidia_driver("nvh264dec is installed, but no usable NVIDIA GPU was found");
         let s = m.to_string();
         assert!(s.contains("which is installed but cannot run on this computer: nvh264dec is installed, but no usable NVIDIA GPU was found."), "{s}");
-        assert!(s.contains("Check it with your package manager"), "{s}");
+        let check = if cfg!(windows) { "Check it (" } else { "Check it with your package manager (" };
+        assert!(s.contains(check), "{s}");
+        // Windows N: the hint is a place in Settings, not a package.
+        let mf = media_foundation("MFStartup failed").to_string();
+        assert_eq!(mf.contains("package manager"), !cfg!(windows), "{mf}");
+        assert!(mf.contains("the Media Feature Pack (Settings, Apps, Optional features)"), "{mf}");
         let x = x_extension("Composite", "sharing one window").to_string();
         assert_eq!(
             x,

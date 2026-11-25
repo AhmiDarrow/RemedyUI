@@ -191,12 +191,49 @@ fn join(base: &str, location: &str) -> String {
     }
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at(end);
-    if location.starts_with('/') {
-        return format!("{scheme}://{authority}{location}");
+    let tail = tail.split('#').next().unwrap_or_default();
+    let (path, query) = tail.split_once('?').map_or((tail, None), |(p, q)| (p, Some(q)));
+    let (to, extra) = location.find(['?', '#']).map_or((location, ""), |i| location.split_at(i));
+    // RFC 3986 5.2.2: only a query or a fragment keeps the base's path (and, without a
+    // query of its own, the base's query).
+    if to.is_empty() {
+        let path = if path.is_empty() { "/" } else { path };
+        return match query.filter(|_| !extra.starts_with('?')) {
+            Some(q) => format!("{scheme}://{authority}{path}?{q}{extra}"),
+            None => format!("{scheme}://{authority}{path}{extra}"),
+        };
     }
-    let path = tail.split(['?', '#']).next().unwrap_or_default();
-    let dir = path.rfind('/').and_then(|i| path.get(..=i)).unwrap_or("/");
-    format!("{scheme}://{authority}{dir}{location}")
+    let merged = if to.starts_with('/') {
+        to.to_owned()
+    } else {
+        format!("{}{to}", path.rfind('/').and_then(|i| path.get(..=i)).unwrap_or("/"))
+    };
+    format!("{scheme}://{authority}{}{extra}", remove_dots(&merged))
+}
+
+/// RFC 3986 5.2.4: an absolute `path` without its `.` and `..` segments (written out or
+/// percent-encoded), so cookies and the server see the path the redirect means.
+fn remove_dots(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut segments = path.split('/').skip(1).peekable();
+    while let Some(s) = segments.next() {
+        let last = segments.peek().is_none();
+        match s.replace("%2e", ".").replace("%2E", ".").as_str() {
+            "." => {}
+            ".." => {
+                out.pop();
+            }
+            _ => {
+                out.push(s);
+                continue;
+            }
+        }
+        // A dot segment at the end leaves a directory.
+        if last {
+            out.push("");
+        }
+    }
+    format!("/{}", out.join("/"))
 }
 
 /// The scheme and the host with its port of an address, to tell when a redirect leaves the
@@ -218,11 +255,18 @@ fn run(p: Prepared, stop: Option<&Cancel>) -> Result<Response, NetError> {
     let mut res = loop {
         allowed(&url, p.policy)?;
         let mut b = ureq::http::Request::builder().method(method).uri(&url);
+        // One `Cookie` header (RFC 6265 5.4): the app's own cookies, then the jar's.
+        let mut cookie: Vec<String> = Vec::new();
         for (k, v) in &headers {
-            b = b.header(k.as_str(), v.as_str());
+            if k.eq_ignore_ascii_case("cookie") {
+                cookie.push(v.clone());
+            } else {
+                b = b.header(k.as_str(), v.as_str());
+            }
         }
-        if let Some(c) = p.cookies.as_ref().and_then(|j| j.header(&url)) {
-            b = b.header("Cookie", c);
+        cookie.extend(p.cookies.as_ref().and_then(|j| j.header(&url)));
+        if !cookie.is_empty() {
+            b = b.header("Cookie", cookie.join("; "));
         }
         let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let plain = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"));
@@ -482,6 +526,16 @@ mod tests {
         assert_eq!(join("http://a.test:8/x/y?q", "/z?1"), "http://a.test:8/z?1");
         assert_eq!(join("https://a.test/x/y?q", "z"), "https://a.test/x/z");
         assert_eq!(join("https://a.test", "z"), "https://a.test/z");
+        // Dot segments are resolved, and never climb above the root.
+        assert_eq!(join("https://a.test/api/v1/x?q", "../other?y#f"), "https://a.test/api/other?y#f");
+        assert_eq!(join("https://a.test/api/x", "/a/./b/%2E%2e/c/d/.."), "https://a.test/a/c/");
+        assert_eq!(join("https://a.test/api/x", "../../../z/."), "https://a.test/z/");
+        assert_eq!(join("https://a.test/a/b", "/"), "https://a.test/");
+        assert_eq!(join("https://a.test/a/b/", "c/"), "https://a.test/a/b/c/");
+        // A query or a fragment alone stays on the page.
+        assert_eq!(join("https://a.test/a/b?q#f", "?p=1"), "https://a.test/a/b?p=1");
+        assert_eq!(join("https://a.test/a/b?q#f", "#top"), "https://a.test/a/b?q#top");
+        assert_eq!(join("https://a.test?q", ""), "https://a.test/?q");
         // An address in the query of a relative redirect is not where it goes.
         assert_eq!(
             join("https://a.test/x", "/in?to=https://b.test/"),

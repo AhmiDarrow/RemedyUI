@@ -51,7 +51,7 @@ pub struct GpuLimits {
     /// How long a present may run before its backend counts as hung, for watchdogs made
     /// from now on. Default [`PRESENT_HANG`] (3 s).
     pub present_hang: Duration,
-    /// RemedyUI's own swapchains (Vulkan on Linux and with `windows-vulkan`, DXGI on
+    /// RemedyUI's own swapchains (Vulkan on Linux and with `render-gpu-windows-vulkan`, DXGI on
     /// Windows): how long to wait for the next image before reporting the swapchain busy
     /// (the frame is skipped). wgpu's own swapchain, used everywhere else, has its own wait.
     /// Default [`SWAPCHAIN_WAIT`] (1 s).

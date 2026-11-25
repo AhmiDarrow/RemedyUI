@@ -127,6 +127,18 @@ impl Wayland {
         self.state.windows.insert(surface.id(), window);
     }
 
+    /// Forgets a closed window: nothing more is reported for it, and a drag over it ends.
+    pub(crate) fn remove_window(&mut self, window: WindowId) {
+        self.state.windows.retain(|_, w| *w != window);
+        self.state.events.retain(|(w, _)| *w != window);
+        if self.state.incoming.as_ref().is_some_and(|i| i.window == window)
+            && let Some(o) = self.state.incoming.take().and_then(|i| i.offer)
+        {
+            o.destroy();
+            let _ = self.conn.flush();
+        }
+    }
+
     /// Handles what the compositor sent since the last call (winit reads the socket).
     pub(crate) fn dispatch(&mut self) {
         let _ = self.queue.dispatch_pending(&mut self.state);
@@ -208,40 +220,18 @@ pub(crate) fn parse_uri_list(text: &str) -> (Vec<PathBuf>, Vec<String>) {
     let mut files = Vec::new();
     let mut uris = Vec::new();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-        match line.strip_prefix("file://") {
-            // `file:///path` or `file://localhost/path`.
-            Some(rest) => {
-                let path = rest.strip_prefix("localhost").unwrap_or(rest);
-                if path.starts_with('/') {
-                    files.push(PathBuf::from(std::ffi::OsString::from(
-                        <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(&percent_decode(path)),
-                    )));
-                }
-            }
-            None => uris.push(line.to_owned()),
+        if line.starts_with("file://") {
+            // Another host's file is not a local path, and no link an app could open either.
+            files.extend(crate::bridge_linux::dnd::file_uri_path(line));
+        } else {
+            uris.push(line.to_owned());
         }
     }
     (files, uris)
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while let Some(&c) = b.get(i) {
-        let hex = |k: usize| b.get(k).and_then(|h| char::from(*h).to_digit(16));
-        if c == b'%'
-            && let (Some(h), Some(l)) = (hex(i + 1), hex(i + 2))
-        {
-            out.push((h * 16 + l) as u8);
-            i += 3;
-        } else {
-            out.push(c);
-            i += 1;
-        }
-    }
-    out
-}
+/// The most bytes read from another app's offer.
+const MAX_DROP: u64 = 256 * 1024 * 1024;
 
 /// Reads `mime` from `offer` through a pipe, giving up after the read wait
 /// ([`set_drop_waits`](crate::bridge_linux::set_drop_waits)).
@@ -255,7 +245,9 @@ fn read_offer(conn: &Connection, offer: &WlDataOffer, mime: &str) -> Option<Vec<
         .name("remedy-ui drop".into())
         .spawn(move || {
             let mut buf = Vec::new();
-            let _ = tx.send(reader.read_to_end(&mut buf).map(|_| buf));
+            // The other app decides how much it sends; no drop of files, links or text is
+            // anywhere near this long.
+            let _ = tx.send(reader.by_ref().take(MAX_DROP).read_to_end(&mut buf).map(|_| buf));
         })
         .ok()?;
     rx.recv_timeout(crate::bridge_linux::dnd::drop_waits().0).ok()?.ok()
@@ -436,8 +428,12 @@ impl Dispatch<WlDataSource, ()> for State {
         match e {
             wl_data_source::Event::Send { mime_type, fd } => {
                 if let Some(o) = out.offers.iter().find(|o| o.mime == mime_type) {
-                    let mut f = std::fs::File::from(fd);
-                    let _ = std::io::Write::write_all(&mut f, &o.bytes);
+                    // Written off this thread: a receiver that stops reading fills the pipe,
+                    // and the write then waits for as long as it likes.
+                    let (mut f, bytes) = (std::fs::File::from(fd), o.bytes.clone());
+                    let _ = std::thread::Builder::new().name("remedy-ui drag".into()).spawn(move || {
+                        let _ = std::io::Write::write_all(&mut f, &bytes);
+                    });
                 }
             }
             wl_data_source::Event::Action { dnd_action: WEnum::Value(a) } => out.action = a,

@@ -303,6 +303,17 @@ fn keywords_become_raw_fields_and_folders_compile() {
         codegen::compile_in(codegen::DIRECT_ROOT, "k.rui", "switch(label: \"A\", checked: $type)", &[])
             .must("compiles");
     assert!(rust.contains("pub r#type: remedy_ui_markup::rt::reactive::Signal<bool>,"));
+    // Words that cannot be raw identifiers are refused where they are used.
+    for word in ["self", "Self", "crate", "super", "_"] {
+        let src = format!("switch(label: \"A\", checked: ${word})");
+        let e = codegen::compile_in(codegen::DIRECT_ROOT, "k.rui", &src, &[]).err().must("refused");
+        assert!(e.to_string().starts_with("k.rui:1:29:"), "{e}");
+    }
+    let both = "column { switch(label: \"A\", checked: $go) button(label: \"B\", on_press: !go) }";
+    assert!(codegen::compile_in(codegen::DIRECT_ROOT, "k.rui", both, &[]).is_err());
+    // A line break in the file's name stays inside the comments that carry it.
+    let rust = codegen::compile_in(codegen::DIRECT_ROOT, "a\nfn main() {}", "spacer", &[]).must("compiles");
+    assert!(!rust.lines().any(|l| l.starts_with("fn main")), "{rust}");
     let dir = std::env::temp_dir().join(format!("rui-dir-{}", std::process::id()));
     let out = dir.join("out");
     std::fs::create_dir_all(&dir).must("dir");
@@ -383,6 +394,11 @@ fn peoples_layouts_load_fall_back_with_a_notice_and_reset_undoably() {
     assert!(v.noise.get(), "bound to the same signal");
     assert!(find(&layout.el(), "«Noise suppression»").is_none());
     assert_eq!(ui.next_undo().map(|h| h.label).as_deref(), Some("Change layout settings_voice.rui"));
+    assert_eq!(
+        remedy_ui_widgets::rui::STRINGS.format_in("de", "layout-change-named", &[("file", "a.rui".into())]),
+        "Layout a.rui ändern",
+        "history names are translated"
+    );
 
     // A broken file (edited by hand) falls back, says why, and offers Reset.
     std::fs::write(dir.join("settings_voice.rui"), "row { switch(label: \"Quiet\" }").must("write");

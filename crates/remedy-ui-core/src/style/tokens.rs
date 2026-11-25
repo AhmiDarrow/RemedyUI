@@ -203,7 +203,7 @@ pub enum TextRole {
 impl TextRole {
     /// Text size in logical pixels under `theme` (from its derived type scale).
     pub fn size(self, theme: &Theme) -> f32 {
-        let s = theme.derive().sizes;
+        let s = theme.derived_sizes();
         let i = match self {
             TextRole::Caption => 1,
             TextRole::Body | TextRole::BodyStrong => 2,
@@ -272,12 +272,12 @@ impl ColorRole {
             ColorRole::Warn => c.warn,
             ColorRole::Ok => c.ok,
             ColorRole::Custom(name) => c.custom.get(name).copied().unwrap_or(Color::TRANSPARENT),
-            ColorRole::Text => theme.derive().text,
-            ColorRole::Muted => theme.derive().muted,
-            ColorRole::OnAccent => theme.derive().on_accent,
-            ColorRole::Line => theme.derive().line,
-            ColorRole::Focus => theme.derive().focus,
-            ColorRole::Selected => theme.derive().selected,
+            ColorRole::Text => theme.derived_text(),
+            ColorRole::Muted => theme.derived_muted(),
+            ColorRole::OnAccent => theme.derived_on_accent(),
+            ColorRole::Line => theme.derived_line(),
+            ColorRole::Focus => theme.derived_focus(),
+            ColorRole::Selected => theme.derived_selected(),
         }
     }
 }

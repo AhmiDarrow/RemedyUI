@@ -6,10 +6,7 @@
 #[cfg(feature = "keep-awake")]
 pub(crate) fn platform_hold(reason: &str) -> Option<Box<dyn std::any::Any>> {
     use remedy_ui_platform::services_desktop::power::{Inhibit, inhibit};
-    let app = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "RemedyUI".to_owned());
+    let app = crate::os::app_name();
     // Counted with the platform objects, so the leak tests see a hold left behind.
     inhibit(Inhibit::Display, &app, reason)
         .ok()

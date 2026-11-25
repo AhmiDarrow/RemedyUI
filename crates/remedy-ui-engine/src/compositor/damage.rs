@@ -44,7 +44,9 @@ impl Damage {
 
     /// Adds a rectangle, merging it with any it overlaps or nearly fills a box with.
     pub fn add(&mut self, r: Rect) {
-        if r.is_empty() || !r.min.x.is_finite() || !r.max.y.is_finite() {
+        // A NaN on any side compares as not empty, and would never merge or clip away.
+        let nan = r.min.x.is_nan() || r.min.y.is_nan() || r.max.x.is_nan() || r.max.y.is_nan();
+        if r.is_empty() || nan || !r.min.x.is_finite() || !r.max.y.is_finite() {
             return;
         }
         let mut r = snap_out(r);

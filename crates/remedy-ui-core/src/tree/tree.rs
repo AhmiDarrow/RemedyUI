@@ -693,14 +693,15 @@ impl Tree {
     }
 
     /// Records a failure at `at` with its nearest error boundary (the root at the latest):
-    /// the boundary's children are removed and its signal is set.
+    /// the boundary's children are removed and its signal is set. With no boundary above it
+    /// (`at` is detached, or was removed) the failure is logged as an error.
     pub fn report_failure(&self, at: ElementId, message: String) {
         let handler = self.0.borrow().failure_handler.clone();
         if let Some(h) = handler {
             h(at, message);
             return;
         }
-        let (boundary, signal, path) = {
+        let found = {
             let d = self.0.borrow();
             let path = d.path(at);
             let mut cur = Some(at);
@@ -713,9 +714,14 @@ impl Tree {
                 }
                 cur = n.parent;
             }
-            match found {
-                Some((b, s)) => (b, s, path),
-                None => return,
+            (found, path)
+        };
+        let ((boundary, signal), path) = match found {
+            (Some(at), path) => (at, path),
+            (None, path) => {
+                // No boundary to show it: the log is the one place left to say so.
+                crate::trace::tracing::error!(element = %path, "a failure no error boundary took: {message}");
+                return;
             }
         };
         for child in self.children(boundary) {

@@ -104,11 +104,29 @@ struct CachedGlyph {
     color: bool,
 }
 
+/// What the glyph cache may hold before it lets go of glyphs no longer drawn: text turned or
+/// scaled a little more each frame makes new glyphs every frame.
+const GLYPH_CACHE_BYTES: usize = 64 << 20;
+
+/// What a cache entry counts for: its images' pixels, and the entry itself.
+fn glyph_cost(g: &Option<CachedGlyph>) -> usize {
+    let px = |p: &Pixmap| usize::from(p.width()) * usize::from(p.height()) * 4;
+    let images = g.as_ref().map_or(0, |g| px(&g.image) + g.color_pass.as_ref().map_or(0, |(_, p)| px(p)));
+    images + std::mem::size_of::<(GlyphKey, u64, Option<CachedGlyph>)>()
+}
+
 /// Draws display lists onto any [`Surface`], caching glyph coverage and image pixmaps between
 /// frames. Both renderers use it, so they draw the same pixels.
 pub struct Painter {
     raster: GlyphRasterizer,
-    glyphs: HashMap<GlyphKey, Option<CachedGlyph>>,
+    /// Rasterized glyphs (`None`: one that has no image), each with the draw that last used it.
+    glyphs: HashMap<GlyphKey, (u64, Option<CachedGlyph>)>,
+    /// The bytes of the cached glyphs' images, and how many they may come to before those
+    /// the latest draws did not use are dropped.
+    glyph_bytes: usize,
+    glyph_budget: usize,
+    /// Draws so far.
+    draws: u64,
     /// App images by id: the converted pixmap, and the app's pixels it came from. When
     /// nothing holds those pixels any more the image is gone and its cache entry goes too.
     images: HashMap<u64, (std::sync::Weak<[u8]>, Arc<Pixmap>)>,
@@ -233,13 +251,31 @@ fn bezpath(path: &Path) -> BezPath {
     b
 }
 
+/// The stops as the rasterizer needs them: offsets within 0 to 1 and never going back (a
+/// stop placed before the one ahead of it, or nowhere, sits on it, as CSS has it).
 fn stops(s: &[crate::paint::Stop]) -> Vec<ColorStop> {
-    s.iter().map(|st| ColorStop::from((st.offset, color(st.color)))).collect()
+    let mut at = 0.0f32;
+    s.iter()
+        .map(|st| {
+            // `max` drops a NaN offset for the place reached so far.
+            at = st.offset.max(at).min(1.0);
+            ColorStop::from((at, color(st.color)))
+        })
+        .collect()
 }
 
 fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
     match brush {
         Brush::Solid(c) => ctx.set_paint(color(*c)),
+        // A gradient of no colors draws nothing.
+        Brush::Linear { stops, .. }
+        | Brush::Radial { stops, .. }
+        | Brush::Elliptical { stops, .. }
+        | Brush::Conic { stops, .. }
+            if stops.is_empty() =>
+        {
+            ctx.set_paint(color(remedy_ui_core::Color::TRANSPARENT));
+        }
         Brush::Linear { start, end, stops: s } => ctx.set_paint(peniko::Gradient {
             kind: peniko::LinearGradientPosition { start: kpoint(*start), end: kpoint(*end) }.into(),
             stops: stops(s).as_slice().into(),
@@ -251,7 +287,9 @@ fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
                 start_center: kpoint(*center),
                 start_radius: 0.0,
                 end_center: kpoint(*center),
-                end_radius: *radius,
+                // No radius (zero, negative, not a number) is a hair-wide one, as for an
+                // ellipse below; an endless one is one no target reaches the edge of.
+                end_radius: radius.max(1e-3).min(1.0e9),
             }
             .into(),
             stops: stops(s).as_slice().into(),
@@ -504,6 +542,9 @@ impl Painter {
         Painter {
             raster: GlyphRasterizer::new(),
             glyphs: HashMap::new(),
+            glyph_bytes: 0,
+            glyph_budget: GLYPH_CACHE_BYTES,
+            draws: 0,
             images: HashMap::new(),
             evicted: Vec::new(),
             videos: HashMap::new(),
@@ -556,9 +597,22 @@ impl Painter {
         self.images.len()
     }
 
+    /// Over its budget, the glyph cache keeps only what this draw and the one before it use:
+    /// glyphs a turning or zooming text left behind go, what is on screen stays.
+    fn sweep_glyphs(&mut self) {
+        self.draws += 1;
+        if self.glyph_bytes <= self.glyph_budget {
+            return;
+        }
+        let oldest = self.draws.saturating_sub(1);
+        self.glyphs.retain(|_, (used, _)| *used >= oldest);
+        self.glyph_bytes = self.glyphs.values().map(|(_, g)| glyph_cost(g)).sum();
+    }
+
     /// Drops cached glyphs and images (for memory pressure).
     pub fn clear_caches(&mut self) {
         self.glyphs.clear();
+        self.glyph_bytes = 0;
         self.evicted.extend(self.images.keys().copied());
         self.images.clear();
         self.mips.clear();
@@ -581,6 +635,7 @@ impl Painter {
         area: Option<Rect>,
     ) {
         self.sweep_images();
+        self.sweep_glyphs();
         self.matrices = matrix::Budget::default();
         let budget = FilterBudget::of(&self.matrices.limits);
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
@@ -1078,9 +1133,13 @@ impl Painter {
                         })
                     }
                 });
-                self.glyphs.insert(key, cached);
+                self.glyph_bytes = self.glyph_bytes.saturating_add(glyph_cost(&cached));
+                self.glyphs.insert(key, (self.draws, cached));
             }
-            let Some(Some(gl)) = self.glyphs.get(&key) else { continue };
+            let draws = self.draws;
+            let Some((used, glyph)) = self.glyphs.get_mut(&key) else { continue };
+            *used = draws;
+            let Some(gl) = glyph.as_ref() else { continue };
             // Saturating: an origin far outside any target must not overflow.
             let x = (dev.x.floor() as i32).saturating_add(gl.left) as f64;
             // A turned glyph's image already holds the origin's vertical fraction.
@@ -1114,5 +1173,63 @@ impl Painter {
         ctx.set_blend_mode(peniko::BlendMode::default());
         ctx.set_tint(None);
         ctx.reset_paint_transform();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paint::Stop;
+
+    #[test]
+    fn stops_never_go_back_or_leave_the_gradient() {
+        let stop = |offset| Stop { offset, color: Color::BLACK };
+        let fixed: Vec<f32> = stops(&[stop(-1.0), stop(0.6), stop(f32::NAN), stop(0.2), stop(f32::INFINITY)])
+            .iter()
+            .map(|s| s.offset)
+            .collect();
+        assert_eq!(fixed, [0.0, 0.6, 0.6, 0.6, 1.0]);
+    }
+
+    #[test]
+    fn a_text_turning_every_frame_does_not_fill_the_glyph_cache() {
+        let mut fonts = remedy_ui_text::FontCollection::new();
+        for face in remedy_ui_fonts::all() {
+            let _ = fonts.add_static(face.data);
+        }
+        let mut engine = remedy_ui_text::TextEngine::new(fonts);
+        let mut style = remedy_ui_text::TextStyle::default();
+        style.size = 12.0;
+        let text = remedy_ui_text::RichText::plain("HHHH");
+        let p = engine.layout(&text, &style, remedy_ui_text::ParagraphOptions::default());
+        let mut r = CpuRenderer::new();
+        // Always over budget: only what the latest draws used may stay.
+        r.painter.glyph_budget = 0;
+        for step in 0..6u8 {
+            let mut list = DisplayList::new();
+            let turn = Affine::rotate(0.1 * f32::from(step.min(4)));
+            list.push(Item::PushTransform(
+                turn.then(Affine::translate(remedy_ui_core::Vec2::new(20.0, 20.0))),
+            ));
+            for run in p.glyph_runs() {
+                list.push(Item::Glyphs(GlyphRun {
+                    font: run.font,
+                    size: run.size,
+                    color: Color::BLACK,
+                    glyphs: run.glyphs.iter().map(|g| (g.id, Point::new(g.x, g.y))).collect(),
+                    hinting: Hinting::None,
+                    antialias: Antialias::Grayscale,
+                }));
+            }
+            list.push(Item::PopTransform);
+            assert!(r.render(&list, 64, 64, 1.0, Color::WHITE).is_ok());
+            let held = r.painter.glyphs.len();
+            assert!(held > 0, "what was just drawn is kept");
+            // Four glyphs a draw, each its own entry at most: this draw's and the last one's.
+            assert!(held <= 8, "step {step}: {held} glyphs held");
+        }
+        // What the cache counts is what it holds.
+        let bytes: usize = r.painter.glyphs.values().map(|(_, g)| glyph_cost(g)).sum();
+        assert_eq!(r.painter.glyph_bytes, bytes);
     }
 }

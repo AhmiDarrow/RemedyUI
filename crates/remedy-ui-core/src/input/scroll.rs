@@ -6,7 +6,8 @@
 pub struct ScrollPhysics {
     /// How quickly a fling slows: the fraction of velocity left after one second (0..1).
     pub decay_per_second: f32,
-    /// Below this speed (px/s) a fling stops.
+    /// Below this speed (px/s) a fling stops. A fling always stops under 1 px/s, whatever is
+    /// set here: a decaying speed never reaches zero.
     pub stop_speed: f32,
     /// How far past the edge content may be pulled, as a fraction of the drag (0 for none).
     pub overscroll_resistance: f32,
@@ -39,10 +40,19 @@ impl ScrollAxis {
         ScrollAxis { offset: 0.0, max: max.max(0.0), velocity: 0.0, physics }
     }
 
+    /// The speed under which a fling stops: the physics' own, and never less than 1 px/s
+    /// (with 0, or something that is not a number, a fling would animate for ever).
+    fn stop_speed(&self) -> f32 {
+        self.physics.stop_speed.max(1.0)
+    }
+
     /// Moves by a drag or wheel delta. Past the edges, bouncing physics give resistance;
-    /// clamped physics stop at the edge.
+    /// clamped physics stop at the edge. A delta that is not a finite number moves nothing.
     pub fn drag(&mut self, delta: f32) {
         self.velocity = 0.0;
+        if !delta.is_finite() {
+            return;
+        }
         let next = self.offset + delta;
         self.offset = if next < 0.0 || next > self.max {
             if self.physics.overscroll_resistance > 0.0 {
@@ -57,22 +67,23 @@ impl ScrollAxis {
         };
     }
 
-    /// Starts a fling with the release velocity.
+    /// Starts a fling with the release velocity. A velocity that is not a finite number is
+    /// no fling.
     pub fn fling(&mut self, velocity: f32) {
-        self.velocity = velocity;
+        self.velocity = if velocity.is_finite() { velocity } else { 0.0 };
     }
 
     /// Where the current fling would come to rest (the offset itself when not flinging),
     /// within the edges.
     pub fn rest(&self) -> f32 {
         let v0 = self.velocity;
-        if v0.abs() < self.physics.stop_speed {
+        if v0.abs() < self.stop_speed() {
             return self.offset.clamp(0.0, self.max);
         }
         // The velocity decays by `decay_per_second` each second until it drops under
         // `stop_speed`: the distance is the integral of v0 * k^t over that time.
         let ln_k = self.physics.decay_per_second.clamp(1e-4, 0.999).ln();
-        let stop = self.physics.stop_speed.copysign(v0);
+        let stop = self.stop_speed().copysign(v0);
         (self.offset + (stop - v0) / ln_k).clamp(0.0, self.max)
     }
 
@@ -90,7 +101,7 @@ impl ScrollAxis {
             }
             return true;
         }
-        if self.velocity.abs() < self.physics.stop_speed {
+        if self.velocity.abs() < self.stop_speed() {
             self.velocity = 0.0;
             return false;
         }

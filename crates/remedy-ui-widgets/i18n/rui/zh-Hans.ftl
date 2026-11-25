@@ -5,3 +5,7 @@
 layout-failed = 无法加载你为 { $file } 设置的布局，因此显示原始布局：{ $error }
 # The button that removes the person's layout.
 layout-reset = 重置
+
+## Undo history names. { $file } is the layout's file.
+layout-change-named = 更改布局 { $file }
+layout-reset-named = 重置布局 { $file }

@@ -741,3 +741,94 @@ fn the_pointer_takes_the_shape_of_the_innermost_element_that_sets_one() {
     ));
     assert_eq!(ui.cursor(), Cursor::Grab, "outside the child, still inside the parent");
 }
+
+#[test]
+fn what_waits_for_a_move_hears_when_it_is_cut_short() {
+    use remedy_ui_engine::view::motion::Repeat;
+    use remedy_ui_engine::view::play_exit;
+    let ui = ui();
+    ui.set_frame_time(Duration::ZERO);
+    let step = Motion::Tween { duration: Duration::from_millis(100), easing: Easing::Linear };
+    let card = ui.el("card").width(50.0).height(50.0);
+    let _ = ui.root().child(card.clone());
+    frame(&ui);
+    // Jumping the property ends the keyframes moving it.
+    let pulse = card.animate_keyframes(vec![(Target::Opacity(0.2), step)], Repeat::Forever);
+    card.set_animated(Target::Opacity(1.0));
+    assert!(pulse.is_stopped() && !card.is_animating());
+    // So does removing the element, and an exit playing on it still says it is gone, once.
+    let gone = Rc::new(Cell::new(0));
+    let pulse = card.animate_keyframes(vec![(Target::Scale(1.2), step)], Repeat::Forever);
+    let g = gone.clone();
+    play_exit(&card, &Transition::slide(Vec2::new(0.0, 10.0), step), move || g.set(g.get() + 1));
+    card.set_animated(Target::Opacity(0.0));
+    assert_eq!(gone.get(), 0, "the slide is still playing");
+    card.remove();
+    assert!(pulse.is_stopped());
+    assert_eq!(gone.get(), 1);
+    // An exit of what is no longer there ends at once; a plain completion is not called.
+    let g = gone.clone();
+    play_exit(&card, &Transition::fade(step), move || g.set(g.get() + 1));
+    assert_eq!(gone.get(), 2);
+    let g = gone.clone();
+    card.animate_then(Target::Opacity(1.0), step, move || g.set(g.get() + 1));
+    assert_eq!(gone.get(), 2);
+}
+
+#[test]
+fn hidden_disabled_and_pass_through_each_keep_their_say_in_hit_testing() {
+    let ui = ui();
+    let below = ui.el("box").width(100.0).height(100.0);
+    let above = ui
+        .el("box")
+        .width(100.0)
+        .height(100.0)
+        .layout(|l| {
+            l.position = remedy_ui_core::layout::Position::Absolute;
+            l.inset = Insets::ZERO;
+        })
+        .pass_through();
+    let _ = ui.root().child(ui.el("box").child(below.clone()).child(above.clone()));
+    let hit = |ui: &Ui| {
+        frame(ui);
+        ui.element_at(remedy_ui_core::Point::new(10.0, 10.0)).map(|e| e.id())
+    };
+    assert_eq!(hit(&ui), Some(below.id()));
+    let above = above.hidden(true).hidden(false);
+    assert_eq!(hit(&ui), Some(below.id()), "showing it again leaves it click-through");
+    let below = below.disabled(true).hidden(true).hidden(false);
+    assert_ne!(hit(&ui), Some(below.id()), "showing it again leaves it disabled");
+    let below = below.disabled(false);
+    assert_eq!(hit(&ui), Some(below.id()));
+    let _ = above;
+}
+
+#[test]
+fn an_element_tells_every_resize_and_hover_handler_it_was_given() {
+    use remedy_ui_core::input::{PointerEvent, PointerPhase};
+    let ui = ui();
+    let heard = Rc::new(RefCell::new(Vec::new()));
+    let (a, b, c, d) = (heard.clone(), heard.clone(), heard.clone(), heard.clone());
+    let el = ui
+        .el("box")
+        .width(40.0)
+        .height(40.0)
+        .on_resize(move |_| a.borrow_mut().push("app size"))
+        .on_resize(move |_| b.borrow_mut().push("widget size"))
+        .on_hover(move |on| c.borrow_mut().extend(on.then_some("app hover")))
+        .on_hover(move |on| d.borrow_mut().extend(on.then_some("widget hover")));
+    let _ = ui.root().child(el);
+    frame(&ui);
+    ui.pointer(&PointerEvent::new(PointerPhase::Move, remedy_ui_core::Point::new(5.0, 5.0)));
+    assert_eq!(*heard.borrow(), ["app size", "widget size", "app hover", "widget hover"]);
+}
+
+#[test]
+fn text_set_on_an_element_with_children_keeps_them_laid_out() {
+    let ui = ui();
+    let icon = ui.el("box").width(12.0).height(12.0);
+    let row = ui.el("box").row().child(icon.clone()).text("Label".to_owned());
+    let _ = ui.root().child(row);
+    frame(&ui);
+    assert_eq!(icon.bounds().map(|b| b.size()), Some(Size::new(12.0, 12.0)));
+}

@@ -1006,12 +1006,12 @@ impl PageView {
 
     fn deliver(&self, done: Done) {
         match done {
-            Done::Tile(id, epoch, result) => {
+            Done::Tile(id, epoch, flight, result) => {
                 {
                     let mut st = self.0.st.borrow_mut();
                     let size = self.0.sizes.borrow().get(id.page).copied().unwrap_or(Size::ZERO);
                     let tile = st.tile_edge();
-                    st.tiles.adopt(id, epoch, result, tile, size);
+                    st.tiles.adopt(id, epoch, flight, result, tile, size);
                     // Only the page's preview is what its thumbnail waits for: forgetting the
                     // request on any other tile would ask for the preview again each time.
                     let preview = level_of(raster::PREVIEW_PIXELS / size.width.max(size.height));

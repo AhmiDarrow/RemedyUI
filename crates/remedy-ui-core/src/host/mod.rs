@@ -74,7 +74,7 @@ pub struct LocalTime {
 impl LocalTime {
     /// Seconds since 1970-01-01T00:00:00 on the local wall clock.
     pub fn local_seconds(self) -> i64 {
-        self.unix_seconds + i64::from(self.utc_offset)
+        self.unix_seconds.saturating_add(i64::from(self.utc_offset))
     }
 
     /// Days since 1970-01-01 on the local calendar.

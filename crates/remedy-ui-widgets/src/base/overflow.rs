@@ -151,6 +151,8 @@ impl OverflowRow {
         let items = Rc::new(items);
         let hide = Signal::new(0usize);
         let cached = Rc::new(RefCell::new(vec![0.0f32; items.len()]));
+        // The children the bar itself is hiding now (they are in the More menu).
+        let bar_hidden: Rc<RefCell<HashSet<usize>>> = Rc::default();
         let more_w = Rc::new(RefCell::new(MIN_TARGET));
         let avail = Rc::new(Cell::new(0.0f32));
         let recompute = {
@@ -181,6 +183,8 @@ impl OverflowRow {
                 let cached = cached.clone();
                 let rec = recompute.clone();
                 let auto = item.slot == Slot::Auto;
+                let maybe = auto && item.min <= 0.0;
+                let hidden = bar_hidden.clone();
                 let el = el
                     .layout(move |l| {
                         if auto {
@@ -188,15 +192,23 @@ impl OverflowRow {
                         }
                     })
                     .on_resize(move |s| {
-                        if s.width > 1.0 {
-                            let changed = cached.borrow_mut().get_mut(i).is_some_and(|w| {
-                                let changed = (*w - s.width).abs() > 0.5;
-                                *w = if changed { s.width } else { *w };
-                                changed
-                            });
-                            if changed {
-                                rec();
-                            }
+                        // No width while the bar hides the child says nothing (the cached one is
+                        // what it takes when it fits again); a `child_maybe` that collapsed on
+                        // its own takes none.
+                        let width = if s.width > 1.0 {
+                            s.width
+                        } else if maybe && !hidden.borrow().contains(&i) {
+                            0.0
+                        } else {
+                            return;
+                        };
+                        let changed = cached.borrow_mut().get_mut(i).is_some_and(|w| {
+                            let changed = (*w - width).abs() > 0.5;
+                            *w = if changed { width } else { *w };
+                            changed
+                        });
+                        if changed {
+                            rec();
                         }
                     });
                 let _ = bar.clone().child(el);
@@ -243,11 +255,19 @@ impl OverflowRow {
             untrack(|| {
                 for (i, item) in items_b.iter().enumerate() {
                     if item.slot == Slot::Auto {
+                        // A `child_maybe` coming back may have collapsed while hidden: it takes
+                        // no room until it reports a width again.
+                        let back =
+                            item.min <= 0.0 && !hidden.contains(&i) && bar_hidden.borrow().contains(&i);
+                        if back && let Some(w) = cached.borrow_mut().get_mut(i) {
+                            *w = 0.0;
+                        }
                         let _ = item.el.clone().hidden(hidden.contains(&i));
                     }
                 }
                 let _ = more_b.clone().hidden(n_hide == 0);
             });
+            *bar_hidden.borrow_mut() = hidden;
         });
 
         let avail_r = avail.clone();

@@ -103,10 +103,18 @@ pub fn key(ctx: &GpuContext) -> String {
         i.device_type,
         env!("CARGO_PKG_VERSION")
     );
-    raw.chars()
-        .map(|c| if c.is_control() || c == '\t' { ' ' } else { c })
-        .take(crate::render_gpu::gpu_limits().health_line / 2)
-        .collect()
+    bounded_key(&raw, crate::render_gpu::gpu_limits().health_line / 2)
+}
+
+/// `raw` as one line of at most `most` bytes: the file's lines are bounded in bytes, and a
+/// key cut by the line's bound instead would never be found again (an adapter's name may be
+/// in any script).
+fn bounded_key(raw: &str, most: usize) -> String {
+    let mut key: String = raw.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    while key.len() > most {
+        key.pop();
+    }
+    key
 }
 
 /// Keeps verdicts in `dir` (an app's data or cache folder) from now on, reading what an
@@ -418,6 +426,10 @@ mod tests {
             assert_eq!(Verdict::parse(&v.word()), Some(v));
         }
         assert_eq!(Verdict::parse("maybe"), None);
+        // A key fits its half of a line in bytes, whatever script the adapter's name is in.
+        assert_eq!(bounded_key("GPU\t1\n", 64), "GPU 1 ");
+        let named = bounded_key(&"\u{6e32}".repeat(400), 256);
+        assert!(named.len() <= 256 && named.chars().count() == 85, "{}", named.len());
         // A full list lets go of another engine version's verdict for a new one, and a reason
         // too long for a line is cut to one the reader takes.
         let most = crate::render_gpu::gpu_limits().health_entries;

@@ -5,3 +5,7 @@
 layout-failed = Dein Layout für { $file } konnte nicht geladen werden, daher wird das Original angezeigt: { $error }
 # The button that removes the person's layout.
 layout-reset = Zurücksetzen
+
+## Undo history names. { $file } is the layout's file.
+layout-change-named = Layout { $file } ändern
+layout-reset-named = Layout { $file } zurücksetzen

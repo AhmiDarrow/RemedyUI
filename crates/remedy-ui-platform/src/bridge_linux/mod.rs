@@ -70,7 +70,8 @@ mod x11_hints;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod linux {
-    use std::time::Duration;
+    use std::sync::{Arc, Mutex, PoisonError, Weak};
+    use std::time::{Duration, Instant};
 
     use crate::bridge_winit::winit::raw_window_handle::{
         HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -103,6 +104,8 @@ mod linux {
         icons: Option<Result<crate::bridge_linux::icon_wayland::Icons, Unsupported>>,
         /// Pointing devices coming and going.
         devices: crate::bridge_linux::devices::DeviceWatch,
+        /// The desktop's settings as last read, and the session bus they came over.
+        desktop: Desktop,
     }
 
     impl std::fmt::Debug for LinuxHooks {
@@ -131,9 +134,17 @@ mod linux {
     }
 
     /// Portal settings, read in one session-bus round trip set.
-    struct Portal(std::collections::HashMap<(&'static str, &'static str), Value<'static>>);
+    #[derive(Default)]
+    struct Portal(std::collections::HashMap<Key, Value<'static>>);
 
-    const KEYS: [(&str, &str); 11] = [
+    /// A portal setting's namespace and key.
+    type Key = (&'static str, &'static str);
+
+    const PORTAL: &str = "org.freedesktop.portal.Desktop";
+    const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
+    const KEYBOARD: &str = "org.gnome.desktop.peripherals.keyboard";
+
+    const KEYS: [Key; 11] = [
         ("org.freedesktop.appearance", "color-scheme"),
         ("org.freedesktop.appearance", "accent-color"),
         ("org.freedesktop.appearance", "contrast"),
@@ -148,19 +159,13 @@ mod linux {
     ];
 
     impl Portal {
-        /// Reads every setting RemedyUI follows. Without a session bus or portal, every value
-        /// is absent and the defaults apply.
-        fn connect() -> Portal {
+        /// Reads every setting RemedyUI follows over `conn`. Without a portal, every value is
+        /// absent and the defaults apply.
+        fn read_all(conn: &zbus::Connection) -> Portal {
             let values = zbus::block_on(async {
                 let mut out = std::collections::HashMap::new();
-                let Ok(conn) = zbus::Connection::session().await else { return out };
-                let Ok(p) = zbus::Proxy::new(
-                    &conn,
-                    "org.freedesktop.portal.Desktop",
-                    "/org/freedesktop/portal/desktop",
-                    "org.freedesktop.portal.Settings",
-                )
-                .await
+                let Ok(p) =
+                    zbus::Proxy::new(conn, PORTAL, PORTAL_PATH, "org.freedesktop.portal.Settings").await
                 else {
                     return out;
                 };
@@ -231,6 +236,129 @@ mod linux {
         }
     }
 
+    /// What the portal's `SettingChanged` brought since the settings were last read.
+    #[derive(Default)]
+    struct Changes {
+        values: Mutex<Vec<(Key, Value<'static>)>>,
+        waker: Mutex<Option<Waker>>,
+    }
+
+    /// Follows the portal's `SettingChanged` over `conn` on a thread of its own, noting the
+    /// settings RemedyUI follows in `changes` and waking the event loop for each. False when
+    /// the thread could not start.
+    fn watch(conn: zbus::Connection, changes: Weak<Changes>) -> bool {
+        std::thread::Builder::new()
+            .name("remedy-ui settings".into())
+            .spawn(move || {
+                zbus::block_on(async {
+                    let Ok(p) =
+                        zbus::Proxy::new(&conn, PORTAL, PORTAL_PATH, "org.freedesktop.portal.Settings").await
+                    else {
+                        return;
+                    };
+                    let Ok(mut signals) = p.receive_signal("SettingChanged").await else { return };
+                    // shortcut: the thread waits for the next change after the hooks are gone,
+                    // then ends; a process quitting does not wait for it.
+                    while let Some(msg) = std::future::poll_fn(|cx| {
+                        futures_core::Stream::poll_next(std::pin::Pin::new(&mut signals), cx)
+                    })
+                    .await
+                    {
+                        let Some(changes) = changes.upgrade() else { return };
+                        let body = msg.body();
+                        let Ok((namespace, key, value)) =
+                            body.deserialize::<(String, String, OwnedVariant)>()
+                        else {
+                            continue;
+                        };
+                        let Some(known) = KEYS.into_iter().find(|(n, k)| *n == namespace && *k == key) else {
+                            continue;
+                        };
+                        changes
+                            .values
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push((known, unwrap(&value)));
+                        let waker = changes.waker.lock().unwrap_or_else(PoisonError::into_inner).clone();
+                        if let Some(w) = waker {
+                            w();
+                        }
+                    }
+                });
+            })
+            .is_ok()
+    }
+
+    /// How long the settings read whole stand before a window coming to the front reads them
+    /// again. Changes the portal announces arrive at once; this is for what it does not
+    /// announce (a desktop without the signal, the compositor's keyboard repeat).
+    const REREAD: Duration = Duration::from_secs(60);
+
+    /// The desktop's settings as last read: one session-bus connection for the life of the
+    /// app, every value read once and then kept current by the portal's `SettingChanged`,
+    /// so a window coming to the front costs no round trips.
+    #[derive(Default)]
+    struct Desktop {
+        conn: Option<zbus::Connection>,
+        portal: Portal,
+        /// When `portal` and `repeat` were last read whole.
+        read_at: Option<Instant>,
+        /// The session's keyboard repeat (its own connection to the display server to ask).
+        repeat: Option<(Duration, Duration)>,
+        changes: Arc<Changes>,
+        watching: bool,
+    }
+
+    impl Desktop {
+        /// The session bus, connected once.
+        fn session(&mut self) -> Option<zbus::Connection> {
+            if self.conn.is_none() {
+                self.conn = zbus::block_on(zbus::Connection::session()).ok();
+            }
+            self.conn.clone()
+        }
+
+        /// True when the portal announced a change that [`Desktop::refresh`] has not taken.
+        fn changed(&self) -> bool {
+            !self.changes.values.lock().unwrap_or_else(PoisonError::into_inner).is_empty()
+        }
+
+        /// Puts announced changes into the values read; true when the keyboard's changed.
+        fn apply(&mut self, changed: Vec<(Key, Value<'static>)>) -> bool {
+            let mut keyboard = false;
+            for (key, value) in changed {
+                keyboard |= key.0 == KEYBOARD;
+                self.portal.0.insert(key, value);
+            }
+            keyboard
+        }
+
+        /// Brings the values up to date: read whole the first time and when they are older
+        /// than [`REREAD`], else only what the portal announced.
+        fn refresh(&mut self) {
+            let changed =
+                std::mem::take(&mut *self.changes.values.lock().unwrap_or_else(PoisonError::into_inner));
+            let whole = self.read_at.is_none_or(|at| at.elapsed() >= REREAD);
+            let keyboard = if whole {
+                let conn = self.session();
+                self.portal = conn.as_ref().map(Portal::read_all).unwrap_or_default();
+                if let Some(conn) = conn
+                    && !self.watching
+                {
+                    self.watching = watch(conn, Arc::downgrade(&self.changes));
+                }
+                self.read_at = Some(Instant::now());
+                true
+            } else {
+                self.apply(changed)
+            };
+            if keyboard {
+                let ms = |key| self.portal.u32(KEYBOARD, key).map(|ms| Duration::from_millis(u64::from(ms)));
+                self.repeat = crate::bridge_linux::repeat::system(ms("delay").zip(ms("repeat-interval")));
+            }
+        }
+    }
+
     /// Running on a battery that is discharging, or the firmware's low-power profile is on.
     fn power_saving() -> bool {
         let read = |p: std::path::PathBuf| {
@@ -256,7 +384,8 @@ mod linux {
         fn settings(&mut self) -> SystemSettings {
             const APPEARANCE: &str = "org.freedesktop.appearance";
             const INTERFACE: &str = "org.gnome.desktop.interface";
-            let p = Portal::connect();
+            self.desktop.refresh();
+            let p = &self.desktop.portal;
             let base = SystemSettings::default();
             let reduced_motion = p
                 .u32(APPEARANCE, "reduced-motion")
@@ -298,13 +427,8 @@ mod linux {
                 };
                 v_.power_saving = power_saving();
                 v_.pointer_devices = crate::bridge_linux::devices::caps();
-                let keyboard = |key| {
-                    p.u32("org.gnome.desktop.peripherals.keyboard", key)
-                        .map(|ms| Duration::from_millis(u64::from(ms)))
-                };
-                let gnome = keyboard("delay").zip(keyboard("repeat-interval"));
-                (v_.key_repeat_delay, v_.key_repeat_interval) = crate::bridge_linux::repeat::system(gnome)
-                    .unwrap_or((base.key_repeat_delay, base.key_repeat_interval));
+                (v_.key_repeat_delay, v_.key_repeat_interval) =
+                    self.desktop.repeat.unwrap_or((base.key_repeat_delay, base.key_repeat_interval));
                 v_
             }
         }
@@ -342,6 +466,12 @@ mod linux {
                 && let Some(surface) = crate::bridge_linux::os::wayland_surface(wl.connection(), w.surface)
             {
                 wl.add_window(&surface, window.id());
+            }
+        }
+
+        fn window_closed(&mut self, window: &Window) {
+            if let Some(wl) = self.wayland.as_mut() {
+                wl.remove_window(window.id());
             }
         }
 
@@ -457,6 +587,7 @@ mod linux {
         fn set_waker(&mut self, waker: Waker) {
             self.notifier.set_waker(waker.clone());
             self.tray.set_waker(waker.clone());
+            *self.desktop.changes.waker.lock().unwrap_or_else(PoisonError::into_inner) = Some(waker.clone());
             self.devices.set_waker(waker);
         }
 
@@ -494,33 +625,36 @@ mod linux {
 
         fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
             // The desktop portal opens it the user's way (and works inside sandboxes).
-            let portal = zbus::block_on(async {
-                let conn = zbus::Connection::session().await?;
-                let p = zbus::Proxy::new(
-                    &conn,
-                    "org.freedesktop.portal.Desktop",
-                    "/org/freedesktop/portal/desktop",
-                    "org.freedesktop.portal.OpenURI",
-                )
-                .await?;
-                let options: std::collections::HashMap<&str, Value<'_>> = std::collections::HashMap::new();
-                let _: zbus::OwnedObjectPath = p.call("OpenURI", &("", url, options)).await?;
-                Ok::<(), zbus::Error>(())
+            let portal = match self.desktop.session() {
+                Some(conn) => zbus::block_on(async {
+                    let p = zbus::Proxy::new(&conn, PORTAL, PORTAL_PATH, "org.freedesktop.portal.OpenURI")
+                        .await?;
+                    let options: std::collections::HashMap<&str, Value<'_>> =
+                        std::collections::HashMap::new();
+                    let _: zbus::OwnedObjectPath = p.call("OpenURI", &("", url, options)).await?;
+                    Ok::<(), zbus::Error>(())
+                })
+                .map_err(|e| e.to_string()),
+                None => Err("no session bus".to_owned()),
+            };
+            let Err(e) = portal else { return Ok(()) };
+            // No portal (a bare X session): the freedesktop opener.
+            let mut opener = std::process::Command::new("xdg-open").arg(url).spawn().map_err(|x| {
+                Unsupported::new("opening links", format!("no portal ({e}) and no xdg-open ({x})"))
+            })?;
+            // Waited for off this thread, so the opener leaves no zombie when it ends.
+            let _ = std::thread::Builder::new().name("remedy-ui xdg-open".into()).spawn(move || {
+                let _ = opener.wait();
             });
-            match portal {
-                Ok(()) => Ok(()),
-                // No portal (a bare X session): the freedesktop opener.
-                Err(e) => std::process::Command::new("xdg-open").arg(url).spawn().map(|_| ()).map_err(|x| {
-                    Unsupported::new("opening links", format!("no portal ({e}) and no xdg-open ({x})"))
-                }),
-            }
+            Ok(())
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
             let mut events: Vec<HostEvent> =
                 self.tray.take_events().into_iter().map(HostEvent::Tray).collect();
             events.extend(self.notifier.take_events());
-            if self.devices.take_changed() {
+            // Both are asked: each takes its own note.
+            if self.devices.take_changed() | self.desktop.changed() {
                 events.push(HostEvent::Settings(self.settings()));
             }
             events
@@ -599,6 +733,22 @@ mod linux {
     /// Runs `app` on the main thread's event loop until it exits.
     pub fn run(app: impl App) -> Result<(), RunError> {
         crate::bridge_winit::run(app, LinuxHooks::default())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn announced_changes_replace_the_values_read() {
+            let mut d = Desktop::default();
+            let scheme = ("org.freedesktop.appearance", "color-scheme");
+            assert!(!d.apply(vec![(scheme, Value::U32(1))]));
+            assert_eq!(d.portal.u32(scheme.0, scheme.1), Some(1));
+            assert!(d.apply(vec![((KEYBOARD, "delay"), Value::U32(250))]), "the keyboard's own changed");
+            assert_eq!(d.portal.u32(KEYBOARD, "delay"), Some(250));
+            assert!(!d.changed(), "nothing announced is left waiting");
+        }
     }
 }
 

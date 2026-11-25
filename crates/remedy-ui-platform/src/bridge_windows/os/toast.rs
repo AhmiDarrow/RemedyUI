@@ -32,7 +32,18 @@ const ACTIVATE: &str = "activate";
 struct Shared {
     events: Vec<HostEvent>,
     waker: Option<Waker>,
+    /// Toasts Windows has taken away for good since the last look (the app's id and the
+    /// toast's serial): their objects have no more events to report.
+    ended: Vec<(u64, u64)>,
 }
+
+fn ended(id: u64, serial: u64) {
+    shared().lock().unwrap_or_else(PoisonError::into_inner).ended.push((id, serial));
+}
+
+/// How many toasts of one app Windows keeps in the notification center; an older one is
+/// gone from it, and can report nothing more.
+const KEPT_BY_WINDOWS: usize = 20;
 
 fn shared() -> &'static Mutex<Shared> {
     static S: OnceLock<Mutex<Shared>> = OnceLock::new();
@@ -62,7 +73,9 @@ pub(crate) fn take_events() -> Vec<HostEvent> {
 #[derive(Default)]
 pub(crate) struct Toasts {
     notifier: Option<(String, ToastNotifier)>,
-    shown: HashMap<u64, ToastNotification>,
+    /// By the app's id, with a serial that tells a toast from the one that replaced it.
+    shown: HashMap<u64, (u64, ToastNotification)>,
+    serial: u64,
 }
 
 fn unsupported(e: impl std::fmt::Display) -> Unsupported {
@@ -190,6 +203,25 @@ fn icon_file(id: &str, icon: &remedy_ui_core::host::TrayImage) -> Option<std::pa
     Some(path)
 }
 
+/// Lets go of the toasts Windows took away: those in `gone` (pressed, or closed by the
+/// person or the app), unless a newer toast has their id by now, and those pushed out of the
+/// notification center by newer ones. One that only timed out stays, as it can still be
+/// pressed in the notification center.
+fn let_go<T>(shown: &mut HashMap<u64, (u64, T)>, gone: Vec<(u64, u64)>) {
+    for (id, serial) in gone {
+        if shown.get(&id).is_some_and(|(s, _)| *s == serial) {
+            shown.remove(&id);
+        }
+    }
+    if shown.len() > KEPT_BY_WINDOWS {
+        let mut serials: Vec<u64> = shown.values().map(|(s, _)| *s).collect();
+        serials.sort_unstable_by(|a, b| b.cmp(a));
+        if let Some(oldest_kept) = serials.get(KEPT_BY_WINDOWS - 1).copied() {
+            shown.retain(|_, (s, _)| *s >= oldest_kept);
+        }
+    }
+}
+
 impl Toasts {
     /// The notifier for the app's identity, registering it for the current user on first use.
     fn notifier(&mut self, app: &str, icon: Option<&std::path::Path>) -> Result<ToastNotifier, Unsupported> {
@@ -237,6 +269,8 @@ impl Toasts {
             toast.SetPriority(ToastNotificationPriority::High).map_err(unsupported)?;
         }
         let app_id = n.id;
+        self.serial = self.serial.wrapping_add(1);
+        let serial = self.serial;
         toast
             .Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, args| {
                 let arguments = args
@@ -252,6 +286,7 @@ impl Toasts {
                         None => NotificationResponse::Activated,
                     },
                 ));
+                ended(app_id, serial);
                 Ok(())
             }))
             .map_err(unsupported)?;
@@ -260,16 +295,21 @@ impl Toasts {
                 move |_, args| {
                     // Only the person closing it counts: a toast that slid into the notification
                     // center (timed out) or that the app took away was not dismissed by anyone.
-                    if args.as_ref().and_then(|a| a.Reason().ok()) == Some(ToastDismissalReason::UserCanceled)
-                    {
+                    let reason = args.as_ref().and_then(|a| a.Reason().ok());
+                    if reason == Some(ToastDismissalReason::UserCanceled) {
                         post(HostEvent::Notification(app_id, NotificationResponse::Dismissed));
+                    }
+                    if reason != Some(ToastDismissalReason::TimedOut) {
+                        ended(app_id, serial);
                     }
                     Ok(())
                 },
             ))
             .map_err(unsupported)?;
         notifier.Show(&toast).map_err(unsupported)?;
-        self.shown.insert(n.id, toast);
+        self.shown.insert(n.id, (serial, toast));
+        let gone = std::mem::take(&mut shared().lock().unwrap_or_else(PoisonError::into_inner).ended);
+        let_go(&mut self.shown, gone);
         Ok(())
     }
 
@@ -292,6 +332,22 @@ impl Toasts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toasts_windows_took_away_are_let_go() {
+        let mut shown: HashMap<u64, (u64, ())> = (1..=3).map(|id| (id, (id, ()))).collect();
+        // 1 was pressed; 2 was replaced (serial 9) before its old toast's end arrived.
+        shown.insert(2, (9, ()));
+        let_go(&mut shown, vec![(1, 1), (2, 2), (7, 7)]);
+        let mut left: Vec<u64> = shown.keys().copied().collect();
+        left.sort_unstable();
+        assert_eq!(left, [2, 3]);
+        // Only as many as the notification center holds stay, the newest.
+        let mut many: HashMap<u64, (u64, ())> = (1..=50).map(|id| (id, (id, ()))).collect();
+        let_go(&mut many, Vec::new());
+        assert_eq!(many.len(), KEPT_BY_WINDOWS);
+        assert!(many.keys().all(|id| *id > 30), "{many:?}");
+    }
 
     #[test]
     fn app_ids_are_plain_and_stable() {

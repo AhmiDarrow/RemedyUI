@@ -245,12 +245,14 @@ impl CommandPalette {
             .gap(unit / 2.0)
             .fill_width()
             .semantics(Semantics::new(Role::List).label(crate::nav::tr(ui, "palette-commands")));
-        let (l2, u, m2, me) = (list.clone(), ui.clone(), matches.clone(), self.clone());
+        // The rows shown, in order: they stay while the choice moves, so it can be scrolled to.
+        let rows: Rc<RefCell<Vec<El>>> = Rc::default();
+        let (l2, u, m2, me, rows2) = (list.clone(), ui.clone(), matches.clone(), self.clone(), rows.clone());
         let list = list.bind(move || {
             let found = m2();
-            let at = chosen.get();
             untrack(|| {
                 l2.clear();
+                rows2.borrow_mut().clear();
                 if found.is_empty() {
                     let _ = l2
                         .clone()
@@ -271,14 +273,17 @@ impl CommandPalette {
                             me2.close();
                             me2.commands.run(&id);
                         })
-                        .focusable(false)
-                        .semantics(
+                        .focusable(false);
+                    let (r2, label) = (row.clone(), c.label.clone());
+                    let row = row
+                        .bind(move || r2.state(remedy_ui_core::style::States::SELECTED, chosen.get() == i))
+                        .semantics(move || {
                             Semantics::new(Role::ListItem)
-                                .label(c.label.clone())
-                                .selected(i == at)
-                                .action(Action::Click),
-                        );
-                    row.state(remedy_ui_core::style::States::SELECTED, i == at);
+                                .label(label.clone())
+                                .selected(chosen.get() == i)
+                                .action(Action::Click)
+                        });
+                    rows2.borrow_mut().push(row.clone());
                     let _ = l2.clone().child(row);
                 }
             });
@@ -302,6 +307,11 @@ impl CommandPalette {
                 Key::ArrowDown if n > 0 => chosen.update(|c| *c = (*c + 1) % n),
                 Key::ArrowUp if n > 0 => chosen.update(|c| *c = (*c + n - 1) % n),
                 _ => return false,
+            }
+            // A choice past the visible part of the list comes into view.
+            let row = rows.borrow().get(chosen.get_untracked().unwrap_or(0)).cloned();
+            if let Some(row) = row {
+                row.scroll_into_view();
             }
             true
         });

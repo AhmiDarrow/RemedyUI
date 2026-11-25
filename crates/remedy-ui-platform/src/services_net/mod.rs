@@ -24,7 +24,8 @@
 //! - Every limit has a default and can be set or lifted: [`Http::timeout`] and
 //!   [`Request::timeout`] ([`DEFAULT_TIMEOUT`]), [`Http::max_body`] and [`Request::max_body`]
 //!   ([`DEFAULT_MAX_BODY`]), [`Http::max_redirects`] ([`DEFAULT_MAX_REDIRECTS`]),
-//!   [`CookieJar::max_cookies`] ([`DEFAULT_MAX_COOKIES`]).
+//!   [`CookieJar::max_cookies`] ([`DEFAULT_MAX_COOKIES`]), [`CookieJar::max_per_host`]
+//!   ([`DEFAULT_MAX_COOKIES_PER_HOST`]).
 //!
 //! **Policy.** This pack is opt-in and contacts only addresses the app names. Natively it
 //! refuses plain `http` beyond the loopback interface unless the client allows the local
@@ -66,7 +67,7 @@ mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
-pub use cookies::{Cookie, CookieJar, DEFAULT_MAX_COOKIES, SameSite};
+pub use cookies::{Cookie, CookieJar, DEFAULT_MAX_COOKIES, DEFAULT_MAX_COOKIES_PER_HOST, SameSite};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{PoolLimits, finish_keepalive, on_keepalive, pool_limits, set_pool_limits};
 

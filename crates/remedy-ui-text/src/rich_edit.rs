@@ -202,16 +202,28 @@ impl RichDoc {
 /// Merges each mark's ranges where they overlap (or touch, except mentions: two mentions side
 /// by side stay two), drops empty ones, and sorts by position.
 fn normalize(marks: &mut Vec<(Range<usize>, Mark)>) {
-    let mut kinds: Vec<Mark> = Vec::new();
-    for (_, m) in marks.iter() {
-        if !kinds.contains(m) {
-            kinds.push(m.clone());
+    // Grouped through a map, in order of first appearance: a document with a thousand
+    // different links is one pass over its marks, not a thousand.
+    let mut index: std::collections::HashMap<Mark, usize> = std::collections::HashMap::new();
+    let mut groups: Vec<(Mark, Vec<Range<usize>>)> = Vec::new();
+    for (r, m) in marks.drain(..) {
+        let i = match index.get(&m) {
+            Some(i) => *i,
+            None => {
+                let at = groups.len();
+                index.insert(m.clone(), at);
+                groups.push((m, Vec::new()));
+                at
+            }
+        };
+        if r.start < r.end
+            && let Some((_, rs)) = groups.get_mut(i)
+        {
+            rs.push(r);
         }
     }
     let mut out = Vec::new();
-    for k in kinds {
-        let mut rs: Vec<Range<usize>> =
-            marks.iter().filter(|(r, m)| *m == k && r.start < r.end).map(|(r, _)| r.clone()).collect();
+    for (k, mut rs) in groups {
         rs.sort_by_key(|r| (r.start, r.end));
         let touching = !matches!(k, Mark::Mention(_));
         let mut merged: Vec<Range<usize>> = Vec::new();
@@ -1048,11 +1060,7 @@ impl RichEditor {
             }
         }
         // Marks, moved into display positions.
-        let to_display = |at: usize| {
-            let sh = to_shown(at);
-            let line = display_of.iter().rposition(|(s, _)| *s <= sh).unwrap_or(0);
-            display_of.get(line).map_or(sh, |(s, d)| d + (sh - s))
-        };
+        let to_display = |at: usize| to_display_shown(&display_of, to_shown(at));
         for (r, m) in &self.fmt.marks {
             let (a, b) = (to_display(r.start), to_display(r.end));
             if a >= b {
@@ -1086,6 +1094,7 @@ impl RichEditor {
 
 /// A shown-text position in display positions, given each line's shown and display starts.
 fn to_display_shown(display_of: &[(usize, usize)], sh: usize) -> usize {
-    let line = display_of.iter().rposition(|(s, _)| *s <= sh).unwrap_or(0);
+    // Line starts ascend, so the line is found by halving, not by walking every line.
+    let line = display_of.partition_point(|(s, _)| *s <= sh).saturating_sub(1);
     display_of.get(line).map_or(sh, |(s, d)| d + (sh - s))
 }

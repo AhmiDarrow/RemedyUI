@@ -107,6 +107,19 @@ fn quotes_nested_without_end_keep_their_words_in_a_tree_of_bounded_depth() {
 }
 
 #[test]
+fn lists_nested_without_end_keep_their_words_and_leave_no_empty_list() {
+    let source: String = (0..40).map(|i| format!("{}- point {i}\n", "  ".repeat(i))).collect();
+    let (_ui, doc, _) = shown(&source);
+    let lists = with_role(&doc, Role::List);
+    assert!((1..=6).contains(&lists.len()), "{} lists inside one another", lists.len());
+    for list in &lists {
+        assert!(!list.child_elements().is_empty(), "a list without items");
+    }
+    let said = texts(&doc);
+    assert!(said.iter().any(|t| t == "point 0") && said.iter().any(|t| t == "point 39"), "{said:?}");
+}
+
+#[test]
 fn styled_words_and_links_in_a_paragraph() {
     let (ui, doc, opened) = shown(DOC);
     let para = find(&doc, "label")

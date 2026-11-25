@@ -354,6 +354,8 @@ pub(crate) struct Hls {
     /// Master playlists followed so far.
     masters: u32,
     segments: Vec<Segment>,
+    /// The media sequence number the playlist last read started at.
+    listed_from: u64,
     target: Duration,
     /// The playlist is complete.
     complete: bool,
@@ -397,6 +399,7 @@ impl Hls {
             loaded: false,
             masters: 0,
             segments: Vec::new(),
+            listed_from: 0,
             target: Duration::ZERO,
             complete: false,
             waiting: None,
@@ -474,7 +477,7 @@ impl Hls {
     ) -> Result<(), MediaError> {
         // A segment no longer wanted (a seek came while it was fetched) is dropped.
         if let WantKind::Segment(seq) = want.kind
-            && self.segments.get(self.next).is_none_or(|s| s.sequence != seq)
+            && self.segments.get(self.next).is_none_or(|s| s.sequence != seq || s.url != want.url)
         {
             return Ok(());
         }
@@ -538,24 +541,74 @@ impl Hls {
                 self.loaded = true;
                 self.target = m.target;
                 self.complete = m.ended;
-                match self.segments.last() {
-                    None => self.segments = m.segments,
-                    Some(last) => {
-                        // Segments are only added at the end; those already known keep their place.
-                        let (seq, mut start) = (last.sequence, last.start.saturating_add(last.duration));
-                        for mut s in m.segments.into_iter().filter(|s| s.sequence > seq) {
-                            s.start = start;
-                            start = start.saturating_add(s.duration);
-                            self.segments.push(s);
-                        }
-                    }
-                }
+                self.merge(m.segments);
                 if let Some(to) = self.waiting {
                     self.place(to);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Takes the segments a playlist lists. Read again, its new ones go on the end and those
+    /// already known keep their media times; what a live server no longer lists is let go
+    /// (played: forgotten, so a stream on all day does not grow; not yet fetched: skipped, as
+    /// it cannot be fetched any more), and a server that started its numbering over is read
+    /// on from its first segment, as a discontinuity.
+    fn merge(&mut self, listed: Vec<Segment>) {
+        let (Some(first), Some(newest)) = (listed.first(), listed.last()) else { return };
+        let (first, newest_seq) = (first.sequence, newest.sequence);
+        let listed_from = std::mem::replace(&mut self.listed_from, first);
+        let Some(seq) = self.segments.last().map(|s| s.sequence) else {
+            self.segments = listed;
+            return;
+        };
+        // Numbers behind what was listed before, or a known number naming another file: not
+        // an older copy of the playlist (a cache's), which names the same files.
+        let restarted = newest_seq < seq
+            && (newest_seq < listed_from
+                || self
+                    .segments
+                    .iter()
+                    .rev()
+                    .find(|s| s.sequence == newest_seq)
+                    .is_some_and(|s| Some(&s.url) != listed.last().map(|n| &n.url)));
+        // The segments before this index are gone from the server.
+        let mut gone = if restarted {
+            self.segments.len()
+        } else {
+            match self.segments.iter().rposition(|s| s.sequence == first) {
+                Some(at) => at,
+                None if first > seq => self.segments.len(),
+                None => 0,
+            }
+        };
+        if self.next < gone {
+            self.segments.drain(self.next..gone);
+            gone = self.next;
+            // What was skipped may have held a discontinuity: the next segment sets the clock.
+            self.anchor = None;
+        }
+        let mut start = self.length();
+        let mut cut = restarted;
+        for mut s in listed.into_iter().filter(|s| restarted || s.sequence > seq) {
+            s.start = start;
+            s.discontinuity |= std::mem::take(&mut cut);
+            start = start.saturating_add(s.duration);
+            self.segments.push(s);
+        }
+        // The last segment read stays: the next one's times are told against it.
+        let played = self.queue.front().map_or(self.next, |(i, _)| *i).min(self.current);
+        let forget = gone.min(played).min(self.next.saturating_sub(1));
+        if forget > 0 {
+            self.segments.drain(..forget);
+            self.next -= forget;
+            self.current -= forget;
+            self.queue.iter_mut().for_each(|(i, _)| *i -= forget);
+            if let Some((_, _, at)) = &mut self.anchor {
+                *at = at.saturating_sub(forget);
+            }
+        }
     }
 
     fn read_segment(&mut self, data: &[u8]) {

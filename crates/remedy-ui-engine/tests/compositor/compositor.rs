@@ -789,3 +789,22 @@ fn a_small_change_in_a_big_layer_rasters_only_the_tiles_it_touches() {
     c.commit(LayerTree::new(vec![layer]));
     assert_eq!(c.frame(ms(32)).raster.len(), first.raster.len());
 }
+
+#[test]
+fn a_scroll_origin_or_damage_that_is_not_a_number_is_left_out() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 400.0, 900.0), solid(400.0, 900.0));
+    let mut scroller = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(400.0, 900.0))
+        .with_child(content);
+    scroller.scroll_origin = Vec2::new(0.0, f32::NAN);
+    c.commit(LayerTree::new(vec![scroller]));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::ZERO));
+    assert!(c.scroll_by(LayerId(1), Vec2::new(0.0, 100.0)));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 100.0)));
+
+    let mut d = Damage::new();
+    d.add(Rect::new(0.0, f32::NAN, 10.0, 10.0));
+    d.add(Rect::new(0.0, 0.0, f32::NAN, 10.0));
+    assert!(d.is_empty());
+}

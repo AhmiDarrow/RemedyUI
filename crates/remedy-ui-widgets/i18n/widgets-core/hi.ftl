@@ -7,6 +7,11 @@ lamp-on = चालू
 lamp-off = बंद
 loading = लोड हो रहा है
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = { $label } को ले जाएं
+dock-move-hint = { $label } को दूसरी ओर डॉक करने के लिए खींचें या Enter दबाएं
+dock-collapsed = { $label } (संक्षिप्त)
+
 ## Secret fields.
 show-password = पासवर्ड दिखाएं
 hide-password = पासवर्ड छिपाएं

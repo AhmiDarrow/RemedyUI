@@ -57,9 +57,10 @@ pub enum Feed {
         /// The asset name or its ending.
         asset: String,
     },
-    /// A JSON document: a flat `{"version", "url", "signature", "sha256"?, "notes"?, "page"?}`, or
+    /// A JSON document: a flat `{"version", "url", "signature", "sha256"?, "size"?, "notes"?,
+    /// "page"?}`, or
     /// Tauri's `latest.json` (`version`, optional `notes` / `pub_date`, and
-    /// `platforms.<key>.{url, signature, sha256?}`). `signature` is the minisign signature
+    /// `platforms.<key>.{url, signature, sha256?, size?}`). `signature` is the minisign signature
     /// (text, or base64 of it). A Tauri document uses the entry for this OS and architecture
     /// (`windows-x86_64`, `linux-x86_64`, `darwin-aarch64`, and the usual aliases).
     Json(String),
@@ -138,6 +139,9 @@ pub struct Release {
     /// The release's own page (its notes on GitHub, the feed's `page`), for a "what's new"
     /// link, when the feed gives one.
     pub page: Option<String>,
+    /// The download's size in bytes, when the feed gives one (GitHub's asset `size`, a JSON
+    /// feed's `size`): a longer body is refused before it is held.
+    pub size: Option<u64>,
 }
 
 impl Release {
@@ -150,6 +154,7 @@ impl Release {
             signature: String::new(),
             sha256: None,
             page: None,
+            size: None,
         }
     }
 }
@@ -165,7 +170,7 @@ impl CancelDownload {
     }
 
     /// Asks the download to stop: it ends with [`UpdateError::Cancelled`] within one block
-    /// of the transfer.
+    /// of the transfer (a stalled transfer ends when its idle time runs out).
     pub fn cancel(&self) {
         self.0.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -246,14 +251,29 @@ mod http {
         UpdateError::Network(e.to_string())
     }
 
-    fn agent() -> ureq::Agent {
+    /// The longest download held when the feed publishes no size: 4 GiB.
+    const MAX_DOWNLOAD: u64 = 4 * 1024 * 1024 * 1024;
+    /// How long resolving, connecting or the response headers may take. The body as a whole
+    /// has no time limit: an installer on a slow line takes what it takes.
+    const PHASE: Duration = Duration::from_secs(60);
+    /// How long the transfer may stay silent.
+    const IDLE: Duration = Duration::from_secs(30);
+
+    fn agent(https: bool) -> ureq::Agent {
         // ring is the TLS provider; installing it twice is harmless.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
         ureq::Agent::config_builder()
             .tls_config(tls)
-            .timeout_global(Some(Duration::from_secs(60)))
-            .https_only(false)
+            .timeout_resolve(Some(PHASE))
+            .timeout_connect(Some(PHASE))
+            .timeout_send_request(Some(PHASE))
+            .timeout_recv_response(Some(PHASE))
+            .timeout_per_read(Some(IDLE))
+            // An https address is never redirected to plain http; a loopback one (local
+            // testing) follows no redirect at all, so it cannot lead off the machine.
+            .https_only(https)
+            .max_redirects(if https { 10 } else { 0 })
             .build()
             .into()
     }
@@ -271,17 +291,30 @@ mod http {
     }
 
     /// The body of `url`, reporting bytes so far and the total when the server says it;
-    /// `progress` answering `false` stops it with [`UpdateError::Cancelled`].
+    /// `progress` answering `false` stops it with [`UpdateError::Cancelled`]. A body longer
+    /// than `size` (the published size; without one, [`MAX_DOWNLOAD`]) is refused.
     pub(super) fn fetch(
         url: &str,
+        size: Option<u64>,
         mut progress: impl FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Vec<u8>, UpdateError> {
-        let res = agent().get(url).header("User-Agent", "RemedyUI-updater").call().map_err(net)?;
-        let total =
+        let limit = size.unwrap_or(MAX_DOWNLOAD);
+        let res = agent(url.starts_with("https://"))
+            .get(url)
+            .header("User-Agent", "RemedyUI-updater")
+            .call()
+            .map_err(net)?;
+        if res.status().is_redirection() {
+            return Err(UpdateError::Network(format!("a loopback address may not redirect: {url}")));
+        }
+        let total: Option<u64> =
             res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
-        let mut reader = res.into_body().into_reader();
+        if total.is_some_and(|t| t > limit) {
+            return Err(UpdateError::Network(format!("the download is longer than {limit} bytes")));
+        }
+        let mut reader = res.into_body().into_with_config().limit(limit).reader();
         // The server's word for the size is a hint: a false one must not reserve the memory.
-        let hint = total.and_then(|t: u64| usize::try_from(t).ok()).unwrap_or(0).min(64 * 1024 * 1024);
+        let hint = total.and_then(|t| usize::try_from(t).ok()).unwrap_or(0).min(64 * 1024 * 1024);
         let mut bytes = Vec::with_capacity(hint);
         let mut buf = [0u8; 64 * 1024];
         loop {
@@ -315,6 +348,7 @@ mod http {
 
     pub(super) fn fetch(
         _url: &str,
+        _size: Option<u64>,
         _progress: impl FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Vec<u8>, UpdateError> {
         Err(none())
@@ -378,6 +412,7 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
                     .and_then(|x| x.as_str())
                     .map(str::to_owned)
                     .or_else(|| json_str(v, "page")),
+                size: entry.get("size").and_then(serde_json::Value::as_u64),
             });
         }
         return Err(UpdateError::Feed(format!("no platform in the feed for {os}-{arch}")));
@@ -389,6 +424,7 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
         signature: json_str(v, "signature").ok_or_else(|| UpdateError::Feed("no signature".into()))?,
         sha256: json_str(v, "sha256"),
         page: json_str(v, "page"),
+        size: v.get("size").and_then(serde_json::Value::as_u64),
     })
 }
 
@@ -452,6 +488,11 @@ fn github_release(cfg: &UpdateConfig, v: &serde_json::Value, asset: &str) -> Res
     let matches = |n: &str| n == asset || (n.ends_with(asset) && !n.ends_with(".sig"));
     let url = find(&matches).ok_or_else(|| UpdateError::Feed(format!("no asset matching {asset}")))?;
     let file_name = url.rsplit('/').next().unwrap_or_default().to_owned();
+    let size = assets
+        .iter()
+        .find(|a| a.get("browser_download_url").and_then(|u| u.as_str()) == Some(url.as_str()))
+        .and_then(|a| a.get("size"))
+        .and_then(serde_json::Value::as_u64);
     let (signature, sha256) = match &cfg.trust {
         Trust::Minisign(_) => {
             let sig_name = format!("{file_name}.sig");
@@ -476,6 +517,7 @@ fn github_release(cfg: &UpdateConfig, v: &serde_json::Value, asset: &str) -> Res
         signature,
         sha256: Some(sha256).flatten(),
         page: v.get("html_url").and_then(|u| u.as_str()).map(str::to_owned),
+        size,
     })
 }
 
@@ -574,7 +616,7 @@ pub fn download_with(
     if cancel.is_cancelled() {
         return Err(UpdateError::Cancelled);
     }
-    let bytes = http::fetch(&release.url, |got, total| {
+    let bytes = http::fetch(&release.url, release.size, |got, total| {
         progress(got, total);
         !cancel.is_cancelled()
     })?;

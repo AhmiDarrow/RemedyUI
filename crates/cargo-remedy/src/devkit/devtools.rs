@@ -88,6 +88,8 @@ pub struct Devtools {
     client: LineClient,
     timeout: Duration,
     version: u64,
+    /// A request went unanswered; nothing more is asked on this connection.
+    lost: bool,
 }
 
 fn s<'a>(v: &'a Value, k: &str) -> &'a str {
@@ -256,7 +258,7 @@ impl Devtools {
         let greeting: Value = serde_json::from_str(&line)
             .map_err(|e| ToolError::new(format!("unexpected greeting ({e}): {line}")))?;
         match s(&greeting, "answer") {
-            "welcome" => Ok(Devtools { client, timeout, version: n(&greeting, "version") }),
+            "welcome" => Ok(Devtools { client, timeout, version: n(&greeting, "version"), lost: false }),
             "refused" => Err(ToolError::new("the devtools server refused the token")),
             _ => Err(ToolError::new(format!("unexpected greeting: {line}"))),
         }
@@ -273,8 +275,13 @@ impl Devtools {
     }
 
     fn ask(&mut self, req: Value) -> Result<DevtoolsOutput> {
+        if self.lost {
+            return Err(ToolError::new("an earlier request went unanswered: connect to the app again"));
+        }
         self.client.send(&req.to_string())?;
         let Some(line) = self.client.recv(self.timeout)? else {
+            // Its late answer would be taken for the next request's.
+            self.lost = true;
             return Err(ToolError::new("the app did not answer in time (is its window's loop running?)"));
         };
         let answer: Value = serde_json::from_str(&line)
@@ -345,6 +352,29 @@ mod tests {
         assert!(
             text(&sem).contains("! Control with no accessible name") && text(&sem).contains("1 problem(s)")
         );
+    }
+
+    #[test]
+    fn nothing_is_asked_after_an_unanswered_request() {
+        let Ok(server) = std::net::TcpListener::bind("127.0.0.1:0") else { unreachable!("a port") };
+        let Ok(addr) = server.local_addr() else { unreachable!("bound") };
+        // An app that accepts and never answers, until the test's end closes the channel.
+        let (done, wait) = std::sync::mpsc::channel::<()>();
+        let silent = std::thread::spawn(move || {
+            let held = server.accept();
+            let _ = wait.recv_timeout(Duration::from_secs(5));
+            drop(held);
+        });
+        let Ok(client) = LineClient::connect(&addr.to_string(), Duration::from_secs(5)) else {
+            unreachable!("connects")
+        };
+        let mut d = Devtools { client, timeout: Duration::from_millis(50), version: 1, lost: false };
+        let first = d.tree().err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(first.contains("did not answer"), "{first}");
+        let second = d.tree().err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(second.contains("connect to the app again"), "{second}");
+        drop(done);
+        let _ = silent.join();
     }
 
     #[test]

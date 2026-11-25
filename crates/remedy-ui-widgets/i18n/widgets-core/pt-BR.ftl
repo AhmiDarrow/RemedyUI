@@ -7,6 +7,11 @@ lamp-on = ligado
 lamp-off = desligado
 loading = Carregando
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = Mover { $label }
+dock-move-hint = Arraste, ou pressione Enter, para encaixar { $label } no outro lado
+dock-collapsed = { $label } (recolhido)
+
 ## Secret fields.
 show-password = Mostrar senha
 hide-password = Ocultar senha

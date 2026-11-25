@@ -123,7 +123,7 @@ webstorage = ["remedy-ui-platform/services-webstorage"]
 macros = ["dep:remedy-ui-macros"]
 ## Images and animations decoded in a sandboxed helper process (`remedy_ui::isolated`), so a
 ## decoder that crashes, hangs or runs away with memory takes down only the helper.
-isolated = ["image", "anim", "remedy-ui-media/media-isolated"]
+isolated = ["image", "anim", "remedy-ui-media/media-isolated", "remedy-ui-media/media-isolated-anim"]
 ## Desktop services (`remedy_ui::desktop`): starting with the session, URL schemes
 ## (`App::on_url`), jump lists and recent files, power (`App::on_power`, keeping awake),
 ## showing files in the file manager and the user's usual folders.

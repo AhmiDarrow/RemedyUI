@@ -639,6 +639,23 @@ fn staff_keys_move_notes_by_step_semitone_and_octave() {
 }
 
 #[test]
+fn letter_keys_work_on_a_layout_that_types_no_latin_letters() {
+    use remedy_ui_core::input::KeyEvent;
+    // A Russian layout: the key in C's place types "с", the one in H's place "р".
+    let press = |ui: &Ui, typed: char, place: &str| {
+        let _ = ui.key(&KeyEvent::press(Key::char(typed)).with_physical(place).with_text(None));
+        let _ = frame(ui);
+    };
+    let r = staff_rig(true, staff_measures(), NoteStaffOptions::default());
+    press(&r.ui, 'с', "KeyC");
+    assert_eq!(pitches_at(&r, 0, 0).first().map(|p| p.step), Some(Step::C));
+    let t = tab_rig(true);
+    assert_eq!(tab_at(&t, 0, 0, 5), Some((3, Technique::None)));
+    press(&t.ui, 'р', "KeyH");
+    assert_eq!(tab_at(&t, 0, 0, 5), Some((3, Technique::HammerOn)));
+}
+
+#[test]
 fn staff_keys_set_lengths_rests_ties_and_structure() {
     let r = staff_rig(true, staff_measures(), {
         let mut v_ = NoteStaffOptions::default();

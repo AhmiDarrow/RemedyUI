@@ -13,7 +13,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// An icon from premultiplied RGBA: straight-alpha BGRA, as 32-bit icons expect. `what` names
 /// the feature in errors.
 pub(crate) fn hicon(size: u32, rgba: &[u8], what: &'static str) -> Result<HICON, Unsupported> {
-    if rgba.len() != size as usize * size as usize * 4 || size == 0 {
+    // Checked: a size near `u32::MAX` squared does not fit.
+    let bytes = (size as usize).checked_mul(size as usize).and_then(|n| n.checked_mul(4));
+    if Some(rgba.len()) != bytes || size == 0 {
         return Err(Unsupported::new(what, "the icon is not size × size RGBA"));
     }
     let bgra: Vec<u8> = rgba

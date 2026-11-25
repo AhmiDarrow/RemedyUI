@@ -551,7 +551,13 @@ unsafe fn hook(inner: &Rc<Inner>, webview: &ICoreWebView2) -> windows::core::Res
                 let url = get(|p| args.Uri(p)).unwrap_or_default();
                 let user = flag(|b| args.IsUserInitiated(b));
                 let redirect = flag(|b| args.IsRedirected(b));
-                if !hub.decide(url, user, redirect, false) {
+                // Runtimes before 1.0.2045 do not say the kind.
+                let history = args.cast::<ICoreWebView2NavigationStartingEventArgs3>().ok().and_then(|a| {
+                    let mut kind = COREWEBVIEW2_NAVIGATION_KIND::default();
+                    a.NavigationKind(&mut kind).ok()?;
+                    Some(kind != COREWEBVIEW2_NAVIGATION_KIND_NEW_DOCUMENT)
+                });
+                if !hub.decide(url, user, redirect, false, history) {
                     args.SetCancel(true)?;
                 }
                 Ok(())
@@ -565,7 +571,7 @@ unsafe fn hook(inner: &Rc<Inner>, webview: &ICoreWebView2) -> windows::core::Res
                 let url = get(|p| args.Uri(p)).unwrap_or_default();
                 let user = flag(|b| args.IsUserInitiated(b));
                 let redirect = flag(|b| args.IsRedirected(b));
-                if !hub.decide(url, user, redirect, true) {
+                if !hub.decide(url, user, redirect, true, None) {
                     args.SetCancel(true)?;
                 }
                 Ok(())

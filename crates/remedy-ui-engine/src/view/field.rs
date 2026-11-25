@@ -1852,7 +1852,8 @@ impl TextField {
         self.el.ui.mark(self.el.id, Dirty::PAINT | Dirty::SEMANTICS);
     }
 
-    /// Takes a secret field's contents out, leaving it empty.
+    /// Takes a secret field's contents out, leaving it empty. A field of another kind keeps
+    /// its text and gives a copy of it.
     pub fn take_secret(&self) -> SecretString {
         let mut f = self.field.borrow_mut();
         let out = match &mut f.editor {

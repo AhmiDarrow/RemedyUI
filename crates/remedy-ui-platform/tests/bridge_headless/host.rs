@@ -270,3 +270,39 @@ fn a_window_closed_by_an_earlier_frame_gets_no_frame() {
     host.turn(&mut app);
     assert_eq!(app.1, vec![a], "the closed window is not drawn");
 }
+
+#[test]
+fn a_size_no_memory_could_hold_is_brought_down_to_one_that_fits() {
+    let mut host = HeadlessHost::new().with_scale(f32::INFINITY).with_scale(f32::NAN);
+    let Ok(id) = host.create_window(&WindowOptions::default()) else { unreachable!("headless windows open") };
+    host.user_resize(id, Size::new(f32::INFINITY, f32::NAN));
+    let Some((w, h, _)) = host.window(id).map(|w| w.size()) else { unreachable!("the window is open") };
+    assert_eq!((w, h), (1 << 20, 1), "the widest side there is; a side that is not a number is one pixel");
+    assert_eq!(host.window(id).map(|w| w.surface().len()), Some((1 << 20) * 4));
+    // The clock and the wall clock stop at their ends instead of overflowing.
+    host.advance(Duration::MAX);
+    host.advance(Duration::MAX);
+    assert_eq!(host.now(), Duration::MAX);
+    assert!(host.local_time().unix_seconds > 0);
+}
+
+#[test]
+fn timers_due_together_fire_earliest_first() {
+    struct Order(Vec<remedy_ui_core::host::TimerId>);
+    impl App for Order {
+        fn event(&mut self, _host: &mut dyn Host, event: HostEvent) {
+            if let HostEvent::Timer(id) = event {
+                self.0.push(id);
+            }
+        }
+    }
+    let mut host = HeadlessHost::new();
+    let late = host.set_timer(Duration::from_millis(20));
+    let early = host.set_timer(Duration::from_millis(10));
+    let never = host.set_timer(Duration::MAX);
+    host.advance(Duration::from_millis(30));
+    let mut app = Order(Vec::new());
+    host.turn(&mut app);
+    assert_eq!(app.0, vec![early, late]);
+    host.cancel_timer(never);
+}

@@ -4,7 +4,8 @@
 // one of its fragments, never the native code. This fragment exists only while a picker is
 // open: it starts the picker, receives the result and removes itself. What the app gets are
 // file paths it can use with ordinary file calls:
-// - an opened document is copied into the app's cache, and the copy's path is returned;
+// - an opened document is copied into the app's cache (documents/<request>/<index>/<name>, on
+//   a worker thread: a large one takes a while), and the copy's path is returned;
 // - a document to save is a new file in the app's cache, and every time the app finishes
 //   writing it (closes it), its contents are copied into the chosen document.
 
@@ -39,6 +40,8 @@ public final class Picker extends Fragment {
     private Intent intent;
     private boolean save;
     private boolean started;
+    private boolean done;
+    private boolean copying;
 
     /** Android recreates fragments by name; this one is never restored (see Bridge). */
     public Picker() {}
@@ -104,7 +107,7 @@ public final class Picker extends Fragment {
             finish(new String[0], null);
             return;
         }
-        ArrayList<Uri> uris = new ArrayList<>();
+        final ArrayList<Uri> uris = new ArrayList<>();
         if (data.getClipData() != null) {
             for (int i = 0; i < data.getClipData().getItemCount(); i++) {
                 uris.add(data.getClipData().getItemAt(i).getUri());
@@ -112,31 +115,70 @@ public final class Picker extends Fragment {
         } else if (data.getData() != null) {
             uris.add(data.getData());
         }
-        ContentResolver cr = getActivity().getContentResolver();
-        File dir = new File(getActivity().getCacheDir(), "documents/" + request);
-        dir.mkdirs();
-        ArrayList<String> paths = new ArrayList<>();
-        String error = null;
-        for (Uri u : uris) {
-            try {
-                File f = new File(dir, safeName(displayName(cr, u)));
-                if (save) {
-                    f.createNewFile();
-                    watch(cr, f, u);
-                } else {
-                    try (InputStream in = cr.openInputStream(u); OutputStream out = new FileOutputStream(f)) {
-                        copy(in, out);
+        final Activity activity = getActivity();
+        final ContentResolver cr = activity.getContentResolver();
+        final File root = new File(activity.getCacheDir(), "documents/" + request);
+        // The answer is on its way: leaving the activity now must not cancel it.
+        copying = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final ArrayList<String> paths = new ArrayList<>();
+                String error = null;
+                for (int i = 0; i < uris.size(); i++) {
+                    Uri u = uris.get(i);
+                    try {
+                        // A folder each: two documents may have the same name.
+                        File dir = new File(root, Integer.toString(i));
+                        if (!dir.isDirectory() && !dir.mkdirs()) {
+                            throw new java.io.IOException("cannot make " + dir);
+                        }
+                        File f = new File(dir, safeName(displayName(cr, u)));
+                        if (save) {
+                            f.createNewFile();
+                            watch(cr, f, u);
+                        } else {
+                            try (InputStream in = cr.openInputStream(u); OutputStream out = new FileOutputStream(f)) {
+                                if (in == null) {
+                                    throw new java.io.IOException("the provider gave no data");
+                                }
+                                copy(in, out);
+                            }
+                        }
+                        paths.add(f.getAbsolutePath());
+                    } catch (Exception e) {
+                        error = "the document could not be read or written: " + e;
                     }
                 }
-                paths.add(f.getAbsolutePath());
-            } catch (Exception e) {
-                error = "the document could not be read or written: " + e;
+                final String failed = error;
+                // The fragment is removed on the UI thread only.
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        copying = false;
+                        finish(paths.toArray(new String[0]), failed);
+                    }
+                });
             }
+        }, "remedy-ui picker").start();
+    }
+
+    @Override
+    public void onDestroy() {
+        // Removed before the picker answered (the activity is finishing): the app never
+        // waits forever.
+        if (!copying) {
+            finish(new String[0], null);
         }
-        finish(paths.toArray(new String[0]), error);
+        super.onDestroy();
     }
 
     private void finish(String[] paths, String error) {
+        // A fragment Android made again by name has no request to answer.
+        if (done || intent == null) {
+            return;
+        }
+        done = true;
         Bridge.dialogDone(handle, request, paths, error);
         if (isAdded()) {
             getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();

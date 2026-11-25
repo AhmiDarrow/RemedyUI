@@ -67,7 +67,9 @@ use remedy_lua::{Data, DataLimits, Dialect, Error, Libs, LimitKind, Lua, Root, V
 use remedy_ui_core::time::WorkClock;
 use serde_json::{Map, Value as Json};
 
-use crate::script_lua::api::{Ctx, FRAME, Kind, err, flush, get_ref, signal_get, sweep_refs, with};
+use crate::script_lua::api::{
+    Ctx, FRAME, Kind, err, flush, get_ref, signal_get, signal_held, sweep_refs, with,
+};
 use crate::script_lua::world::{Id, Ref, World};
 
 /// RemedyLua steps a millisecond assumed only until this device's rate is measured
@@ -381,7 +383,30 @@ fn plain_json(lua: &Lua, v: Value, limits: &Limits) -> Result<Json, ScriptError>
         .map_err(|e| ScriptError::Shape(format!("a value cannot be shown: {}", e.message())))
 }
 
-/// The description of element `id` as the protocol's JSON, its handlers collected.
+/// Works out the computed values the tree under `root` shows, while the call that rendered it
+/// still runs: on its budget, its effects flushed after. Describing the tree afterwards
+/// ([`describe_element`]) then runs nothing of the script's.
+fn settle_shown(lua: &mut Lua, ctx: Ctx, root: Id) -> Result<(), Error> {
+    let mut todo = vec![root];
+    while let Some(id) = todo.pop() {
+        let found = with(lua, ctx, |w| w.elements.get(id).map(|e| (e.props, e.children.clone())))?;
+        let Some((props, children)) = found else { continue };
+        todo.extend(children);
+        let Value::Table(t) = get_ref(lua, ctx, props) else { continue };
+        for (_, v) in lua.table_pairs(t) {
+            if let Some(h) = lua.userdata::<api::Handle>(v).copied()
+                && h.kind == Kind::Signal
+            {
+                signal_get(lua, ctx, h.id, false)?;
+            }
+        }
+    }
+    flush(lua, ctx)
+}
+
+/// The description of element `id` as the protocol's JSON, its handlers collected. Runs
+/// nothing of the script's (it is called between calls, outside their limits): the values it
+/// reads were worked out by [`settle_shown`].
 fn describe_element(
     lua: &mut Lua,
     ctx: Ctx,
@@ -438,7 +463,7 @@ fn describe_element(
                 }
                 Value::UserData(_) => match lua.userdata::<api::Handle>(v).copied() {
                     Some(h) if h.kind == Kind::Signal => {
-                        let x = signal_get(lua, ctx, h.id, false).map_err(|e| classify(&e))?;
+                        let x = signal_held(lua, ctx, h.id).map_err(|e| classify(&e))?;
                         plain_json(lua, x, limits)?
                     }
                     _ => return Err(ScriptError::Shape(format!("the property {key} cannot be shown"))),
@@ -603,6 +628,7 @@ fn dispatch(lua: &mut Lua, ctx: Ctx, render_fn: Option<Ref>, args: &[Value]) -> 
             };
             // The root's id, for the widget to describe after the call (with the world settled).
             with(lua, ctx, |w| w.root_shown = Some(root))?;
+            settle_shown(lua, ctx, root)?;
             Vec::new()
         }
         Op::Act { handler, value } => {

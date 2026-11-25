@@ -103,7 +103,8 @@ impl VirtualList {
             unmeasured: Fenwick::default(),
             measured_sum: 0.0,
             measured_count: 0,
-            guess: estimate.max(1.0),
+            // Not a height (NaN, infinite) would make every position NaN.
+            guess: if estimate.is_finite() { estimate.max(1.0) } else { 1.0 },
             viewport: 0.0,
             scroll: 0.0,
             stuck: stick_to_end,
@@ -120,9 +121,13 @@ impl VirtualList {
         self.unmeasured = Fenwick::build(&u);
     }
 
-    /// The height used for rows not measured yet.
+    /// The height used for rows not measured yet: the average of the measured ones, or the
+    /// caller's guess while none is measured or they average under a pixel (rows measured
+    /// before they had content say nothing about the rest, and rows estimated at no height
+    /// would all be in view at once).
     pub fn estimate(&self) -> f32 {
-        if self.measured_count == 0 { self.guess } else { self.measured_sum / self.measured_count as f32 }
+        let average = self.measured_sum / self.measured_count as f32;
+        if self.measured_count > 0 && average >= 1.0 { average } else { self.guess }
     }
 
     /// Number of rows.
@@ -208,7 +213,12 @@ impl VirtualList {
         }
         let top = (self.scroll - prefetch).max(0.0);
         let bottom = self.scroll + self.viewport + prefetch;
-        let first = self.index_at(top);
+        let mut first = self.index_at(top);
+        // Rows with no height at the view's top edge are in view too: left out, they could
+        // never be measured again once they have content.
+        while first > 0 && self.heights.get(first - 1).copied().flatten() == Some(0.0) {
+            first -= 1;
+        }
         let mut last = self.index_at(bottom);
         if self.offset_of(last) < bottom {
             last += 1;
