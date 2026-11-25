@@ -12,7 +12,8 @@ pub mod bridge_linux;
 pub mod bridge_macos;
 #[cfg(feature = "bridge-windows")]
 pub mod bridge_windows;
-#[cfg(feature = "bridge-winit")]
+// winit windows are for the desktops and Android; a browser page has its own bridge.
+#[cfg(all(feature = "bridge-winit", not(all(target_arch = "wasm32", target_os = "unknown"))))]
 pub mod bridge_winit;
 #[cfg(feature = "embed-gpu")]
 pub mod embed_gpu;

@@ -13,11 +13,11 @@ categories.workspace = true
 
 [features]
 default = []
-media-anim = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image"]
+media-anim = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
 media-anim-apng = ["dep:png"]
 media-anim-gif = ["dep:gif"]
 media-anim-webp = ["dep:image-webp"]
-media-image = ["dep:image", "dep:js-sys", "dep:moxcms", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-webp"]
+media-image = ["dep:image", "dep:js-sys", "dep:moxcms", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-webp", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
 media-image-bmp = ["image/bmp"]
 media-image-gif = ["image/gif"]
 media-image-http = ["remedy-ui-platform/services-net"]
@@ -30,9 +30,9 @@ media-image-svg-text = ["media-image-svg", "resvg?/system-fonts", "resvg?/text"]
 media-image-svgz = ["media-image-svg", "resvg?/svgz"]
 media-image-tiff = ["image/tiff"]
 media-image-webp = ["image/webp"]
-media-isolated = ["dep:image", "dep:jni", "dep:libc", "dep:ndk-context", "dep:remedy-ui-engine", "dep:windows-sys", "media-image", "media-isolated-anim"]
+media-isolated = ["dep:image", "dep:jni", "dep:libc", "dep:ndk-context", "dep:remedy-ui-engine", "dep:windows-sys", "media-image", "media-isolated-anim", "remedy-ui-engine/paint"]
 media-isolated-anim = ["media-anim"]
-media-video = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
+media-video = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
 
 [dependencies]
 gif = { version = "=0.14.2", default-features = false, features = ["std"], optional = true }
@@ -41,8 +41,8 @@ image-webp = { version = "=0.2.4", optional = true }
 moxcms = { version = "=0.8.1", optional = true }
 png = { version = "=0.18.1", optional = true }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"], optional = true }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-net"], optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", optional = true }
 resvg = { version = "=0.50.0", default-features = false, optional = true }
 
 [dev-dependencies]
@@ -59,7 +59,7 @@ remedy-ui-media = { path = ".", features = ["media-anim", "media-anim-apng", "me
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
 image = { version = "=0.25.10", default-features = false, features = ["png"], optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint"], optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "=0.3.107", optional = true }

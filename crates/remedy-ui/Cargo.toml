@@ -147,13 +147,13 @@ full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "w
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", features = ["reactive-persist"] }
 remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1", optional = true }
-remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-anim", "media-image", "media-isolated", "media-video"], optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "effects", "media-effects", "paint", "render-cpu", "render-gpu", "script", "script-lua", "script-wasm", "view"] }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1" }
 remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1", optional = true }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["automation", "base", "board", "customize", "data", "devtools", "doc-code", "doc-pages", "doc-rich", "extra", "forms", "music", "nav", "rui", "spell", "stage", "themes", "update", "viz"], optional = true }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "1.0.0-rc.1", optional = true }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-headless", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-net", "services-webstorage"] }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1" }
 remedy-ui-media-playback = { path = "../remedy-ui-media-playback", version = "1.0.0-rc.1", optional = true }
 # On every target for `remedy_ui::web`'s types (`WebConfig`, `Mount`, the file store) and its
 # documentation; the browser bindings it starts apps with are its wasm32-only dependencies,

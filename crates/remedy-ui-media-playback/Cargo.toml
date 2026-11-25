@@ -16,7 +16,7 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-video"] }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["base"] }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-desktop"], optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", optional = true }
 
 [features]
 ## `Player::now_playing`: the player in the system's media controls (SMTC, a browser's

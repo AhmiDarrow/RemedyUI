@@ -13,29 +13,29 @@ categories.workspace = true
 
 [features]
 default = []
-automation = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde", "dep:serde_json", "nav"]
-base = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
-board = ["base", "data", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:serde", "dep:serde_json", "forms"]
-customize = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-media", "dep:remedy-ui-platform", "dep:remedy-ui-text", "dep:serde_json", "doc-code", "forms", "nav", "rui", "themes"]
-data = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine"]
-devtools = ["base", "dep:png", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-fonts", "dep:remedy-ui-fonts-cjk", "dep:remedy-ui-macros", "dep:remedy-ui-text", "dep:serde", "dep:serde_json", "forms", "themes"]
+automation = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde", "dep:serde_json", "nav", "remedy-ui-engine/view"]
+base = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
+board = ["base", "data", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:serde", "dep:serde_json", "forms", "remedy-ui-engine/script", "remedy-ui-engine/view", "remedy-ui-platform/services-i18n"]
+customize = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-media", "dep:remedy-ui-platform", "dep:remedy-ui-text", "dep:serde_json", "doc-code", "forms", "nav", "remedy-ui-engine/view", "remedy-ui-media/media-image", "remedy-ui-platform/services-i18n", "rui", "themes"]
+data = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/view"]
+devtools = ["base", "dep:png", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-fonts", "dep:remedy-ui-fonts-cjk", "dep:remedy-ui-macros", "dep:remedy-ui-text", "dep:serde", "dep:serde_json", "forms", "remedy-ui-engine/compositor", "remedy-ui-engine/paint", "remedy-ui-engine/render-cpu", "remedy-ui-engine/view", "themes"]
 devtools-system-fonts = ["remedy-ui-text/system-fonts"]
-doc-code = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "dep:syntect", "doc-code-syntaxes"]
+doc-code = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "dep:syntect", "doc-code-syntaxes", "remedy-ui-engine/view"]
 doc-code-syntaxes = ["syntect/default-syntaxes"]
-doc-pages = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text"]
-doc-rich = ["base", "dep:pulldown-cmark", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text"]
-extra = ["base", "dep:encoding_rs", "dep:remedy-ui-core", "dep:remedy-ui-engine", "viz"]
-forms = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:remedy-ui-text"]
-music = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine"]
-nav = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json"]
+doc-pages = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "remedy-ui-engine/compositor", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
+doc-rich = ["base", "dep:pulldown-cmark", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "remedy-ui-engine/view"]
+extra = ["base", "dep:encoding_rs", "dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view", "viz"]
+forms = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:remedy-ui-text", "remedy-ui-engine/paint", "remedy-ui-engine/view", "remedy-ui-platform/services-i18n"]
+music = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
+nav = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "remedy-ui-engine/view"]
 rui = ["dep:remedy-ui-core", "rui-runtime"]
 rui-runtime = ["base", "remedy-ui-core/default", "remedy-ui-engine/view"]
-spell = ["base", "dep:encoding_rs", "dep:icu_locale_core", "dep:icu_normalizer", "dep:icu_segmenter", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:spellbook", "dep:windows"]
+spell = ["base", "dep:encoding_rs", "dep:icu_locale_core", "dep:icu_normalizer", "dep:icu_segmenter", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:spellbook", "dep:windows", "remedy-ui-engine/view"]
 spell-complex-scripts = []
-stage = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "viz"]
+stage = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "remedy-ui-engine/paint", "remedy-ui-engine/view", "viz"]
 themes = ["dep:remedy-ui-core", "dep:serde_json"]
-update = ["base", "dep:base64", "dep:minisign-verify", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:rustls", "dep:semver", "dep:serde_json", "dep:sha2", "dep:ureq", "dep:windows-sys"]
-viz = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
+update = ["base", "dep:base64", "dep:minisign-verify", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:rustls", "dep:semver", "dep:serde_json", "dep:sha2", "dep:ureq", "dep:windows-sys", "remedy-ui-engine/view", "remedy-ui-platform/services-net"]
+viz = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
 
 [dependencies]
 base64 = { version = "=0.23.1", optional = true }
@@ -47,12 +47,12 @@ minisign-verify = { version = "=0.3.0", optional = true }
 png = { version = "=0.18.1", optional = true }
 pulldown-cmark = { version = "=0.13.6", default-features = false, optional = true }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "script", "view"], optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["scripts"], optional = true }
 remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1", optional = true }
 remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1", optional = true }
-remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-image"], optional = true }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-i18n"], optional = true }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", optional = true }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1", optional = true }
 semver = { version = "=1.0.28", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
@@ -71,7 +71,7 @@ wat = { version = "=1.263.0" }
 remedy-ui-widgets = { path = ".", features = ["automation", "base", "board", "customize", "data", "devtools", "devtools-system-fonts", "doc-code", "doc-code-syntaxes", "doc-pages", "doc-rich", "extra", "forms", "music", "nav", "rui", "rui-runtime", "spell", "spell-complex-scripts", "stage", "themes", "update", "viz"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-net"], optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", optional = true }
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"], optional = true }
 
