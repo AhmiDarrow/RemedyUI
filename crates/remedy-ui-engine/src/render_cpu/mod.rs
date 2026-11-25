@@ -289,7 +289,7 @@ fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
                 end_center: kpoint(*center),
                 // No radius (zero, negative, not a number) is a hair-wide one, as for an
                 // ellipse below; an endless one is one no target reaches the edge of.
-                end_radius: radius.max(1e-3).min(1.0e9),
+                end_radius: if radius.is_nan() { 1e-3 } else { radius.clamp(1e-3, 1.0e9) },
             }
             .into(),
             stops: stops(s).as_slice().into(),
