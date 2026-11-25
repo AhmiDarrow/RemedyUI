@@ -77,7 +77,7 @@
 //! drives the demo on an emulator, `tools/notify-check.sh` its notifications and foreground
 //! work, and `tools/a11y-check/run.sh` acts on it as a screen reader does. On other platforms this crate holds only its platform-neutral conversions.
 //!
-//! An app's entry point is [`main!`]:
+//! An app's entry point is [`main!`](crate::main):
 //!
 //! ```ignore
 //! fn app_main() {
