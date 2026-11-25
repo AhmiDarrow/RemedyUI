@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] উপবৃত্ত
     [line] রেখা
     [arrow] তীর
+    [image] ছবি
    *[annotation] টীকা
 }
 annotation-quoting = { $what }: “{ $text }”
@@ -38,6 +39,7 @@ undo-add = { $kind ->
     [ellipse] উপবৃত্ত যোগ করুন
     [line] রেখা যোগ করুন
     [arrow] তীর যোগ করুন
+    [image] ছবি যোগ করুন
    *[annotation] টীকা যোগ করুন
 }
 undo-change = { $kind ->
@@ -52,6 +54,7 @@ undo-change = { $kind ->
     [ellipse] উপবৃত্ত পরিবর্তন করুন
     [line] রেখা পরিবর্তন করুন
     [arrow] তীর পরিবর্তন করুন
+    [image] ছবি পরিবর্তন করুন
    *[annotation] টীকা পরিবর্তন করুন
 }
 undo-delete = { $kind ->
@@ -66,6 +69,7 @@ undo-delete = { $kind ->
     [ellipse] উপবৃত্ত মুছুন
     [line] রেখা মুছুন
     [arrow] তীর মুছুন
+    [image] ছবি মুছুন
    *[annotation] টীকা মুছুন
 }
 undo-move = { $kind ->
@@ -80,5 +84,6 @@ undo-move = { $kind ->
     [ellipse] উপবৃত্ত সরান
     [line] রেখা সরান
     [arrow] তীর সরান
+    [image] ছবি সরান
    *[annotation] টীকা সরান
 }

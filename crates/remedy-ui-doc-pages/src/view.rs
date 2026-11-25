@@ -124,6 +124,8 @@ enum Drawing {
     Shape { page: usize, shape: Shape, from: Point, to: Point },
     Text { page: usize, from: Point, to: Point },
     Move { id: u64, last: Point, before: Vec<Annotation>, moved: bool },
+    /// An image pulled by a corner (0 to 3, clockwise from the top left).
+    Resize { id: u64, corner: usize, before: Vec<Annotation>, moved: bool },
 }
 
 /// While a scroll or zoom moves, the view keeps its last picture and the compositor moves
@@ -1350,6 +1352,18 @@ impl PageView {
         let tool = self.0.st.borrow().tool;
         match tool {
             Tool::Select => {
+                // A corner of the selected image resizes it.
+                let picked = self.0.st.borrow().picked.and_then(|id| self.annotation(id));
+                let reach = (6.0 / self.0.st.borrow().eff_zoom().max(MIN_ZOOM)).max(annot::HANDLE);
+                let corner = picked.as_ref().and_then(|a| {
+                    let q = self.page_point(a.page, p)?;
+                    annot::corner_at(a, q, reach).map(|c| (a.id, c))
+                });
+                if let Some((id, corner)) = corner {
+                    let before = self.0.st.borrow().annots.clone();
+                    self.0.st.borrow_mut().drawing = Some(Drawing::Resize { id, corner, before, moved: false });
+                    return true;
+                }
                 let Some(id) = self.annotation_at(p) else {
                     if self.0.st.borrow().picked.is_some() {
                         self.select_annotation(None);
@@ -1426,6 +1440,21 @@ impl PageView {
                     None => Some(Drawing::Move { id, last, before, moved }),
                 }
             }
+            Some(Drawing::Resize { id, corner, before, moved }) => {
+                let page = self.annotation(id).map(|a| a.page);
+                let q = page.and_then(|pg| self.page_point(pg, p));
+                let mut st = self.0.st.borrow_mut();
+                let a = st.annots.iter_mut().find(|a| a.id == id);
+                match (a, q) {
+                    (Some(a), Some(q)) => {
+                        if let Some(r) = a.rect() {
+                            a.set_rect(annot::drag_corner(r, corner, q));
+                        }
+                        Some(Drawing::Resize { id, corner, before, moved: true })
+                    }
+                    _ => Some(Drawing::Resize { id, corner, before, moved }),
+                }
+            }
             None => None,
         };
         self.0.st.borrow_mut().drawing = next;
@@ -1475,6 +1504,13 @@ impl PageView {
             Some(Drawing::Move { id, before, moved, .. }) => {
                 if moved {
                     let label = self.undo_name("undo-move", self.annotation(id).as_ref());
+                    self.commit(label, before);
+                }
+                None
+            }
+            Some(Drawing::Resize { id, before, moved, .. }) => {
+                if moved {
+                    let label = self.undo_name("undo-change", self.annotation(id).as_ref());
                     self.commit(label, before);
                 }
                 None
@@ -1840,7 +1876,7 @@ impl PageView {
                     Gesture::Annotate if e.phase == PointerPhase::Cancel => {
                         // A cancelled drag makes nothing; a cancelled move goes back.
                         let d = self.0.st.borrow_mut().drawing.take();
-                        if let Some(Drawing::Move { before, .. }) = d {
+                        if let Some(Drawing::Move { before, .. } | Drawing::Resize { before, .. }) = d {
                             self.restore(before);
                         }
                         self.repaint();

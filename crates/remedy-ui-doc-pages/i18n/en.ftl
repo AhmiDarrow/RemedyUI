@@ -1,7 +1,7 @@
 # The page view's own words. Placeholders ({ $name }) must stay; their order may change.
 # { $kind } selects an annotation's kind: highlight, underline, strikeout, squiggly
 # (a wavy underline), drawing (freehand ink), note (a sticky note), text-box, rectangle,
-# ellipse, line, arrow; "annotation" when it is not known.
+# ellipse, line, arrow, image (a placed picture); "annotation" when it is not known.
 
 ## Pages.
 # A page, for screen readers and the thumbnail rail.
@@ -26,6 +26,7 @@ annotation-kind = { $kind ->
     [ellipse] Ellipse
     [line] Line
     [arrow] Arrow
+    [image] Image
    *[annotation] Annotation
 }
 # { $what } is the annotation so far ("Highlight"); { $text } the text it marks or holds.
@@ -53,6 +54,7 @@ undo-add = { $kind ->
     [ellipse] Add ellipse
     [line] Add line
     [arrow] Add arrow
+    [image] Add image
    *[annotation] Add annotation
 }
 undo-change = { $kind ->
@@ -67,6 +69,7 @@ undo-change = { $kind ->
     [ellipse] Change ellipse
     [line] Change line
     [arrow] Change arrow
+    [image] Change image
    *[annotation] Change annotation
 }
 undo-delete = { $kind ->
@@ -81,6 +84,7 @@ undo-delete = { $kind ->
     [ellipse] Delete ellipse
     [line] Delete line
     [arrow] Delete arrow
+    [image] Delete image
    *[annotation] Delete annotation
 }
 undo-move = { $kind ->
@@ -95,5 +99,6 @@ undo-move = { $kind ->
     [ellipse] Move ellipse
     [line] Move line
     [arrow] Move arrow
+    [image] Move image
    *[annotation] Move annotation
 }
