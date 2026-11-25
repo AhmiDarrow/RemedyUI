@@ -13,7 +13,7 @@ mod markdown;
 pub use editor::{MentionCandidate, MentionSource, RichEditorOptions, rich_editor};
 pub use find::{FindState, find_bar};
 pub use format::{MENTION_SCHEME, MarkdownFormat, RichFormat};
-pub use markdown::{OpenLink, markdown, plain_text};
+pub use markdown::{OpenLink, heading_id, headings, markdown, plain_text, scroll_to_heading};
 
 use remedy_ui_view::Ui;
 use remedy_ui_view::strings::StrArg;

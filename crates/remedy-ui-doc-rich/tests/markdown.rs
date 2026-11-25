@@ -146,3 +146,19 @@ fn a_live_document_follows_its_source() {
     frame(&ui);
     assert_eq!(texts(&doc), ["Here is the answer:", "one"]);
 }
+
+#[test]
+fn headings_have_ids_and_a_markdown_element_scrolls_to_them() {
+    assert_eq!(heading_id("What's new?"), "whats-new");
+    assert_eq!(heading_id("  Größe & Maße 2 "), "größe--maße-2");
+    let source = "# Guide\n\n## Setup\n\ntext\n\n## Setup\n\n### `cargo` use\n";
+    let list = headings(source);
+    let ids: Vec<&str> = list.iter().map(|(_, _, id)| id.as_str()).collect();
+    assert_eq!(ids, ["guide", "setup", "setup-1", "cargo-use"]);
+    assert_eq!(list.first().map(|(level, text, _)| (*level, text.as_str())), Some((1, "Guide")));
+    let ui = ui();
+    let doc = markdown(&ui, source, |_| {});
+    let _ = ui.root().child(doc.clone());
+    assert!(scroll_to_heading(&doc, "#setup-1"));
+    assert!(!scroll_to_heading(&doc, "nowhere"));
+}
