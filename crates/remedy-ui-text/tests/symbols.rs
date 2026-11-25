@@ -12,7 +12,7 @@ fn bundled(symbols: bool) -> FontCollection {
     for face in remedy_ui_fonts::all() {
         // Leave out every bundled symbol/emoji fallback when the test wants a collection
         // with none of them, so missing glyphs stay missing.
-        if symbols || !matches!(face.family, "Remedy Symbols" | "Twemoji Mozilla") {
+        if symbols || !matches!(face.family, "Remedy Symbols" | "Remedy Emoji") {
             assert!(fonts.add_static(face.data).is_ok(), "{} parses", face.family);
         }
     }
