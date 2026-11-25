@@ -354,7 +354,10 @@ impl Theme {
         let dark = c.bg.luminance() < 0.18;
         let toward = if dark { Color::WHITE } else { Color::BLACK };
         let tint = |base: Color, amount: f32| base.mix_oklab(toward, amount);
-        let accent_toward = if c.accent.luminance() < 0.18 { Color::WHITE } else { Color::BLACK };
+        // Hover and press move the accent away from the text on it, so they never cost contrast.
+        let on_accent = self.derived_on_accent();
+        let accent_toward =
+            if on_accent.luminance() > c.accent.luminance() { Color::BLACK } else { Color::WHITE };
         let control_height = match self.density {
             Density::Compact => self.spacing.control_height - self.spacing.unit,
             Density::Comfortable => self.spacing.control_height,
@@ -363,7 +366,7 @@ impl Theme {
         DerivedTokens {
             text: self.derived_text(),
             muted: self.derived_muted(),
-            on_accent: self.derived_on_accent(),
+            on_accent,
             hover: tint(c.card, 0.06),
             pressed: tint(c.card, 0.12),
             selected: self.derived_selected(),

@@ -245,7 +245,7 @@ reason and where.
 
 Nesting counts brackets, blocks, unary operators and call arguments; each `else if` of a
 chain and each `.field` of a chain (`v.xy.yx.x`) counts a level too. A long sum or product
-(`a + b + c + …`) does not nest, but one statement holds at most 1024 binary operators: split
+(`a + b + c + â€¦`) does not nest, but one statement holds at most 1024 binary operators: split
 a longer one with `let`. Every function is inlined, so the nesting of a function's body adds
 to that of the call it is inlined at, and the whole may be 192 deep. Compile steps bound the
 time a compile takes where no new values are made (a function inlined again at every call,
