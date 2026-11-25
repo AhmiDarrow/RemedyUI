@@ -678,3 +678,45 @@ fn context_reaches_elements_whatever_scope_they_live_in() {
     let _ = ui.root().child(outer);
     assert_eq!(seen.get(), Some(5), "nested builds read context through the scopes they were made in");
 }
+
+#[test]
+fn keyframes_loop_until_stopped_and_shadow_spread_animates() {
+    use remedy_ui_view::motion::Repeat;
+    let ui = ui();
+    ui.set_frame_time(Duration::ZERO);
+    let card = ui.el("card").width(50.0).height(50.0);
+    let _ = ui.root().child(card.clone());
+    frame(&ui);
+    let step = Motion::Tween { duration: Duration::from_millis(100), easing: Easing::Linear };
+    let pulse = card.animate_keyframes(
+        vec![(Target::Opacity(0.2), step), (Target::Opacity(1.0), step)],
+        Repeat::Forever,
+    );
+    let opacity = |e: &El| e.info().map_or(0.0, |i| i.style.opacity);
+    // Down by 100 ms, back up by 200 ms, down again by 300 ms: it loops.
+    let mut seen = Vec::new();
+    for ms in [0u64, 100, 200, 300, 400] {
+        ui.set_frame_time(Duration::from_millis(ms));
+        frame(&ui);
+        frame(&ui);
+        seen.push((opacity(&card) * 10.0).round() as i32);
+    }
+    assert!(seen.contains(&2) && seen.iter().filter(|v| **v == 10).count() >= 1, "{seen:?}");
+    assert!(card.is_animating() && !pulse.is_stopped());
+    pulse.stop();
+    for ms in [500u64, 600, 700] {
+        ui.set_frame_time(Duration::from_millis(ms));
+        frame(&ui);
+        frame(&ui);
+    }
+    assert!(!card.is_animating(), "stopped after the step it was in");
+    // A bounded run stops itself, and the shadow's spread moves.
+    let glow = card.animate_keyframes(vec![(Target::ShadowSpread(6.0), step)], Repeat::Times(1));
+    for ms in [800u64, 900, 1000] {
+        ui.set_frame_time(Duration::from_millis(ms));
+        frame(&ui);
+        frame(&ui);
+    }
+    assert!(glow.is_stopped());
+    assert_eq!(card.info().map(|i| i.style.shadow.spread), Some(6.0));
+}
