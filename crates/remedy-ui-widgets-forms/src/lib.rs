@@ -36,7 +36,7 @@ pub use date::{calendar, date_picker, time_picker};
 // The values and locale data the widgets work with, from the localization service.
 pub use form::{Form, FormField, Submission, SubmitState, form_field, form_status, form_view, submit_button};
 pub use keys::key_capture;
-pub use number::{NumberOptions, number_input};
+pub use number::{NumberOptions, number_input, number_input_within};
 pub use remedy_ui_services_i18n::{
     CalendarSymbols, Date, Decimal, DecimalError, MAX_SCALE, NumberSymbols, Time, Weekday, days_in_month,
     is_leap, month_grid,
