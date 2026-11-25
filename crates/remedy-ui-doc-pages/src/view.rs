@@ -52,8 +52,8 @@ const KEY_SCROLL: f32 = 48.0;
 /// otherwise run through several pages.
 const TURN_REST: Duration = Duration::from_millis(250);
 /// How long a finger rests for a long press, and how far it may wander for a tap.
-const LONG_PRESS: Duration = Duration::from_millis(500);
-const TOUCH_SLOP: f32 = 8.0;
+const LONG_PRESS: Duration = Duration::from_millis(450);
+const TOUCH_SLOP: f32 = 12.0;
 const MOUSE_SLOP: f32 = 3.0;
 /// The longest gap, and the farthest apart, for two taps to be a double tap.
 const DOUBLE_TAP: Duration = Duration::from_millis(300);
@@ -177,6 +177,8 @@ struct State {
     press: Option<Press>,
     press_seq: u64,
     last_tap: Option<(Instant, Point)>,
+    /// Counts the times pages changed: text read before the latest change is not taken.
+    epoch: u64,
 }
 
 /// The app's handler for opening an annotation (to read or edit its comment).
@@ -186,8 +188,9 @@ type SwipeHandler = Rc<dyn Fn(Swipe) -> bool>;
 
 struct Shared {
     viewer: u64,
-    source: Arc<dyn PageSource>,
-    sizes: Rc<Vec<Size>>,
+    source: RefCell<Arc<dyn PageSource>>,
+    sizes: RefCell<Rc<Vec<Size>>>,
+    count: Signal<usize>,
     st: RefCell<State>,
     zoom: Signal<f32>,
     fit: Signal<Fit>,
@@ -261,8 +264,9 @@ impl PageView {
             });
             Shared {
                 viewer,
-                source,
-                sizes: Rc::new(sizes),
+                source: RefCell::new(source),
+                count: Signal::new(sizes.len()),
+                sizes: RefCell::new(Rc::new(sizes)),
                 st: RefCell::new(State {
                     frozen: None,
                     drawn: Rect::ZERO,
@@ -298,6 +302,7 @@ impl PageView {
                     press: None,
                     press_seq: 0,
                     last_tap: None,
+                    epoch: 0,
                 }),
                 zoom: Signal::new(1.0),
                 fit: Signal::new(Fit::Width),
@@ -323,7 +328,7 @@ impl PageView {
 
     /// Number of pages.
     pub fn page_count(&self) -> usize {
-        self.0.sizes.len()
+        self.0.sizes.borrow().len()
     }
 
     /// The zoom (logical pixels per point; 1.0 is 100%). Read it in bindings; change it
@@ -534,7 +539,7 @@ impl PageView {
         {
             let mut st = self.0.st.borrow_mut();
             st.spread = spread;
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.go_to_page(page);
@@ -546,7 +551,7 @@ impl PageView {
         {
             let mut st = self.0.st.borrow_mut();
             st.rotation = rotation;
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.go_to_page(page);
@@ -568,7 +573,7 @@ impl PageView {
             let mut st = self.0.st.borrow_mut();
             st.gap = gap.max(0.0);
             st.margin = margin.max(0.0);
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.changed();
@@ -758,7 +763,7 @@ impl PageView {
         *self.0.on_double_tap.borrow_mut() = Some(Rc::new(f));
     }
 
-    /// Hears a finger held still on the view for half a second.
+    /// Hears a finger held still on the view for 450 ms (within 12 pixels).
     pub fn on_long_press(&self, f: impl Fn(PageHit) + 'static) {
         *self.0.on_long_press.borrow_mut() = Some(Rc::new(f));
     }
@@ -944,10 +949,11 @@ impl PageView {
         if st.text.pages.contains_key(&page) || !st.text.pending.insert(page) {
             return;
         }
+        let epoch = st.epoch;
         drop(st);
-        let source = self.0.source.clone();
+        let source = self.0.source.borrow().clone();
         let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::TEXT, page as f32)));
-        raster::run(self.0.viewer, Cancel::new(), p, move |_| Done::Text(page, source.text(page)));
+        raster::run(self.0.viewer, Cancel::new(), p, move |_| Done::Text(page, epoch, source.text(page)));
     }
 
     /// The caret's place in the view, when there is a selection showing; zooms by keyboard
@@ -967,12 +973,12 @@ impl PageView {
 
     fn deliver(&self, done: Done) {
         match done {
-            Done::Tile(id, result) => {
+            Done::Tile(id, epoch, result) => {
                 {
                     let mut st = self.0.st.borrow_mut();
-                    let size = self.0.sizes.get(id.page).copied().unwrap_or(Size::ZERO);
+                    let size = self.0.sizes.borrow().get(id.page).copied().unwrap_or(Size::ZERO);
                     let tile = st.tile_edge();
-                    st.tiles.adopt(id, result, tile, size);
+                    st.tiles.adopt(id, epoch, result, tile, size);
                     st.thumb_flight.remove(&id.page);
                 }
                 // A moving picture is redrawn when it settles, with what arrived meanwhile.
@@ -986,9 +992,13 @@ impl PageView {
                     ui.element(el).repaint();
                 }
             }
-            Done::Text(page, t) => {
+            Done::Text(page, epoch, t) => {
                 {
                     let mut st = self.0.st.borrow_mut();
+                    if epoch != st.epoch {
+                        // Read before the page changed; it has been asked for again since.
+                        return;
+                    }
                     st.text.pending.remove(&page);
                     st.text.pages.insert(page, t.map(Arc::new));
                 }
@@ -1569,7 +1579,7 @@ impl PageView {
     /// Searches one page on a worker, from the current page on, wrapping; the next page goes
     /// when it comes back, so a search never floods the workers and stops when cancelled.
     fn search_page(&self, generation: u64, page: usize, cancel: Cancel) {
-        let source = self.0.source.clone();
+        let source = self.0.source.borrow().clone();
         let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::SEARCH, 0.0)));
         raster::run(self.0.viewer, cancel, p, move |_| Done::Found(generation, page, source.text(page)));
     }
@@ -2064,7 +2074,7 @@ impl PageView {
             };
             let t = st.page_to_view(page);
             let Some(inv) = t.inverse() else { continue };
-            let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+            let size = self.0.sizes.borrow().get(page).copied().unwrap_or(Size::ZERO);
             let whole = Rect::new(0.0, 0.0, size.width, size.height);
             let local = seen.translate(Vec2::new(-scroll.x, -scroll.y));
             let Some(region) = inv.apply_rect(local).intersect(whole).filter(|r| !r.is_empty()) else {
@@ -2091,11 +2101,12 @@ impl PageView {
         let settled = st.frozen.is_none() && st.moved_at.is_none_or(|t| t.elapsed() >= SETTLE);
         let budget = st.cache_budget();
         let tile = st.tile_edge();
-        let sizes = self.0.sizes.clone();
+        let sizes = self.0.sizes.borrow().clone();
+        let source = self.0.source.borrow().clone();
         let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
         let fcx = FrameCx {
             viewer: self.0.viewer,
-            source: &self.0.source,
+            source: &source,
             sizes: &size_of,
             level,
             tile,
@@ -2125,7 +2136,7 @@ impl PageView {
             }
             // A page the source could not draw says so with the theme's danger color.
             if st.tiles.errors.contains_key(page) {
-                let size = self.0.sizes.get(*page).copied().unwrap_or(Size::ZERO);
+                let size = self.0.sizes.borrow().get(*page).copied().unwrap_or(Size::ZERO);
                 let mut c = colors.danger;
                 c.a = 0.25;
                 cx.list.fill_rect(Rect::new(0.0, 0.0, size.width, size.height), Brush::Solid(c));
@@ -2228,7 +2239,7 @@ impl PageView {
     /// with the page view.
     pub(crate) fn paint_thumb(&self, cx: &mut PaintCx<'_>, page: usize) {
         let mut st = self.0.st.borrow_mut();
-        let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+        let size = self.0.sizes.borrow().get(page).copied().unwrap_or(Size::ZERO);
         if size.is_empty() {
             return;
         }
@@ -2260,11 +2271,12 @@ impl PageView {
             None if !st.thumb_flight.contains_key(&page) => {
                 let cancel = Cancel::new();
                 st.thumb_flight.insert(page, cancel.clone());
-                let sizes = self.0.sizes.clone();
+                let sizes = self.0.sizes.borrow().clone();
+        let source = self.0.source.borrow().clone();
                 let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
                 let fcx = FrameCx {
                     viewer: self.0.viewer,
-                    source: &self.0.source,
+                    source: &source,
                     sizes: &size_of,
                     level,
                     tile: tile.max(raster::PREVIEW_PIXELS as u32),
@@ -2302,6 +2314,81 @@ impl PageView {
     /// theme's danger color until a render succeeds).
     pub fn page_error(&self, page: usize) -> Option<String> {
         self.0.st.borrow().tiles.errors.get(&page).cloned()
+    }
+
+    /// The number of pages, as a signal: it changes when the document does
+    /// ([`PageView::document_changed`], [`PageView::set_source`]).
+    pub fn page_count_signal(&self) -> Signal<usize> {
+        self.0.count
+    }
+
+    /// Tells the view these pages of its source now draw or read differently (an edit, a
+    /// filled form field, a rotation saved into the file). They are rendered and read again;
+    /// zoom, scroll and the current page stay as they are.
+    pub fn pages_changed(&self, pages: &[usize]) {
+        self.reload(Some(pages));
+    }
+
+    /// Tells the view its source is a different document now, or has pages added, removed or
+    /// resized: everything is laid out, rendered and read again. Zoom and scroll stay (as far
+    /// as the new pages allow), and so does the current page.
+    pub fn document_changed(&self) {
+        self.reload(None);
+    }
+
+    /// Shows another source in this view, as [`PageView::document_changed`] does.
+    pub fn set_source(&self, source: Arc<dyn PageSource>) {
+        *self.0.source.borrow_mut() = source;
+        self.reload(None);
+    }
+
+    fn reload(&self, pages: Option<&[usize]>) {
+        self.thaw();
+        let source = self.0.source.borrow().clone();
+        let sizes: Vec<Size> = (0..source.page_count()).map(|p| source.page_size(p)).collect();
+        let resized = **self.0.sizes.borrow() != sizes;
+        let query = {
+            let mut st = self.0.st.borrow_mut();
+            st.tiles.invalidate(pages);
+            for (_, c) in st.thumb_flight.drain() {
+                c.cancel();
+            }
+            st.epoch += 1;
+            // Whatever was being read is asked for again; what was read of changed pages is
+            // forgotten, with a selection on them.
+            st.text.pending.clear();
+            match pages {
+                Some(pages) => {
+                    for p in pages {
+                        st.text.pages.remove(p);
+                    }
+                    if st.text.selection.is_some_and(|(a, b)| pages.contains(&a.page) || pages.contains(&b.page)) {
+                        st.text.selection = None;
+                    }
+                }
+                None => {
+                    st.text.pages.clear();
+                    st.text.selection = None;
+                }
+            }
+            if resized {
+                *self.0.sizes.borrow_mut() = Rc::new(sizes.clone());
+                st.relayout(&sizes);
+            }
+            st.text.search.text.clone()
+        };
+        if resized {
+            let _ = self.0.count.try_set(sizes.len());
+            self.refit();
+        }
+        // The hits were places in the old text.
+        if !query.is_empty() {
+            self.find(&query);
+        }
+        self.update_page_text();
+        self.changed();
+        self.repaint();
+        self.repaint_thumbs();
     }
 
     /// Lets go of every tile not on screen now, as memory pressure does.
