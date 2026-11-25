@@ -447,6 +447,20 @@ impl PageView {
         }
     }
 
+    /// Fits the zoom to the current page (or its spread) once: `fit` is measured on that
+    /// row alone, not on the document's widest page, and the view does not go on fitting,
+    /// so a later resize leaves the zoom where this put it. [`Fit::Free`] does nothing.
+    pub fn fit_once(&self, fit: Fit) {
+        let z = {
+            let st = self.0.st.borrow();
+            st.layout.fit_row_zoom(fit, st.viewport, self.0.page.get_untracked().unwrap_or(0))
+        };
+        if let Some(z) = z {
+            let top = Point::new(self.0.st.borrow().viewport.width / 2.0, 0.0);
+            self.zoom_to(z, Some(top), Fit::Free);
+        }
+    }
+
     /// Sets how pages sit side by side, keeping the current page in view.
     pub fn set_spread(&self, spread: Spread) {
         let page = self.0.page.get_untracked().unwrap_or(0);
