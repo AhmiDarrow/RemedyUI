@@ -511,3 +511,28 @@ fn notes_are_said_the_way_musicians_of_each_language_say_them() {
     let am = ChordShape::new(Some("Am"), vec![StringState::Muted, StringState::Open]);
     assert_eq!(describe_chord_in(&am, "de"), "Saite 2 nicht gespielt, Saite 1 leer");
 }
+
+#[test]
+fn a_chord_with_string_names_is_taller_and_keeps_its_roots_and_labels() {
+    let plain = ChordShape::new(
+        Some("C"),
+        vec![
+            StringState::Muted,
+            StringState::Fretted { fret: 3, finger: Some(3) },
+            StringState::Fretted { fret: 2, finger: Some(2) },
+            StringState::Open,
+            StringState::Fretted { fret: 1, finger: Some(1) },
+            StringState::Open,
+        ],
+    );
+    let named = plain
+        .clone()
+        .with_roots(vec![1, 4])
+        .with_labels(vec![None, Some("R".into()), Some("3".into()), None, Some("R".into())])
+        .with_string_names(["E", "A", "D", "G", "B", "E"].map(String::from).to_vec());
+    let o = ChordOptions::default();
+    let (w0, h0) = diagram_size(&plain, &o, 4.0);
+    let (w1, h1) = diagram_size(&named, &o, 4.0);
+    assert!(w1 == w0 && (h1 - h0 - 16.0).abs() < 1e-3, "a row of names: {h0} -> {h1}");
+    assert_eq!(named.roots, vec![1, 4]);
+}
