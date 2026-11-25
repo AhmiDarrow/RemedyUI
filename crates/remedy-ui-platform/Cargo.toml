@@ -52,7 +52,7 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["themes"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 remedy-ui-platform = { path = ".", features = ["bridge-android", "bridge-headless", "bridge-linux", "bridge-macos", "bridge-windows", "bridge-winit", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-i18n-language-names", "services-net", "services-webstorage"] }
 

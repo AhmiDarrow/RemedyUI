@@ -11,7 +11,7 @@ use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::motion::{Easing, Motion, Target};
 use remedy_ui_engine::view::{El, Ui};
-use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
+use remedy_ui_widgets::base::{self as w, Icon, MenuItem};
 
 use crate::{CaptionPick, KeyScheme, MediaError, PlaybackState, Player};
 

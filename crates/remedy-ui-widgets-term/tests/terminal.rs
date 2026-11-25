@@ -16,12 +16,12 @@ use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_widgets_term::*;
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn find(el: &El, widget: &str) -> Vec<El> {
@@ -546,14 +546,14 @@ fn a_view_scrolled_back_stays_on_its_lines_as_old_ones_leave() {
 
 #[test]
 fn theme_tokens_color_the_terminal() {
-    let mut theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let mut theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let derived = ansi(&theme, 1);
     let pink = Color::rgb8(255, 0, 170);
     theme.colors.custom.insert("term-1".into(), pink);
     assert_eq!(ansi(&theme, 1), pink);
     assert_ne!(derived, pink);
     // The derived colors read on the terminal's background.
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let bg = background(&theme);
     for i in 1..=6u8 {
         assert!(ansi(&theme, i).contrast(bg) >= 4.4, "term-{i}");
@@ -566,7 +566,7 @@ fn the_terminal_passes_the_accessibility_audit() {
     let mut h = H::new();
     h.feed(b"\x1b[1mhello\x1b[0m world");
     h.focus();
-    let audit = remedy_ui_devtools::audit(&h.ui);
+    let audit = remedy_ui_widgets::devtools::audit(&h.ui);
     assert!(audit.is_empty(), "{:#?}", audit.iter().map(|p| p.message()).collect::<Vec<_>>());
 }
 
@@ -761,12 +761,12 @@ fn a_real_monospace_face_is_preferred() {
     let h = H::new();
     assert!(!h.term.is_monospace());
     // With the system's fonts, the system's monospace face is used.
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::with_system_fonts();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
+    let ui = Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts);
     let h = H::on(ui, TerminalOptions::default());
     assert!(h.term.is_monospace(), "this machine has a monospace font");
 }

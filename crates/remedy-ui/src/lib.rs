@@ -75,7 +75,7 @@ pub use runner::{
 pub use remedy_ui_core::a11y as a11y;
 /// Agents: assistants read and operate the window under the person's consent.
 #[cfg(feature = "agents")]
-pub use remedy_ui_automation as agents;
+pub use remedy_ui_widgets::automation as agents;
 /// The Android bridge: the app's entry point (`remedy_ui::android::main!`), the system log.
 #[cfg(target_os = "android")]
 pub use remedy_ui_platform::bridge_android as android;
@@ -90,15 +90,15 @@ pub use remedy_ui_bridge_web as web;
 pub use remedy_ui_core as core;
 /// What people change about the app: theme, shortcuts, toolbars and menus, and text.
 #[cfg(feature = "customize")]
-pub use remedy_ui_customize as customize;
+pub use remedy_ui_widgets::customize as customize;
 #[cfg(feature = "devtools")]
-pub use remedy_ui_devtools as devtools;
+pub use remedy_ui_widgets::devtools as devtools;
 #[cfg(feature = "code")]
-pub use remedy_ui_doc_code as code;
+pub use remedy_ui_widgets::doc_code as code;
 #[cfg(feature = "pages")]
-pub use remedy_ui_doc_pages as pages;
+pub use remedy_ui_widgets::doc_pages as pages;
 #[cfg(feature = "rich")]
-pub use remedy_ui_doc_rich as rich;
+pub use remedy_ui_widgets::doc_rich as rich;
 #[cfg(feature = "gpu-embed")]
 pub use remedy_ui_platform::embed_gpu as gpu_embed;
 /// Prism, the effects system (feature `effects`): the `.rfx` language and its compiler
@@ -212,7 +212,7 @@ pub mod motion {
 pub use remedy_ui_core::reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
 #[cfg(feature = "markup")]
-pub use remedy_ui_rui as markup;
+pub use remedy_ui_widgets::rui as markup;
 /// Scripted widgets, independent of any language: the widget interface, the element protocol,
 /// limits and the engine registry.
 #[cfg(feature = "board")]
@@ -234,9 +234,9 @@ pub use remedy_ui_platform::services_i18n as i18n;
 #[cfg(feature = "net")]
 pub use remedy_ui_platform::services_net as net;
 #[cfg(feature = "spell")]
-pub use remedy_ui_services_spell as spell;
+pub use remedy_ui_widgets::spell as spell;
 #[cfg(feature = "update")]
-pub use remedy_ui_services_update as update;
+pub use remedy_ui_widgets::update as update;
 /// Importing the localStorage a web version of the app saved: a web view's store on disk
 /// (WebView2, Android System WebView), read losslessly and read-only, or the page's own in a
 /// browser.
@@ -245,7 +245,7 @@ pub use remedy_ui_platform::services_webstorage as webstorage;
 pub use remedy_ui_core::style as style;
 pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]
-pub use remedy_ui_themes as themes;
+pub use remedy_ui_widgets::themes as themes;
 pub use remedy_ui_engine::view as view;
 /// Content that comes and goes, fails or loads, where apps build screens: [`show`] (content
 /// shown while a condition holds), [`catch_errors`] (an error boundary that takes a builder
@@ -256,23 +256,23 @@ pub use remedy_ui_engine::view::{
     El, EnterKey, FieldKind, InputPurpose, PaintCx, PointerCaps, TextField, Ui, WindowDirection,
 };
 #[cfg(feature = "viz")]
-pub use remedy_ui_viz as viz;
+pub use remedy_ui_widgets::viz as viz;
 #[cfg(feature = "board")]
-pub use remedy_ui_widgets_board as board;
+pub use remedy_ui_widgets::board as board;
 #[cfg(feature = "widgets")]
-pub use remedy_ui_widgets_core as widgets;
+pub use remedy_ui_widgets::base as widgets;
 #[cfg(feature = "data")]
-pub use remedy_ui_widgets_data as data;
+pub use remedy_ui_widgets::data as data;
 #[cfg(feature = "extra")]
-pub use remedy_ui_widgets_extra as extra;
+pub use remedy_ui_widgets::extra as extra;
 #[cfg(feature = "forms")]
-pub use remedy_ui_widgets_forms as forms;
+pub use remedy_ui_widgets::forms as forms;
 #[cfg(feature = "music")]
-pub use remedy_ui_widgets_music as music;
+pub use remedy_ui_widgets::music as music;
 #[cfg(feature = "nav")]
-pub use remedy_ui_widgets_nav as nav;
+pub use remedy_ui_widgets::nav as nav;
 #[cfg(feature = "stage")]
-pub use remedy_ui_widgets_stage as stage;
+pub use remedy_ui_widgets::stage as stage;
 #[cfg(feature = "term")]
 pub use remedy_ui_widgets_term as term;
 
@@ -421,19 +421,19 @@ impl Drop for KeepaliveOnExit {
 
 /// Opens a window showing every preview's variations side by side (devtools).
 #[cfg(feature = "devtools")]
-pub fn show_previews(previews: Vec<remedy_ui_devtools::Preview>) -> Result<(), RunError> {
-    let (theme, _) = remedy_ui_devtools::tool_style();
+pub fn show_previews(previews: Vec<remedy_ui_widgets::devtools::Preview>) -> Result<(), RunError> {
+    let (theme, _) = remedy_ui_widgets::devtools::tool_style();
     let config = AppConfig::new("RemedyUI previews").theme(theme, remedy_ui_themes_sheet);
     run(config, move |app| {
         app.open(WindowSpec::new("Previews").size(1100.0, 800.0), move |ui, _| {
-            let (theme, sheet) = remedy_ui_devtools::tool_style();
+            let (theme, sheet) = remedy_ui_widgets::devtools::tool_style();
             ui.set_theme(theme, sheet);
-            ui.root().child(remedy_ui_devtools::gallery(ui, &previews));
+            ui.root().child(remedy_ui_widgets::devtools::gallery(ui, &previews));
         });
     })
 }
 
 #[cfg(feature = "devtools")]
 fn remedy_ui_themes_sheet(_: &remedy_ui_core::style::Theme) -> remedy_ui_core::style::StyleSheet {
-    remedy_ui_devtools::tool_style().1
+    remedy_ui_widgets::devtools::tool_style().1
 }

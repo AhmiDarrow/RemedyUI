@@ -51,11 +51,10 @@ image = { version = "=0.25.10", default-features = false, features = ["jpeg", "p
 image-webp = { version = "=0.2.4" }
 png = { version = "=0.18.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["devtools", "themes"] }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans", "remedy-sans-ui"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 remedy-ui-media = { path = ".", features = ["media-anim", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz", "media-image-tiff", "media-image-webp", "media-isolated", "media-isolated-anim", "media-video"] }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]

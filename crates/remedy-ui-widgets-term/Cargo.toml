@@ -25,10 +25,9 @@ remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 
 [dev-dependencies]
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor"] }
-remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["devtools", "themes"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1", features = ["system-fonts"] }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

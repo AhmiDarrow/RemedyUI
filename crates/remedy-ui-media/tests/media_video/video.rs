@@ -12,12 +12,12 @@ use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 struct Screen {

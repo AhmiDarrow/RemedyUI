@@ -1,0 +1,361 @@
+[package]
+name = "remedy-ui-widgets"
+description = "RemedyUI's widgets: the core set, navigation, forms, data, music, stage, board and extra widgets, live visuals, themes, customization, markup, document views, developer tools, automation, spell checking and the update banner."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+automation = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde", "dep:serde_json", "nav"]
+base = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
+board = ["base", "data", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:serde", "dep:serde_json", "forms"]
+customize = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-media", "dep:remedy-ui-platform", "dep:remedy-ui-text", "dep:serde_json", "doc-code", "forms", "nav", "rui", "themes"]
+data = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine"]
+devtools = ["base", "dep:png", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-fonts", "dep:remedy-ui-fonts-cjk", "dep:remedy-ui-macros", "dep:remedy-ui-text", "dep:serde", "dep:serde_json", "forms", "themes"]
+devtools-system-fonts = ["remedy-ui-text/system-fonts"]
+doc-code = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "dep:syntect", "doc-code-syntaxes"]
+doc-code-syntaxes = ["syntect/default-syntaxes"]
+doc-pages = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text"]
+doc-rich = ["base", "dep:pulldown-cmark", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text"]
+extra = ["base", "dep:encoding_rs", "dep:remedy-ui-core", "dep:remedy-ui-engine", "viz"]
+forms = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:remedy-ui-text"]
+music = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine"]
+nav = ["base", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json"]
+rui = ["dep:remedy-ui-core", "rui-runtime"]
+rui-runtime = ["base", "remedy-ui-core/default", "remedy-ui-engine/view"]
+spell = ["base", "dep:encoding_rs", "dep:icu_locale_core", "dep:icu_normalizer", "dep:icu_segmenter", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:spellbook", "dep:windows"]
+spell-complex-scripts = []
+stage = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-text", "viz"]
+themes = ["dep:remedy-ui-core", "dep:serde_json"]
+update = ["base", "dep:base64", "dep:minisign-verify", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:remedy-ui-platform", "dep:rustls", "dep:semver", "dep:serde_json", "dep:sha2", "dep:ureq", "dep:windows-sys"]
+viz = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
+
+[dependencies]
+base64 = { version = "=0.23.1", optional = true }
+encoding_rs = { version = "=0.8.35", default-features = false, features = ["alloc"], optional = true }
+icu_locale_core = { version = "=2.4.0", default-features = false, optional = true }
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"], optional = true }
+icu_segmenter = { version = "=2.3.0", default-features = false, features = ["compiled_data"], optional = true }
+minisign-verify = { version = "=0.3.0", optional = true }
+png = { version = "=0.18.1", optional = true }
+pulldown-cmark = { version = "=0.13.6", default-features = false, optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "script", "view"], optional = true }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["scripts"], optional = true }
+remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1", optional = true }
+remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-image"], optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-i18n"], optional = true }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1", optional = true }
+semver = { version = "=1.0.28", optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.154", features = ["std"], optional = true }
+sha2 = { version = "=0.11.1", optional = true }
+spellbook = { version = "=0.4.2", optional = true }
+syntect = { version = "=5.3.0", default-features = false, features = ["parsing", "regex-fancy", "yaml-load"], optional = true }
+
+[dev-dependencies]
+minisign = { version = "=0.10.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "render-gpu", "script-lua", "script-wasm"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+wat = { version = "=1.263.0" }
+remedy-ui-widgets = { path = ".", features = ["automation", "base", "board", "customize", "data", "devtools", "devtools-system-fonts", "doc-code", "doc-code-syntaxes", "doc-pages", "doc-rich", "extra", "forms", "music", "nav", "rui", "rui-runtime", "spell", "spell-complex-scripts", "stage", "themes", "update", "viz"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-net"], optional = true }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.5", optional = true }
+objc2-app-kit = { version = "=0.3.2", optional = true }
+objc2-foundation = { version = "=0.3.2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Globalization", "Win32_System_Com", "Win32_Foundation"], optional = true }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_WinTrust", "Win32_Security_Cryptography"], optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { version = "=0.3.80" }
+
+[[test]]
+name = "field_menu"
+path = "tests/base/field_menu.rs"
+required-features = ["base"]
+
+[[test]]
+name = "menus"
+path = "tests/base/menus.rs"
+required-features = ["base"]
+
+[[test]]
+name = "reveal"
+path = "tests/base/reveal.rs"
+required-features = ["base"]
+
+[[test]]
+name = "base_widgets"
+path = "tests/base/widgets.rs"
+required-features = ["base"]
+
+[[test]]
+name = "nav"
+path = "tests/nav/nav.rs"
+required-features = ["nav"]
+
+[[test]]
+name = "forms"
+path = "tests/forms/forms.rs"
+required-features = ["forms"]
+
+[[test]]
+name = "chat"
+path = "tests/data/chat.rs"
+required-features = ["data"]
+
+[[test]]
+name = "grid"
+path = "tests/data/grid.rs"
+required-features = ["data"]
+
+[[test]]
+name = "poster_grid"
+path = "tests/data/poster_grid.rs"
+required-features = ["data"]
+
+[[test]]
+name = "spatial_nav"
+path = "tests/data/spatial_nav.rs"
+required-features = ["data"]
+
+[[test]]
+name = "table"
+path = "tests/data/table.rs"
+required-features = ["data"]
+
+[[test]]
+name = "tree"
+path = "tests/data/tree.rs"
+required-features = ["data"]
+
+[[test]]
+name = "flow"
+path = "tests/extra/flow.rs"
+required-features = ["extra"]
+
+[[test]]
+name = "qr"
+path = "tests/extra/qr.rs"
+required-features = ["extra"]
+
+[[test]]
+name = "extra_widgets"
+path = "tests/extra/widgets.rs"
+required-features = ["extra"]
+
+[[test]]
+name = "boards"
+path = "tests/stage/boards.rs"
+required-features = ["stage"]
+
+[[test]]
+name = "controls"
+path = "tests/stage/controls.rs"
+required-features = ["stage"]
+
+[[test]]
+name = "fx_limits"
+path = "tests/stage/fx_limits.rs"
+required-features = ["stage"]
+
+[[test]]
+name = "layouts"
+path = "tests/stage/layouts.rs"
+required-features = ["stage"]
+
+[[test]]
+name = "scene"
+path = "tests/stage/scene.rs"
+required-features = ["stage"]
+
+[[test]]
+name = "editing"
+path = "tests/music/editing.rs"
+required-features = ["music"]
+
+[[test]]
+name = "music_pure"
+path = "tests/music/pure.rs"
+required-features = ["music"]
+
+[[test]]
+name = "music_widgets"
+path = "tests/music/widgets.rs"
+required-features = ["music"]
+
+[[test]]
+name = "board"
+path = "tests/board/board.rs"
+required-features = ["board"]
+
+[[test]]
+name = "mount"
+path = "tests/board/mount.rs"
+required-features = ["board"]
+
+[[test]]
+name = "web"
+path = "tests/board/web.rs"
+required-features = ["board"]
+
+[[test]]
+name = "viz_pure"
+path = "tests/viz/pure.rs"
+required-features = ["viz"]
+
+[[test]]
+name = "viz_widgets"
+path = "tests/viz/widgets.rs"
+required-features = ["viz"]
+
+[[test]]
+name = "themes"
+path = "tests/themes/themes.rs"
+required-features = ["themes"]
+
+[[test]]
+name = "customize"
+path = "tests/customize/customize.rs"
+required-features = ["customize"]
+
+[[test]]
+name = "depth"
+path = "tests/rui/depth.rs"
+required-features = ["rui"]
+
+[[test]]
+name = "golden"
+path = "tests/rui/golden.rs"
+required-features = ["rui"]
+
+[[test]]
+name = "rui"
+path = "tests/rui/rui.rs"
+required-features = ["rui"]
+
+[[test]]
+name = "editor"
+path = "tests/doc_rich/editor.rs"
+required-features = ["doc-rich"]
+
+[[test]]
+name = "find"
+path = "tests/doc_rich/find.rs"
+required-features = ["doc-rich"]
+
+[[test]]
+name = "format"
+path = "tests/doc_rich/format.rs"
+required-features = ["doc-rich"]
+
+[[test]]
+name = "markdown"
+path = "tests/doc_rich/markdown.rs"
+required-features = ["doc-rich"]
+
+[[test]]
+name = "code"
+path = "tests/doc_code/code.rs"
+required-features = ["doc-code"]
+
+[[test]]
+name = "annotations"
+path = "tests/doc_pages/annotations.rs"
+required-features = ["doc-pages"]
+
+[[test]]
+name = "pages"
+path = "tests/doc_pages/pages.rs"
+required-features = ["doc-pages"]
+
+[[test]]
+name = "zoom_budget"
+path = "tests/doc_pages/zoom_budget.rs"
+required-features = ["doc-pages"]
+
+[[test]]
+name = "devtools"
+path = "tests/devtools/devtools.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "insight"
+path = "tests/devtools/insight.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "languages"
+path = "tests/devtools/languages.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "portal_gradients"
+path = "tests/devtools/portal_gradients.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "preview_attribute"
+path = "tests/devtools/preview_attribute.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "remote_timeout"
+path = "tests/devtools/remote_timeout.rs"
+required-features = ["devtools"]
+
+[[test]]
+name = "agents"
+path = "tests/automation/agents.rs"
+required-features = ["automation"]
+
+[[test]]
+name = "checker"
+path = "tests/spell/checker.rs"
+required-features = ["spell"]
+
+[[test]]
+name = "field"
+path = "tests/spell/field.rs"
+required-features = ["spell"]
+
+[[test]]
+name = "windows"
+path = "tests/spell/windows.rs"
+required-features = ["spell"]
+
+[[test]]
+name = "banner"
+path = "tests/update/banner.rs"
+required-features = ["update"]
+
+[[test]]
+name = "trust"
+path = "tests/update/trust.rs"
+required-features = ["update"]
+
+[[test]]
+name = "update"
+path = "tests/update/update.rs"
+required-features = ["update"]
+
+[lints]
+workspace = true

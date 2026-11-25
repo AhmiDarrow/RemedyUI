@@ -20,8 +20,8 @@ use remedy_ui_engine::view::Ui;
 static TURN: Mutex<()> = Mutex::new(());
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), FontCollection::new())
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), FontCollection::new())
 }
 
 /// Whether a thread is one of RemedyUI's: every thread the player and its platform code

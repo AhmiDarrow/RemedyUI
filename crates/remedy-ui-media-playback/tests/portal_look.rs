@@ -9,14 +9,14 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Point, Size};
-use remedy_ui_devtools::Snapshot;
+use remedy_ui_widgets::devtools::Snapshot;
 use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_media_playback::*;
 use remedy_ui_media::media_video::{Picture, PixelFormat};
 use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
-use remedy_ui_widgets_core::Icon;
+use remedy_ui_widgets::base::Icon;
 
 /// Portal's glyphs, as its page draws them: filled paths, and `.line` paths stroked 1.8 wide.
 fn portal_svg(icon: Icon) -> Option<&'static str> {
@@ -147,7 +147,7 @@ struct Window {
 
 impl Window {
     fn new(id: &str, size: Size) -> Window {
-        let theme = remedy_ui_themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
+        let theme = remedy_ui_widgets::themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
         let mut fonts = FontCollection::new();
         for face in remedy_ui_fonts::all() {
             let _ = fonts.add_static(face.data);
@@ -159,7 +159,7 @@ impl Window {
                 .into_iter()
                 .for_each(|f| remedy_ui_media::media_image::svg::add_font(f.data.to_vec()))
         });
-        let ui = Ui::new(theme.clone(), remedy_ui_themes::portal_sheet(&theme), fonts);
+        let ui = Ui::new(theme.clone(), remedy_ui_widgets::themes::portal_sheet(&theme), fonts);
         ui.set_reduced_motion(true);
         let (w, h) = (size.width as u32, size.height as u32);
         Window {

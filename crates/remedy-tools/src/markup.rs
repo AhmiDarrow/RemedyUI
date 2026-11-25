@@ -4,8 +4,8 @@
 use std::collections::HashSet;
 use std::sync::{Mutex, PoisonError};
 
-use remedy_ui_rui::spec::{self, Kind, Param, Spec};
-use remedy_ui_rui::{Custom, Markup, RuiError};
+use remedy_ui_widgets::rui::spec::{self, Kind, Param, Spec};
+use remedy_ui_widgets::rui::{Custom, Markup, RuiError};
 use serde::{Deserialize, Serialize};
 
 use crate::{Result, ToolError, Workspace};
@@ -287,7 +287,7 @@ pub fn check(input: &MarkupInput, ws: &Workspace) -> Result<CheckOutput> {
     })
 }
 
-/// Compiles markup to Rust, as `remedy_ui_rui::build` does in a build script.
+/// Compiles markup to Rust, as `remedy_ui_widgets::rui::build` does in a build script.
 pub fn compile(input: &MarkupInput, ws: &Workspace) -> Result<CompileOutput> {
     let (file, text) = source(input, ws)?;
     let mut customs = Vec::new();
@@ -300,7 +300,7 @@ pub fn compile(input: &MarkupInput, ws: &Workspace) -> Result<CompileOutput> {
         };
         customs.push(Custom { name: e.name.clone(), params: params(e)?, children: e.children, path });
     }
-    Ok(match remedy_ui_rui::codegen::compile(&file, &text, &customs) {
+    Ok(match remedy_ui_widgets::rui::codegen::compile(&file, &text, &customs) {
         Ok(rust) => CompileOutput { ok: true, error: None, rust: Some(rust) },
         Err(e) => CompileOutput { ok: false, error: Some(MarkupError::from(e)), rust: None },
     })

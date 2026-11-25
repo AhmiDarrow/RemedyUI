@@ -76,16 +76,16 @@ fn linear_elliptical_and_conic_gradients_match_the_cpu() {
 
 #[test]
 fn portals_layered_page_background_matches_the_cpu() {
-    let theme = remedy_ui_themes::portal_theme("portal").unwrap_or_else(|| unreachable!());
+    let theme = remedy_ui_widgets::themes::portal_theme("portal").unwrap_or_else(|| unreachable!());
     let (w, h) = (1280.0, 800.0);
     let mut list = DisplayList::new();
     let rect = Rect::new(0.0, 0.0, w, h);
     list.fill_rect(rect, Brush::Solid(theme.colors.bg));
     // CSS's first layer is on top: draw the last first.
-    for layer in remedy_ui_themes::portal_page_layers().iter().rev() {
+    for layer in remedy_ui_widgets::themes::portal_page_layers().iter().rev() {
         list.fill_rect(rect, remedy_ui_engine::view::gradient_brush(layer, Size::new(w, h), &theme));
     }
-    let gradient = Gradient::parse_layers(remedy_ui_themes::PORTAL_PAGE_CSS).unwrap_or_default();
+    let gradient = Gradient::parse_layers(remedy_ui_widgets::themes::PORTAL_PAGE_CSS).unwrap_or_default();
     assert_eq!(gradient.len(), 2);
     let mut g = gpu();
     let (cpu, gpu_frame) = both(&mut g, &list, w as u32, h as u32, 1.0);

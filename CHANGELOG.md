@@ -2067,7 +2067,7 @@ The first release candidate of 1.0: everything since the start of the project, b
 ### Changed
 
 - `.rui` spacing words are the theme's spacing scale, half steps and layout steps included
-  (`s0_5` … `s24`); `remedy_ui_rui::rt::Space::Units(u8)` is now `Space::Token(Space)` and
+  (`s0_5` … `s24`); `remedy_ui_widgets::rui::rt::Space::Units(u8)` is now `Space::Token(Space)` and
   `spec::space_units` is `spec::space_token`. A wrong word lists the scale.
 - Generated apps' README and `remedy.toml` describe `cargo remedy package --target web` and
   the other targets.

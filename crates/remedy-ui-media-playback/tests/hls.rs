@@ -275,10 +275,10 @@ fn a_player_follows_a_growing_playlist() {
     let set = |p: String| {
         files.lock().unwrap_or_else(PoisonError::into_inner).insert("index.m3u8".into(), p.into_bytes())
     };
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let ui = remedy_ui_engine::view::Ui::new(
         theme.clone(),
-        remedy_ui_themes::sheet(&theme),
+        remedy_ui_widgets::themes::sheet(&theme),
         remedy_ui_text::FontCollection::new(),
     );
     let p = Player::open(&ui, host, MediaSource::url(&url), PlayerOptions::default());

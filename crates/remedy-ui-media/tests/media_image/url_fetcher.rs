@@ -28,12 +28,12 @@ impl Fetch for Held {
 
 fn ui() -> Ui {
     set_cache_dir(None);
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn pump(ui: &Ui, done: impl Fn() -> bool) -> bool {

@@ -229,7 +229,7 @@ mod tests {
     use super::*;
     use remedy_ui_core::a11y::Semantics;
     use remedy_ui_core::reactive::Signal;
-    use remedy_ui_widgets_core as w;
+    use remedy_ui_widgets::base as w;
 
     #[test]
     fn find_type_and_press_like_a_person() {

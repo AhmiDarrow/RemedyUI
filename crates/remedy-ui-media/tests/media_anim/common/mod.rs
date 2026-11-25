@@ -19,12 +19,12 @@ pub use testing::*;
 pub const SIZE: Size = Size { width: 400.0, height: 300.0 };
 
 pub fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn images(layer: &Layer, out: &mut Vec<Image>) {
@@ -201,13 +201,13 @@ pub fn semantics(el: &El) -> String {
 /// Problems the accessibility audit finds, described.
 pub fn audit(s: &mut Screen) -> Vec<String> {
     s.frame();
-    remedy_ui_devtools::audit(&s.ui)
+    remedy_ui_widgets::devtools::audit(&s.ui)
         .iter()
         .map(|p| {
             format!(
                 "{} [{}]",
                 p.message(),
-                s.ui.element(p.element).info().map(|i| remedy_ui_devtools::describe(&i)).unwrap_or_default()
+                s.ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
             )
         })
         .collect()

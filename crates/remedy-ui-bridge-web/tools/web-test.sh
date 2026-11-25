@@ -5,7 +5,7 @@
 # from addresses (`remedy-ui-media/tests/media_image/web.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
 # `web_gpu.rs` for pictures on the GPU, `web_cursor.rs` for the pointer over a resting full
 # screen, `web_mse.rs` and `web_mse_gpu.rs` for the media element through Media Source
-# Extensions) and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
+# Extensions) and the script engines' on a board (`remedy-ui-widgets/tests/board/web.rs`).
 #
 # The media element's tests run twice: on the runner's own page (a secure context, so they
 # ask for the element), and on a page served from this machine's LAN address, which is not
@@ -100,7 +100,7 @@ if [ -n "$lan" ] && [ "$lan" != none ] && [ "${lan#127.}" = "$lan" ]; then
 else
     echo "no LAN address (REMEDY_LAN_ADDRESS): skipping the media element on a page that is not secure"
 fi
-cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
+cargo test --manifest-path "$root/crates/remedy-ui-widgets/widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-platform/services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test media_session_web
 # The Screen Wake Lock: held, let go, asked again when the page shows; and a player's hold.
 cargo test --manifest-path "$root/crates/remedy-ui-platform/services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test keep_awake_web

@@ -27,7 +27,7 @@ use remedy_ui_core::Vec2;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Ui};
-use remedy_ui_widgets_core as w;
+use remedy_ui_widgets::base as w;
 
 use crate::{Window, WindowSpec};
 

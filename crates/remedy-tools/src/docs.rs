@@ -569,9 +569,9 @@ mod tests {
                     text: "# Lists\n\nIntro.\n\n## Virtual lists\n\nA virtual list mounts only visible rows.\nKeys keep rows stable.\n\n## Other\n\nNothing here.\n".into(),
                 },
                 Doc {
-                    path: "rustdoc/remedy-ui-automation/src/lib.rs".into(),
+                    path: "rustdoc/remedy-ui-widgets/src/automation/mod.rs".into(),
                     kind: DocKind::Rustdoc,
-                    text: "# remedy_ui_automation\n\n## `pub fn grant(&self, agent: &str, scope: Scope) -> String`\n\nThe person grants an agent access; returns the token.\n".into(),
+                    text: "# remedy_ui_widgets::automation\n\n## `pub fn grant(&self, agent: &str, scope: Scope) -> String`\n\nThe person grants an agent access; returns the token.\n".into(),
                 },
             ],
             vec![Widget {
@@ -579,7 +579,7 @@ mod tests {
                 path: "remedy_ui::widgets::button".into(),
                 feature: "widgets".into(),
                 krate: "remedy-ui-widgets-core".into(),
-                file: "crates/remedy-ui-widgets-core/src/actions.rs".into(),
+                file: "crates/remedy-ui-widgets/src/base/actions.rs".into(),
                 line: 19,
                 signature: "pub fn button(ui: &Ui, label: impl Into<String>, on_press: impl Fn() + 'static) -> El".into(),
                 docs: "A button.".into(),

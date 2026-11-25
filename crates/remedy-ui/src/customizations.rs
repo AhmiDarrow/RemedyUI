@@ -1,6 +1,6 @@
 //! Customizations kept in the app's data folder, with the platform's file dialogs.
 
-use remedy_ui_customize::Customizations;
+use remedy_ui_widgets::customize::Customizations;
 
 use crate::App;
 

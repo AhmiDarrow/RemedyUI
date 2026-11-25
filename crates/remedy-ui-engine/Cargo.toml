@@ -49,7 +49,7 @@ remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", f
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["ahmi-print", "remedy-emoji", "remedy-sans", "remedy-sans-ui", "scripts"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["themes"] }
 wat = { version = "=1.263.0" }
 wgpu = { version = "=30.0.2", features = ["counters"] }
 remedy-ui-engine = { path = ".", features = ["compositor", "effects", "media-effects", "media-effects-gpu", "paint", "render-cpu", "render-gpu", "render-gpu-windows-vulkan", "script", "script-lua", "script-wasm", "view"] }
