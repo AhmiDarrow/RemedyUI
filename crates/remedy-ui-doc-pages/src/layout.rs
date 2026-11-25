@@ -92,6 +92,8 @@ pub enum Fit {
     Width,
     /// A whole row (one page, or a spread) fits in the window.
     Page,
+    /// The current row is as tall as the window; it may be wider than it.
+    Height,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -330,6 +332,30 @@ impl PageLayout {
                     (a, b) => a.or(b),
                 }
             }
+            Fit::Height => {
+                let row = self.rows.get(self.row_of(page))?;
+                (row.height > 0.0).then(|| (viewport.height - 2.0 * self.margin) / row.height)
+            }
+        };
+        z.filter(|z| z.is_finite() && *z > 0.0)
+    }
+
+    /// As [`fit_zoom`](Self::fit_zoom), but measured on `page`'s own row (that page, or its
+    /// spread) instead of the document's widest row: what "fit this page" means in a
+    /// document whose pages differ in size.
+    pub fn fit_row_zoom(&self, fit: Fit, viewport: Size, page: usize) -> Option<f32> {
+        let row = self.rows.get(self.row_of(page))?;
+        let gaps = self.gap * row.count.saturating_sub(1) as f32;
+        let wide = (row.width > 0.0).then(|| (viewport.width - 2.0 * self.margin - gaps) / row.width);
+        let tall = (row.height > 0.0).then(|| (viewport.height - 2.0 * self.margin) / row.height);
+        let z = match fit {
+            Fit::Free => return None,
+            Fit::Width => wide,
+            Fit::Height => tall,
+            Fit::Page => match (wide, tall) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            },
         };
         z.filter(|z| z.is_finite() && *z > 0.0)
     }
@@ -407,5 +433,21 @@ mod tests {
         let p = l.fit_zoom(Fit::Page, Size::new(632.0, 416.0), 0).unwrap_or(0.0);
         assert!((p - 0.5).abs() < 1e-6);
         assert_eq!(l.fit_zoom(Fit::Free, Size::new(1.0, 1.0), 0), None);
+    }
+
+    #[test]
+    fn fit_height_and_fitting_one_page_of_a_mixed_document() {
+        let l = PageLayout::new(letter(3), Spread::Single, Rotation::None, 8.0, 10.0);
+        assert_eq!(l.fit_zoom(Fit::Height, Size::new(100.0, 812.0), 0), Some(1.0), "as tall as the window");
+        // A wide page later in the document halves "fit width" for all of it, but not for
+        // a fit made to the first page alone.
+        let sizes = vec![Size::new(612.0, 792.0), Size::new(1224.0, 792.0)];
+        let l = PageLayout::new(sizes, Spread::Single, Rotation::None, 8.0, 10.0);
+        let view = Size::new(632.0, 416.0);
+        assert_eq!(l.fit_zoom(Fit::Width, view, 0), Some(0.5));
+        assert_eq!(l.fit_row_zoom(Fit::Width, view, 0), Some(1.0));
+        assert_eq!(l.fit_row_zoom(Fit::Width, view, 1), Some(0.5));
+        assert_eq!(l.fit_row_zoom(Fit::Page, view, 0), Some(0.5), "the height is the tighter side");
+        assert_eq!(l.fit_row_zoom(Fit::Free, view, 0), None);
     }
 }
