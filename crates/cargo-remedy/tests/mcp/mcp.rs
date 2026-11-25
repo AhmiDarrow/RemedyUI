@@ -254,7 +254,17 @@ fn run_time_tool_selection_and_a_docs_only_build() {
     let target = scratch("minimal-build");
     let built = Command::new(env!("CARGO"))
         .env("CARGO_PROFILE_DEV_DEBUG", "0")
-        .args(["build", "-p", "remedy-mcp", "--no-default-features", "--features", "docs", "--target-dir"])
+        .args([
+            "build",
+            "-p",
+            "cargo-remedy",
+            "--bin",
+            "remedy-mcp",
+            "--no-default-features",
+            "--features",
+            "mcp,mcp-docs",
+            "--target-dir",
+        ])
         .arg(&target)
         .current_dir(workspace_root())
         .output()
@@ -274,10 +284,10 @@ fn run_time_tool_selection_and_a_docs_only_build() {
         .args([
             "tree",
             "-p",
-            "remedy-mcp",
+            "cargo-remedy",
             "--no-default-features",
             "--features",
-            "docs",
+            "mcp,mcp-docs",
             "-e",
             "normal",
             "--prefix",
@@ -287,7 +297,7 @@ fn run_time_tool_selection_and_a_docs_only_build() {
         .output()
         .must("cargo tree");
     let deps = String::from_utf8_lossy(&tree.stdout).into_owned();
-    for heavy in ["remedy-ui-render-cpu", "remedy-ui-view", "hyper ", "remedy-ui-rui"] {
+    for heavy in ["remedy-ui-engine", "remedy-ui-widgets", "hyper ", "remedy-ui "] {
         assert!(!deps.contains(heavy), "the docs-only build does not pull {heavy}");
     }
 }

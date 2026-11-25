@@ -50,7 +50,7 @@ pub struct Custom {
 pub const FACADE_ROOT: &str = "::remedy_ui::markup";
 
 /// The path compiled code reaches the markup runtime by when the app depends on this crate.
-pub const DIRECT_ROOT: &str = "::crate::rui";
+pub const DIRECT_ROOT: &str = "::remedy_ui_widgets::rui";
 
 /// The name compiled code gives the runtime's root (a `use` at the top of each file).
 const ROOT: &str = "remedy_ui_markup";

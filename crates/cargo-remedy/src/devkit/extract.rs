@@ -284,9 +284,11 @@ pub struct Widget {
     pub example_from_docs: bool,
 }
 
-/// The facade's optional modules: (crate, facade module, feature), from
-/// `crates/remedy-ui/src/lib.rs`.
-pub fn facade_modules(root: &Path) -> Vec<(String, String, String)> {
+/// What the facade re-exports as a module of its own: the crate, the part of it (a module
+/// of the crate with its own folder under `src/`; empty for a whole crate), the facade
+/// module and the feature that brings it. From `crates/remedy-ui/src/lib.rs`: lines such as
+/// `pub use remedy_ui_widgets::base as widgets;` and `pub use remedy_ui_widgets::customize;`.
+pub fn facade_modules(root: &Path) -> Vec<(String, String, String, String)> {
     let Ok(text) = std::fs::read_to_string(root.join("crates/remedy-ui/src/lib.rs")) else {
         return Vec::new();
     };
@@ -299,10 +301,22 @@ pub fn facade_modules(root: &Path) -> Vec<(String, String, String)> {
             continue;
         }
         if let Some(rest) = t.strip_prefix("pub use ")
-            && let Some((krate, alias)) = rest.trim_end_matches(';').split_once(" as ")
-            && krate.starts_with("remedy_ui_")
+            && rest.starts_with("remedy_ui_")
         {
-            out.push((krate.replace('_', "-"), alias.trim().to_owned(), feature.clone()));
+            let rest = rest.trim_end_matches(';');
+            let (path, alias) = match rest.split_once(" as ") {
+                Some((path, alias)) => (path.trim(), Some(alias.trim())),
+                None => (rest.trim(), None),
+            };
+            let mut parts = path.split("::");
+            let krate = parts.next().unwrap_or_default().replace('_', "-");
+            let part = parts.next().unwrap_or_default();
+            // A part is a folder of the crate; `remedy_ui_core::Edition` is an item, not one.
+            let is_part = part.is_empty() || root.join("crates").join(&krate).join("src").join(part).is_dir();
+            if parts.next().is_none() && is_part {
+                let alias = alias.unwrap_or(if part.is_empty() { path } else { part });
+                out.push((krate, part.to_owned(), alias.to_owned(), feature.clone()));
+            }
         }
         if !t.starts_with("#[") && !t.starts_with("///") {
             feature = String::from("(always)");
@@ -543,14 +557,21 @@ pub fn widgets(root: &Path) -> Vec<Widget> {
         .unwrap_or_default();
     let styled = literals(&sheet);
     let mut out = Vec::new();
-    for (krate, module, feature) in facade_modules(root) {
+    for (krate, part, module, feature) in facade_modules(root) {
         let dir = root.join("crates").join(&krate);
-        let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap_or_default();
+        // A part's root is its `mod.rs`; a whole crate's, its `lib.rs`.
+        let (base, root_file) =
+            if part.is_empty() { (dir.join("src"), "lib.rs") } else { (dir.join("src").join(&part), "mod.rs") };
+        let lib = std::fs::read_to_string(base.join(root_file)).unwrap_or_default();
         let ex = exports(&lib);
-        for file in sources(&dir) {
+        let mut files = Vec::new();
+        walk(&base, &mut files, &|p| p.extension().is_some_and(|e| e == "rs"));
+        for file in files {
             let Ok(text) = std::fs::read_to_string(&file) else { continue };
             let Some(rel) = relative(&dir, &file) else { continue };
-            let module_path = module_path(&rel);
+            // The file's place in the part: `src/base/actions.rs` is `actions` of `base`.
+            let in_part = relative(&base, &file).unwrap_or_default();
+            let module_path = module_path(&in_part);
             let top_module = module_path.split("::").next().unwrap_or_default().to_owned();
             let path_of = |name: &str| -> Option<String> {
                 if module_path.is_empty() {

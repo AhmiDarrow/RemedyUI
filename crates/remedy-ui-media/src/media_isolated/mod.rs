@@ -232,9 +232,9 @@ impl std::fmt::Display for EnableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EnableError::Unsupported(why) => write!(f, "isolated decoding is not available here: {why}"),
-            EnableError::NotWired => {
-                f.write_str("crate::media_isolated::helper_main() must be called first thing in main")
-            }
+            EnableError::NotWired => f.write_str(
+                "remedy_ui_media::media_isolated::helper_main() must be called first thing in main",
+            ),
             EnableError::Failed(why) => write!(f, "the decoding helper could not start: {why}"),
         }
     }

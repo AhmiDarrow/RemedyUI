@@ -409,11 +409,17 @@ fn bridge_dex_in(metadata: &serde_json::Value) -> Result<PathBuf, String> {
         .and_then(|p| p.as_array())
         .into_iter()
         .flatten()
-        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("remedy-ui-bridge-android"))
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("remedy-ui-platform"))
         .and_then(|p| p.get("manifest_path"))
         .and_then(|m| m.as_str())
-        .ok_or("the app does not build with remedy-ui-bridge-android (through remedy-ui) for Android")?;
-    let dex = Path::new(manifest).parent().unwrap_or(Path::new(".")).join("dex").join("classes.dex");
+        .ok_or("the app does not build with remedy-ui-platform (through remedy-ui) for Android")?;
+    // The Android bridge's own files sit in the crate's `bridge-android` folder.
+    let dex = Path::new(manifest)
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("bridge-android")
+        .join("dex")
+        .join("classes.dex");
     if dex.is_file() { Ok(dex) } else { Err(format!("{} is missing", dex.display())) }
 }
 
@@ -902,15 +908,15 @@ mod tests {
     #[test]
     fn the_bridges_dex_is_found_through_cargo_metadata() {
         let here = env!("CARGO_MANIFEST_DIR");
-        let bridge = Path::new(here).join("../remedy-ui-platform/bridge-android/Cargo.toml");
+        let bridge = Path::new(here).join("../remedy-ui-platform/Cargo.toml");
         let meta = serde_json::json!({ "packages": [
             { "name": "remedy-ui", "manifest_path": "/x/remedy-ui/Cargo.toml" },
-            { "name": "remedy-ui-bridge-android", "manifest_path": bridge.to_string_lossy() },
+            { "name": "remedy-ui-platform", "manifest_path": bridge.to_string_lossy() },
         ]});
         let dex = bridge_dex_in(&meta).unwrap_or_default();
         assert!(dex.ends_with("dex/classes.dex") && dex.is_file(), "{}", dex.display());
         let none =
             serde_json::json!({ "packages": [{ "name": "remedy-ui", "manifest_path": "/x/Cargo.toml" }] });
-        assert!(bridge_dex_in(&none).is_err_and(|e| e.contains("remedy-ui-bridge-android")));
+        assert!(bridge_dex_in(&none).is_err_and(|e| e.contains("remedy-ui-platform")));
     }
 }

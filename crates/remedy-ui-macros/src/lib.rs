@@ -89,14 +89,14 @@ pub fn derive_store(input: TokenStream) -> TokenStream {
 }
 
 /// The path generated code uses for the reactive runtime: the facade's `reactive` module when
-/// the deriving crate depends on `remedy-ui`, else `remedy-ui-reactive` itself.
+/// the deriving crate depends on `remedy-ui`, else `remedy-ui-core`'s `reactive` module.
 fn runtime_path() -> proc_macro2::TokenStream {
     let ident = |n: &str| proc_macro2::Ident::new(&n.replace('-', "_"), proc_macro2::Span::call_site());
-    match crate_name("remedy-ui-reactive") {
-        Ok(FoundCrate::Itself) => return quote!(crate),
+    match crate_name("remedy-ui-core") {
+        Ok(FoundCrate::Itself) => return quote!(crate::reactive),
         Ok(FoundCrate::Name(n)) => {
             let n = ident(&n);
-            return quote!(::#n);
+            return quote!(::#n::reactive);
         }
         Err(_) => {}
     }

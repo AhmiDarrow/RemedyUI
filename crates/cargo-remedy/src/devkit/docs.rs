@@ -578,7 +578,7 @@ mod tests {
                 name: "button".into(),
                 path: "remedy_ui::widgets::button".into(),
                 feature: "widgets".into(),
-                krate: "remedy-ui-widgets-core".into(),
+                krate: "remedy-ui-widgets".into(),
                 file: "crates/remedy-ui-widgets/src/base/actions.rs".into(),
                 line: 19,
                 signature: "pub fn button(ui: &Ui, label: impl Into<String>, on_press: impl Fn() + 'static) -> El".into(),
@@ -649,7 +649,7 @@ mod tests {
         let Ok(l) = Library::embedded() else { unreachable!("the committed index reads") };
         assert!(l.doc("docs/DESIGN.md").is_some(), "the design overview is embedded");
         assert!(l.doc("crates/remedy-ui/src/guide/getting_started.md").is_some(), "and the guides");
-        assert!(l.docs().iter().any(|d| d.path.starts_with("rustdoc/remedy-ui-engine/view")));
+        assert!(l.docs().iter().any(|d| d.path.starts_with("rustdoc/remedy-ui-engine/src/view")));
         let buttons =
             l.widgets(&CatalogInput { name: Some("button".into()), feature: Some("widgets".into()) });
         let Some(b) = buttons.iter().find(|w| w.name == "button") else {

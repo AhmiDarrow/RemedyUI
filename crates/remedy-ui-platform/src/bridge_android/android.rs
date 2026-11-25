@@ -766,11 +766,10 @@ impl PlatformHooks for AndroidHooks {
 pub fn run(app: impl App) -> Result<(), RunError> {
     // Keep the activity in ACTIVITY so `launch_extra`, `install_apk` and the rest can still
     // reach it after the event loop has started (window code, background work).
-    let activity = ACTIVITY
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone()
-        .ok_or_else(|| RunError::new("no Android activity: start the app with crate::main!"))?;
+    let activity =
+        ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone().ok_or_else(|| {
+            RunError::new("no Android activity: start the app with remedy_ui_platform::main!")
+        })?;
     let _ = RUNNING.set(activity.clone());
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())
