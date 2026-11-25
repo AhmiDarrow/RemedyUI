@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] Эллипс
     [line] Линия
     [arrow] Стрелка
+    [image] Изображение
    *[annotation] Аннотация
 }
 annotation-quoting = { $what }: «{ $text }»
@@ -40,6 +41,7 @@ undo-add = { $kind ->
     [ellipse] Добавить эллипс
     [line] Добавить линию
     [arrow] Добавить стрелку
+    [image] Добавить изображение
    *[annotation] Добавить аннотацию
 }
 undo-change = { $kind ->
@@ -54,6 +56,7 @@ undo-change = { $kind ->
     [ellipse] Изменить эллипс
     [line] Изменить линию
     [arrow] Изменить стрелку
+    [image] Изменить изображение
    *[annotation] Изменить аннотацию
 }
 undo-delete = { $kind ->
@@ -68,6 +71,7 @@ undo-delete = { $kind ->
     [ellipse] Удалить эллипс
     [line] Удалить линию
     [arrow] Удалить стрелку
+    [image] Удалить изображение
    *[annotation] Удалить аннотацию
 }
 undo-move = { $kind ->
@@ -82,5 +86,6 @@ undo-move = { $kind ->
     [ellipse] Переместить эллипс
     [line] Переместить линию
     [arrow] Переместить стрелку
+    [image] Переместить изображение
    *[annotation] Переместить аннотацию
 }
