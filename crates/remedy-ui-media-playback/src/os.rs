@@ -56,6 +56,19 @@ impl Drop for Live {
     }
 }
 
+/// This program's name where the system lists who holds the screen on or records sound: the
+/// executable's, since nothing else names the app here.
+#[cfg(any(
+    feature = "keep-awake",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+))]
+pub(crate) fn app_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "RemedyUI".to_owned())
+}
+
 pub(crate) fn live_objects() -> usize {
     let live = LIVE.load(std::sync::atomic::Ordering::SeqCst);
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]

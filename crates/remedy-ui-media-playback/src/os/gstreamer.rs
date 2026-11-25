@@ -192,7 +192,9 @@ unsafe impl Send for Gst {}
 // SAFETY: as above.
 unsafe impl Sync for Gst {}
 
-fn open_lib(names: &[&str]) -> Result<Library, String> {
+/// The first of `names` that loads (a library's versioned name, then its plain one), or the
+/// last one's error. Shared with the tables in `gstreamer_stream.rs` and `gst_dmabuf.rs`.
+pub(crate) fn open_lib(names: &[&str]) -> Result<Library, String> {
     let mut last = String::new();
     for n in names {
         // SAFETY: loading a system library runs its initializers; these are GStreamer's and
@@ -212,6 +214,7 @@ macro_rules! sym {
         *unsafe { $lib.get(concat!($name, "\0").as_bytes()) }.map_err(|e| format!("{}: {e}", $name))?
     };
 }
+pub(crate) use sym;
 
 impl Gst {
     fn load() -> Result<Gst, String> {

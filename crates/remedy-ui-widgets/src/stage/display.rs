@@ -21,7 +21,8 @@ pub enum Board {
     /// Lit letters over a grid of unlit dots, as on an LED sign or a radio's display.
     #[default]
     Led,
-    /// Each letter on its own flap, as on a departures board; changed letters flip.
+    /// Each character on its own flap, as on a departures board; changed ones flip. A
+    /// character is what a reader takes for one: a letter with its accents, a whole emoji.
     SplitFlap,
 }
 
@@ -57,8 +58,8 @@ pub struct DisplayOptions {
     pub marquee: Marquee,
     /// How fast it scrolls, in logical pixels a second. `None` takes ten theme units.
     pub speed: Option<f32>,
-    /// Pads the text with spaces to this many characters, so a board keeps its width as its
-    /// text changes (a split-flap board shows blank flaps).
+    /// Pads the text with spaces to this many characters (as a reader counts them), so a
+    /// board keeps its width as its text changes (a split-flap board shows blank flaps).
     pub cells: Option<usize>,
     /// Where time comes from.
     pub clock: Clock,
@@ -126,7 +127,7 @@ struct State {
     /// A split-flap board's flaps, one per character, each holding its character as text.
     flaps: RefCell<Vec<(El, El)>>,
     flap_w: f32,
-    shown: RefCell<Vec<char>>,
+    shown: RefCell<Vec<String>>,
     /// Character positions that changed in the last update, and how far their flip has come
     /// (1 just changed, 0 done).
     flipping: RefCell<Vec<usize>>,
@@ -162,7 +163,7 @@ impl State {
     }
 
     /// Shows `chars` on the flaps: adds or removes flaps to match, and sets each one's letter.
-    fn set_flaps(self: &Rc<Self>, chars: &[char]) {
+    fn set_flaps(self: &Rc<Self>, chars: &[String]) {
         let ui = self.line.ui().clone();
         let mut flaps = self.flaps.borrow_mut();
         while flaps.len() > chars.len() {
@@ -172,7 +173,13 @@ impl State {
         }
         while flaps.len() < chars.len() {
             let i = flaps.len();
-            let letter = ui.el("display_flap_text").nowrap().selectable(true).data_text();
+            // The line is read as one piece of text: its letters are not read again after it.
+            let letter = ui
+                .el("display_flap_text")
+                .nowrap()
+                .selectable(true)
+                .data_text()
+                .semantics(Semantics::new(Role::Label).hidden(true));
             let s = self.clone();
             let cell = ui
                 .el("display_flap")
@@ -186,7 +193,7 @@ impl State {
             flaps.push((cell, letter));
         }
         for ((_, letter), c) in flaps.iter().zip(chars) {
-            let _ = letter.clone().text(RichText::plain(c.to_string()));
+            let _ = letter.clone().text(RichText::plain(c.as_str()));
         }
     }
 }
@@ -309,12 +316,12 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
 
     let s = state;
     line.prop("text", text, move |line, t: String| {
-        let mut chars: Vec<char> = t.chars().collect();
+        let mut chars = clusters(&t);
         if let Some(n) = cells
             && chars.len() < n
         {
             // No-break spaces: ordinary trailing spaces hang outside the line's width.
-            chars.resize(n, '\u{a0}');
+            chars.resize(n, "\u{a0}".to_owned());
         }
         let changed: Vec<usize> = {
             let old = s.shown.borrow();
@@ -330,7 +337,7 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
             s.flip.set(1.0);
         }
         *s.shown.borrow_mut() = chars.clone();
-        let full: String = chars.iter().collect();
+        let full = chars.concat();
         match board {
             Board::Led => {
                 let _ = line.clone().text(RichText::plain(full));
@@ -350,6 +357,21 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
         motion.kick();
     });
     el
+}
+
+/// `text` as the characters a reader sees, one string per grapheme cluster (a letter with its
+/// combining accents, an emoji with its modifiers, a flag), so a flap never holds half of one.
+fn clusters(text: &str) -> Vec<String> {
+    let editor = remedy_ui_text::TextEditor::new(text);
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < text.len() {
+        // A boundary that did not move on would never end: the rest is one piece then.
+        let next = Some(editor.next_grapheme(at)).filter(|n| *n > at).unwrap_or(text.len());
+        out.push(text.get(at..next).unwrap_or_default().to_owned());
+        at = next;
+    }
+    out
 }
 
 /// Unlit dots behind an LED board's letters.

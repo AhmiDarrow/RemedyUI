@@ -265,7 +265,9 @@ impl TabEditor {
         if m.meta || e.composing {
             return false;
         }
-        match &e.key {
+        // The key in a letter's place on a layout that types no Latin letters (Cyrillic, Greek).
+        let pressed = e.shortcut_key();
+        match &pressed {
             Key::ArrowUp | Key::ArrowDown if m.alt => {
                 let d = if e.key == Key::ArrowUp { 1 } else { -1 };
                 self.apply(if d > 0 { "edit-raise-fret" } else { "edit-lower-fret" }, |ms, c| {

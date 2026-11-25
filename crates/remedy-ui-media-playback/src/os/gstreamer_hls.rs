@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::gstreamer::{
     CLOCK_TIME_NONE, GST_MAP_READ, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, RESOURCE_NOT_FOUND, gst,
-    launch_error, map_error, nv12_picture,
+    map_error, nv12_picture,
 };
 use super::gstreamer_stream::{Pipe, pull, pull_sample};
 use crate::hls::{
@@ -39,11 +39,10 @@ thread_local! {
 
 /// `desc` built, a missing element (or URI handler) named as the package to install.
 fn build(g: &'static Gst, desc: &str, names: &[&CStr]) -> Result<Pipe, MediaError> {
-    Pipe::build(g, desc, names).map_err(|e| match e {
+    Pipe::build(g, desc, names, PURPOSE).map_err(|e| match e {
         MediaError::Unsupported(t) if t.contains("for URI") => {
             MediaError::Missing(crate::deps::element("souphttpsrc", PURPOSE))
         }
-        MediaError::Unsupported(t) => launch_error(t, PURPOSE, MediaError::Unsupported),
         e => e,
     })
 }

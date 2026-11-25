@@ -208,6 +208,20 @@ mod unix {
         Some((decode(&payload), Some(flags & FLAG_EXIT != 0)))
     }
 
+    /// Hands `args` to the launch that is becoming the first instance, which may be a moment
+    /// from listening.
+    fn hand_to_winner(path: &PathBuf, args: &[String], wait: Option<ReplyWait>) -> Result<Claimed, String> {
+        let mut last = String::new();
+        for _ in 0..25 {
+            match send(path, args, wait) {
+                Ok(sent) => return sent.map(Claimed::HandedOver),
+                Err(e) => last = e.to_string(),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Err(format!("the running instance does not listen: {last}"))
+    }
+
     pub(super) fn claim(
         app: &str,
         args: &[String],
@@ -218,18 +232,32 @@ mod unix {
         if let Ok(sent) = send(&path, args, wait) {
             return sent.map(Claimed::HandedOver);
         }
-        // Nobody listens: a stale socket from a crashed run, or none at all.
+        // Nobody listens: a stale socket from a crashed run, or none at all. Only the launch
+        // holding the lock may clear it and bind, so two first launches at once cannot each
+        // remove the other's socket and both run. The system lets go of the lock when the
+        // process ends, however it ends.
+        let lock = std::fs::File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path.with_extension("lock"))
+            .ok();
+        // Where files cannot be locked the claim goes on without one, as bind decides.
+        let taken = lock.as_ref().map(std::fs::File::try_lock);
+        if matches!(taken, Some(Err(std::fs::TryLockError::WouldBlock))) {
+            return hand_to_winner(&path, args, wait);
+        }
         let _ = std::fs::remove_file(&path);
         let listener = match UnixListener::bind(&path) {
             Ok(l) => l,
             // Another first launch won the race; it is the instance now.
-            Err(_) => {
-                return send(&path, args, wait).map_err(|e| e.to_string())?.map(Claimed::HandedOver);
-            }
+            Err(_) => return hand_to_winner(&path, args, wait),
         };
         std::thread::Builder::new()
             .name("remedy-ui single instance".into())
             .spawn(move || {
+                // Held for as long as the instance serves.
+                let _lock = lock;
                 for stream in listener.incoming().flatten() {
                     let mut s = stream;
                     // A launch that connects and never sends must not keep the others out.
@@ -407,6 +435,27 @@ mod tests {
             vec!["--stop".to_owned(), "a b".to_owned()]
         );
         assert_eq!(frame::decode(&frame::encode(&[], None)), Vec::<String>::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_launch_cannot_take_the_place_of_a_running_instance() {
+        let name = format!("remedy-ui-lock-test-{}", std::process::id());
+        assert_eq!(claim(&name, &[], None, SharedInbox::default()), Ok(Claimed::First));
+        // Its socket is gone (cleared by a launch racing it, or by hand) while it runs.
+        let id: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let dir = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty());
+        let path = match dir {
+            Some(dir) => std::path::PathBuf::from(dir).join(format!("remedyui-{id}.sock")),
+            None => {
+                let user = std::env::var("USER").unwrap_or_default();
+                std::env::temp_dir().join(format!("remedyui-{id}-{user}.sock"))
+            }
+        };
+        assert!(std::fs::remove_file(&path).is_ok(), "the first instance bound {}", path.display());
+        let second = claim(&name, &[], None, SharedInbox::default());
+        assert!(second.is_err(), "a second first instance: {second:?}");
+        let _ = std::fs::remove_file(path.with_extension("lock"));
     }
 
     /// The first instance for [`a_second_launch_gets_the_reply_and_waits_for_the_exit`]: run

@@ -52,6 +52,34 @@ pub(crate) fn file_uri(path: &std::path::Path) -> String {
     out
 }
 
+/// The local path a `file://` URI names ([`file_uri`]'s inverse, percent-decoded):
+/// `file:///path` or `file://localhost/path`. `None` for another host's file, or another
+/// scheme.
+pub(crate) fn file_uri_path(uri: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let rest = uri.strip_prefix("file://")?;
+    let path = rest.strip_prefix("localhost").unwrap_or(rest);
+    if !path.starts_with('/') {
+        return None;
+    }
+    let b = path.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = |k: usize| b.get(k).and_then(|h| char::from(*h).to_digit(16));
+        if c == b'%'
+            && let (Some(h), Some(l)) = (hex(i + 1), hex(i + 2))
+        {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    Some(std::path::PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
 /// The offers for `data`, most specific first.
 pub(crate) fn offers(data: &DragData) -> Vec<Offer> {
     let mut uris: Vec<String> = data.files.iter().map(|p| file_uri(p)).collect();
@@ -92,7 +120,18 @@ mod tests {
 
     use remedy_ui_core::host::{DragData, DropEffect};
 
-    use super::{file_uri, offers, preferred};
+    use super::{file_uri, file_uri_path, offers, preferred};
+
+    #[test]
+    fn a_file_uri_gives_back_its_local_path() {
+        let path = PathBuf::from("/tmp/Ã¤ #1/100%.txt");
+        assert_eq!(file_uri_path(&file_uri(&path)), Some(path));
+        assert_eq!(file_uri_path("file://localhost/tmp/a%20b"), Some(PathBuf::from("/tmp/a b")));
+        assert_eq!(file_uri_path("file:///tmp/50%"), Some(PathBuf::from("/tmp/50%")), "a bare % stays");
+        assert_eq!(file_uri_path("file://otherhost/share/a.txt"), None, "another host's file");
+        assert_eq!(file_uri_path("file://localhost"), None, "no path at all");
+        assert_eq!(file_uri_path("https://example.com/x"), None);
+    }
 
     #[test]
     fn files_are_offered_as_a_uri_list_and_as_their_paths() {

@@ -619,22 +619,51 @@ impl A11yTree {
         }
     }
 
-    /// Sets an element's semantics.
+    /// Sets an element's semantics. Setting what it already has changes nothing and sends
+    /// nothing.
     pub fn set(&mut self, id: u64, s: Semantics) {
-        let children = self.nodes.remove(&id).map(|(_, c)| c).unwrap_or_default();
-        self.nodes.insert(id, (s, children));
-        self.mark(id);
+        let Some((old, _)) = self.nodes.get_mut(&id) else {
+            self.nodes.insert(id, (s, Vec::new()));
+            self.mark(id);
+            // A parent that already lists it was sent without it.
+            if let Some(&p) = self.parents.get(&id) {
+                self.mark(p);
+            }
+            return;
+        };
+        if *old == s {
+            return;
+        }
+        let unmerged = old.merge && !s.merge;
+        *old = s;
+        if unmerged {
+            // What it held was never sent on its own.
+            self.mark_subtree(id);
+        } else {
+            self.mark(id);
+        }
     }
 
-    /// Sets an element's children, in reading order.
+    /// Sets an element's children, in reading order. Setting the list it already has changes
+    /// nothing and sends nothing.
     pub fn set_children(&mut self, id: u64, children: &[u64]) {
-        if let Some((_, c)) = self.nodes.get_mut(&id) {
-            *c = children.to_vec();
-        }
+        let old = match self.nodes.get_mut(&id) {
+            Some((_, c)) if c.as_slice() == children => return,
+            Some((_, c)) => std::mem::replace(c, children.to_vec()),
+            None => Vec::new(),
+        };
         for &c in children {
             self.parents.insert(c, id);
         }
         self.mark(id);
+        // A child that joins may never have been sent (it was detached, or merged away where
+        // it was), nor what is under it.
+        let had: HashSet<u64> = old.into_iter().collect();
+        for &c in children {
+            if !had.contains(&c) {
+                self.mark_subtree(c);
+            }
+        }
     }
 
     /// Removes an element (its parent's child list is updated by `set_children`).
@@ -645,7 +674,12 @@ impl A11yTree {
                 self.parents.get(&id).copied().filter(|p| self.nodes.contains_key(p)).unwrap_or(self.root);
             self.mark(self.focus);
         }
-        self.nodes.remove(&id);
+        // Its parent's node no longer lists it.
+        if self.nodes.remove(&id).is_some()
+            && let Some(&p) = self.parents.get(&id)
+        {
+            self.mark(p);
+        }
         self.parents.remove(&id);
         self.dirty.remove(&id);
     }
@@ -690,6 +724,25 @@ impl A11yTree {
         }
     }
 
+    /// Marks `id` and everything under it changed.
+    fn mark_subtree(&mut self, id: u64) {
+        // Before the first update there is nothing to add to: it carries the whole tree.
+        if !self.connected || !self.sent_once {
+            return;
+        }
+        let mut seen = HashSet::new();
+        let mut stack = vec![id];
+        while let Some(n) = stack.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            self.dirty.insert(n);
+            if let Some((_, kids)) = self.nodes.get(&n) {
+                stack.extend(kids.iter().copied());
+            }
+        }
+    }
+
     /// The merging elements above `ids`, whose labels change with them, and for `ids` and
     /// those: whether each is inside a merging ancestor (and so not exposed on its own). Each
     /// path up is walked once however many of `ids` share it, so this is linear in the
@@ -722,7 +775,8 @@ impl A11yTree {
         for &id in ids.iter().chain(&mergers) {
             path.clear();
             let mut cur = Some(id);
-            while let Some(e) = cur.filter(|e| !inside.contains_key(e)) {
+            // A path longer than the links there are goes round a loop of them.
+            while let Some(e) = cur.filter(|e| !inside.contains_key(e) && path.len() <= self.parents.len()) {
                 path.push(e);
                 cur = self.parents.get(&e).copied();
             }
@@ -744,9 +798,11 @@ impl A11yTree {
         let mut parts: Vec<String> = s.label.iter().cloned().collect();
         if s.merge {
             let mut stack: Vec<u64> = children.iter().rev().copied().collect();
+            // Child lists that loop, or name one element twice, are read once.
+            let mut seen = HashSet::from([id]);
             while let Some(c) = stack.pop() {
                 let Some((cs, cc)) = self.nodes.get(&c) else { continue };
-                if cs.hidden {
+                if cs.hidden || !seen.insert(c) {
                     continue;
                 }
                 parts.extend(cs.label.iter().cloned());
@@ -883,9 +939,11 @@ impl A11yTree {
         let inert = self.inert_now();
         let mut out = Vec::new();
         let mut stack = vec![(self.root, 0usize)];
+        let mut seen = HashSet::new();
         while let Some((id, depth)) = stack.pop() {
             let Some((s, children)) = self.nodes.get(&id) else { continue };
-            if s.hidden || inert.contains(&id) {
+            // Child lists that loop are walked once.
+            if s.hidden || inert.contains(&id) || !seen.insert(id) {
                 continue;
             }
             let mut states = Vec::new();
@@ -958,7 +1016,10 @@ impl A11yTree {
         let modal =
             self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
         let Some(mut cur) = modal else { return out };
-        while let Some(&p) = self.parents.get(&cur) {
+        // `showing` found the root above it, so the way up ends there.
+        while cur != self.root
+            && let Some(&p) = self.parents.get(&cur)
+        {
             if let Some((_, kids)) = self.nodes.get(&p) {
                 out.extend(kids.iter().copied().filter(|k| *k != cur));
             }
@@ -1000,7 +1061,8 @@ impl A11yTree {
     /// an ancestor is hidden.
     fn showing(&self, id: u64) -> bool {
         let mut cur = id;
-        loop {
+        // More steps than nodes: the parent links loop, so nothing here reaches the root.
+        for _ in 0..=self.nodes.len() {
             let Some((s, _)) = self.nodes.get(&cur) else { return false };
             if s.hidden {
                 return false;
@@ -1014,6 +1076,7 @@ impl A11yTree {
             }
             cur = p;
         }
+        false
     }
 
     /// True when a showing modal makes `id` inert to assistive technology.
@@ -1044,7 +1107,12 @@ impl A11yTree {
             self.dirty.clear();
             let mut all = Vec::new();
             let mut stack = vec![self.root];
+            let mut seen = HashSet::new();
             while let Some(id) = stack.pop() {
+                // Child lists that loop, or name one element twice, send it once.
+                if !seen.insert(id) {
+                    continue;
+                }
                 all.push(id);
                 if let Some((s, c)) = self.nodes.get(&id)
                     && !s.merge

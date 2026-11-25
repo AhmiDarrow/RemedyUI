@@ -30,6 +30,10 @@ const TOKEN_LEN: usize = remedy_ui_core::token::TOKEN_LEN;
 /// How long a new connection has to send its token.
 const TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The longest request line, in bytes: room for a long text set into a field, and an end to
+/// what a line that never breaks can make the window hold.
+const MAX_LINE: usize = 1024 * 1024;
+
 /// A window listening for agents. Dropping it stops listening and closes its connections.
 #[derive(Debug)]
 pub struct Listener {
@@ -139,6 +143,26 @@ fn forget(connections: &Mutex<Vec<(u64, TcpStream)>>, conn: u64) {
     connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(c, _)| *c != conn);
 }
 
+/// The next line of `reader` without its line break; `None` at the end. A line longer than
+/// `max` bytes is an error, read no further than that.
+fn read_line(reader: &mut impl BufRead, max: usize) -> std::io::Result<Option<String>> {
+    let mut buf = Vec::new();
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    if reader.take(limit).read_until(b'\n', &mut buf)? == 0 {
+        return Ok(None);
+    }
+    if buf.last() == Some(&b'\n') {
+        buf.pop();
+        if buf.last() == Some(&b'\r') {
+            buf.pop();
+        }
+    } else if buf.len() > max {
+        let why = format!("a request is longer than {max} bytes");
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, why));
+    }
+    String::from_utf8(buf).map(Some).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// Answers one connection's requests until it closes.
 fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_core::reactive::Waker, stop: &AtomicBool) {
     let Ok(mut out) = stream.try_clone() else { return };
@@ -151,9 +175,21 @@ fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_core::reactive::Waker, st
             }
         }
     });
-    let reader = BufReader::new(stream);
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
+    let mut reader = BufReader::new(stream);
+    loop {
+        let line = match read_line(&mut reader, MAX_LINE) {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(e) => {
+                // Nothing says where the next request starts: the agent hears why, and the
+                // connection ends.
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    let refused = Answer::Refused(Refused::BadRequest(e.to_string()));
+                    let _ = tx.send(crate::automation::to_json(&refused));
+                }
+                break;
+            }
+        };
         if stop.load(Ordering::SeqCst) {
             break;
         }
@@ -182,4 +218,28 @@ fn answer(id: u64, line: &str, tx: Sender<String>) {
         let _ = later.send(a);
     });
     let _ = tx.send(now);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_line;
+
+    #[test]
+    fn request_lines_are_read_whole_and_never_past_their_limit() {
+        let mut text: &[u8] = b"one\r\n\n12345678\nlast";
+        let mut next = || read_line(&mut text, 8).map_err(|e| e.kind());
+        assert_eq!(next(), Ok(Some("one".to_owned())));
+        assert_eq!(next(), Ok(Some(String::new())));
+        assert_eq!(next(), Ok(Some("12345678".to_owned())), "as long as the limit");
+        assert_eq!(next(), Ok(Some("last".to_owned())), "the end closes the last line");
+        assert_eq!(next(), Ok(None));
+
+        let endless = vec![b'x'; 100];
+        let mut text: &[u8] = &endless;
+        let long = read_line(&mut text, 8).map_err(|e| e.kind());
+        assert_eq!(long, Err(std::io::ErrorKind::InvalidData));
+        assert_eq!(text.len(), 91, "nothing is read past the limit");
+        let mut text: &[u8] = &[0xff, b'\n'];
+        assert_eq!(read_line(&mut text, 8).map_err(|e| e.kind()), Err(std::io::ErrorKind::InvalidData));
+    }
 }

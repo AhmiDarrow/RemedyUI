@@ -360,8 +360,9 @@ pub fn draw_accidental(list: &mut DisplayList, alter: i8, x: f32, y: f32, space:
                 stroke(list, p, s * 0.26, color);
             }
         }
-        -1 | -2 => {
-            let shift = if alter == -2 { -0.28 } else { 0.0 };
+        // Anything flatter than a double flat is drawn as one, never as a sharp's cross.
+        i8::MIN..=-1 => {
+            let shift = if alter <= -2 { -0.28 } else { 0.0 };
             let flat = |list: &mut DisplayList, cx: f32| {
                 list.fill_rect(
                     Rect::new(cx - 0.3 * s - 0.5, y - 1.55 * s, cx - 0.3 * s + 0.5, y + 0.55 * s),
@@ -376,7 +377,7 @@ pub fn draw_accidental(list: &mut DisplayList, alter: i8, x: f32, y: f32, space:
                 );
                 stroke(list, p, s * 0.24, color);
             };
-            if alter == -2 {
+            if alter <= -2 {
                 flat(list, x - 0.3 * s);
                 flat(list, x + 0.28 * s);
             } else {
@@ -397,7 +398,7 @@ pub fn draw_accidental(list: &mut DisplayList, alter: i8, x: f32, y: f32, space:
 
 /// How much room an accidental takes, in staff spaces.
 pub fn accidental_width(alter: i8) -> f32 {
-    if alter == -2 { 1.6 } else { 1.2 }
+    if alter <= -2 { 1.6 } else { 1.2 }
 }
 
 /// A rest of `value` on `staff`, centered at `x`.

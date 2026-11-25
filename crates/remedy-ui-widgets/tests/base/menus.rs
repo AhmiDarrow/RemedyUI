@@ -549,6 +549,42 @@ fn the_pointer_opens_menus_and_slides_between_them() {
 }
 
 #[test]
+fn a_disabled_menu_of_the_bar_does_not_open_and_is_stepped_past() {
+    let mut t = T::new();
+    let off = Signal::new(true);
+    let bar = w::menu_bar(
+        &t.ui,
+        vec![
+            MenuItem::submenu("File", vec![MenuItem::new("Open…", || {})]).mnemonic('f'),
+            MenuItem::submenu("Edit", vec![MenuItem::new("Find…", || {})]).mnemonic('e').disabled(off),
+            MenuItem::submenu("Help", vec![MenuItem::new("About", || {})]).mnemonic('h'),
+        ],
+    );
+    t.ui.root().child(w::column(&t.ui).fill_width().child(bar));
+    t.frame();
+    t.click_at(t.bounds(Role::MenuItem, "Edit").center());
+    assert!(t.menus().is_empty(), "a press does not open a disabled menu");
+    assert!(!t.alt('e'), "nor does its access key");
+    assert!(t.menus().is_empty());
+    t.key(Key::F(10));
+    assert_eq!(t.focused().as_deref(), Some("File"));
+    t.key(Key::ArrowRight);
+    assert_eq!(t.focused().as_deref(), Some("Help"), "Right steps past the disabled title");
+    t.key(Key::ArrowLeft);
+    assert_eq!(t.focused().as_deref(), Some("File"), "and so does Left");
+    t.key(Key::ArrowDown);
+    t.key(Key::ArrowRight);
+    assert_eq!(t.focused().as_deref(), Some("About"), "with a menu open too");
+    assert!(t.node(Role::MenuItem, "Find…").is_none());
+    t.key(Key::Escape);
+    t.key(Key::Escape);
+    off.set(false);
+    t.frame();
+    assert!(t.alt('e'), "enabled again, it opens");
+    assert_eq!(t.focused().as_deref(), Some("Find…"));
+}
+
+#[test]
 fn a_narrow_window_moves_the_menus_that_do_not_fit_into_more() {
     let mut t = T::sized(150.0, 300.0);
     let log: Rc<RefCell<Vec<String>>> = Rc::default();

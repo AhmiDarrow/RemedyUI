@@ -386,6 +386,8 @@ fn timestamp_scale(d: &[u8]) -> Result<u64, Error> {
 /// The text subtitle tracks of a track list.
 fn text_track_list(d: &[u8]) -> Result<Vec<TextTrack>, Error> {
     let mut out: Vec<TextTrack> = Vec::new();
+    // A set, not a search of `out`: a hostile header lists tracks by the hundred thousand.
+    let mut seen = std::collections::HashSet::new();
     for (id, entry) in children(d)? {
         if id != TRACK_ENTRY {
             continue;
@@ -402,10 +404,11 @@ fn text_track_list(d: &[u8]) -> Result<Vec<TextTrack>, Error> {
             _ => continue,
         };
         // Subtitles are type 17; WebM's WebVTT tracks are type 17 too.
-        if number == 0 || kind.is_some_and(|k| k != 17) || out.iter().any(|t| t.number == number) {
+        if number == 0 || kind.is_some_and(|k| k != 17) || seen.contains(&number) {
             continue;
         }
         let Some(prefix) = field(CONTENT_ENCODINGS).map(stripped_prefix).transpose()? else {
+            seen.insert(number);
             out.push(text_track(number, format, &field));
             continue;
         };
@@ -413,6 +416,7 @@ fn text_track_list(d: &[u8]) -> Result<Vec<TextTrack>, Error> {
         let Some(prefix) = prefix else { continue };
         let mut t = text_track(number, format, &field);
         t.prefix = prefix;
+        seen.insert(number);
         out.push(t);
     }
     Ok(out)

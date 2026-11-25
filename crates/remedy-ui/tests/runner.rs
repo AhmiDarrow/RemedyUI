@@ -1876,6 +1876,44 @@ fn a_frame_rate_limit_holds_frames_back_until_their_turn() {
 }
 
 #[test]
+fn a_frame_the_limit_holds_back_does_not_wait_for_the_ambient_wake() {
+    let n = Signal::new(0u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.set_frame_rate_limit(Some(20));
+        // Ambient motion far slower than the limit: its wake is half a second away.
+        let mut slow = remedy_ui::view::AmbientPolicy::default();
+        slow.fps = 2;
+        slow.unfocused_fps = 2;
+        app.set_ambient_policy(slow);
+        app.open(WindowSpec::new("Limit and ambient"), move |ui, _| {
+            use remedy_ui::view::AmbientLoop;
+            let turning = ui
+                .el("beam")
+                .layout(|l| {
+                    l.width = Length::Px(20.0);
+                    l.height = Length::Px(20.0);
+                })
+                .paint(|cx| {
+                    cx.list.fill_rect(
+                        remedy_ui_core::Rect::new(0.0, 0.0, 10.0, 10.0),
+                        remedy_ui::paint::Brush::Solid(RED),
+                    );
+                })
+                .ambient_loop(AmbientLoop::spin(Point::new(10.0, 10.0), Duration::from_secs(8)));
+            ui.root().child(turning).child(ui.el("label").text(move || format!("{}", n.get())));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let before = host.window(id).map_or(0, |w| w.presents());
+    n.update(|v| *v += 1);
+    // A sixth of a second: past the limit's twentieth, well before the ambient wake.
+    host.run_frames(&mut runner, 10);
+    assert!(host.window(id).map_or(0, |w| w.presents()) > before, "the change is shown at the limit's rate");
+}
+
+#[test]
 fn an_app_can_reduce_motion_where_the_system_does_not() {
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
         app.open(WindowSpec::new("Calm"), |_, _| {});

@@ -22,6 +22,11 @@ const PAD: i32 = 2;
 /// Pixel coordinates are kept within this of the origin: far past any image painted here
 /// (4096 pixels at most), and small enough that sums of them never overflow.
 const FAR: i32 = 1 << 20;
+/// How many layers a glyph paints into at once, and the bytes they may hold together. Each
+/// layer is a whole image, so a font nesting them as deep as its paint graph goes would take
+/// gigabytes for one glyph; real emoji nest two or three.
+const MAX_LAYERS: usize = 16;
+const MAX_LAYER_BYTES: usize = 256 << 20;
 
 /// True when `glyph` has a COLR, CBDT/CBLC, EBDT or sbix image that should be painted in
 /// color instead of as a hinted outline.
@@ -114,6 +119,7 @@ fn rasterize_colr(
         clips: vec![Clip::None],
         layers: vec![pix],
         modes: vec![CompositeMode::SrcOver],
+        flat: 0,
         origin: (left as f32, top_y as f32),
     };
     glyph.paint(LocationRef::default(), &mut painter).ok()?;
@@ -412,6 +418,8 @@ struct LayerPainter<'a> {
     clips: Vec<Clip>,
     layers: Vec<Pixmap>,
     modes: Vec<CompositeMode>,
+    /// Layers open past the bounds, painted into the one below instead of their own.
+    flat: usize,
     origin: (f32, f32),
 }
 
@@ -546,10 +554,22 @@ impl ColorPainter for LayerPainter<'_> {
     fn push_layer(&mut self, composite_mode: CompositeMode) {
         // The base layer is never popped, so there is always one to size the new layer by.
         let Some(&Pixmap { width, height, .. }) = self.layers.last() else { return };
+        let each = width as usize * height as usize * 4;
+        if self.flat > 0
+            || self.layers.len() >= MAX_LAYERS
+            || each.saturating_mul(self.layers.len() + 1) > MAX_LAYER_BYTES
+        {
+            self.flat += 1;
+            return;
+        }
         self.layers.push(Pixmap::new(width, height));
         self.modes.push(composite_mode);
     }
     fn pop_layer(&mut self) {
+        if self.flat > 0 {
+            self.flat -= 1;
+            return;
+        }
         if self.layers.len() < 2 {
             return;
         }
@@ -883,5 +903,38 @@ fn composite_premult(src: [f32; 4], dst: [f32; 4], mode: CompositeMode) -> [f32;
             [or, og, ob, oa]
         }
         _ => src_over(src, dst),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_layers_are_bounded_and_still_pair_up() {
+        let Some(face) = remedy_ui_fonts::REMEDY_EMOJI.first() else { unreachable!("the emoji face") };
+        let Ok(font) = FontRef::new(face.data) else { unreachable!("a font") };
+        let mut p = LayerPainter {
+            font,
+            palette: None,
+            foreground: Color::BLACK,
+            ctm: vec![Mat::IDENTITY],
+            clips: vec![Clip::None],
+            layers: vec![Pixmap::new(8, 8)],
+            modes: vec![CompositeMode::SrcOver],
+            flat: 0,
+            origin: (0.0, 0.0),
+        };
+        for _ in 0..1000 {
+            p.push_layer(CompositeMode::SrcOver);
+        }
+        assert_eq!(p.layers.len(), MAX_LAYERS);
+        // Paint in the deepest layer reaches the image through every pop.
+        p.fill_clip([0.0, 0.0, 0.0, 1.0]);
+        for _ in 0..1000 {
+            p.pop_layer();
+        }
+        assert_eq!((p.layers.len(), p.flat), (1, 0));
+        assert!(p.layers.first().is_some_and(Pixmap::has_ink));
     }
 }

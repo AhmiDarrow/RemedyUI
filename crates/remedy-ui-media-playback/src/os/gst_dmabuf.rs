@@ -18,7 +18,9 @@ use remedy_ui_engine::paint::{
     CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuPicture, GpuTexture,
 };
 
-use super::gstreamer::{GBoolean, GST_MAP_READ, Gst, GstBuffer, GstMapInfo, GstMiniObject, Ptr};
+use super::gstreamer::{
+    GBoolean, GST_MAP_READ, Gst, GstBuffer, GstMapInfo, GstMiniObject, Ptr, open_lib, sym,
+};
 use crate::host::{PixelFormat, Plane};
 
 /// Video buffers mapped on the CPU by this crate: the copy path maps every picture, the
@@ -113,28 +115,15 @@ unsafe impl Send for Fns {}
 // SAFETY: as above.
 unsafe impl Sync for Fns {}
 
-macro_rules! sym {
-    ($lib:expr, $name:literal) => {
-        // SAFETY: the symbol's type is the documented C signature of that GStreamer function;
-        // the library stays loaded while the table lives.
-        *unsafe { $lib.get(concat!($name, "\0").as_bytes()) }.ok()?
-    };
-}
-
-fn open(names: &[&str]) -> Option<Library> {
-    // SAFETY: loading GStreamer's own libraries, safe to load into any process.
-    names.iter().find_map(|n| unsafe { Library::new(n) }.ok())
-}
-
 /// The table, when the system's GStreamer has the allocators and video libraries.
 pub(crate) fn fns() -> Option<&'static Fns> {
     static FNS: OnceLock<Option<Fns>> = OnceLock::new();
-    FNS.get_or_init(|| {
-        let core = open(&["libgstreamer-1.0.so.0", "libgstreamer-1.0.so"])?;
-        let alloc = open(&["libgstallocators-1.0.so.0", "libgstallocators-1.0.so"])?;
-        let video = open(&["libgstvideo-1.0.so.0", "libgstvideo-1.0.so"])?;
-        let app = open(&["libgstapp-1.0.so.0", "libgstapp-1.0.so"])?;
-        Some(Fns {
+    let load = || -> Result<Fns, String> {
+        let core = open_lib(&["libgstreamer-1.0.so.0", "libgstreamer-1.0.so"])?;
+        let alloc = open_lib(&["libgstallocators-1.0.so.0", "libgstallocators-1.0.so"])?;
+        let video = open_lib(&["libgstvideo-1.0.so.0", "libgstvideo-1.0.so"])?;
+        let app = open_lib(&["libgstapp-1.0.so.0", "libgstapp-1.0.so"])?;
+        Ok(Fns {
             caps_get_features: sym!(core, "gst_caps_get_features"),
             caps_features_contains: sym!(core, "gst_caps_features_contains"),
             mini_object_ref: sym!(core, "gst_mini_object_ref"),
@@ -150,8 +139,8 @@ pub(crate) fn fns() -> Option<&'static Fns> {
             app_sink_set_callbacks: sym!(app, "gst_app_sink_set_callbacks"),
             _libs: vec![core, alloc, video, app],
         })
-    })
-    .as_ref()
+    };
+    FNS.get_or_init(|| load().ok()).as_ref()
 }
 
 /// The video sink's caps: NV12 in DMA-BUFs in `modifiers`' layouts, then in CPU memory.

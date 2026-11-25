@@ -867,7 +867,9 @@ impl Inner {
         if ui.reduced_motion() && !delay.is_zero() {
             return;
         }
-        self.deadline.set(Some(remedy_ui_core::time::Instant::now() + delay));
+        // A delay past what the clock can hold never ends: as no countdown.
+        let Some(end) = remedy_ui_core::time::Instant::now().checked_add(delay) else { return };
+        self.deadline.set(Some(end));
         self.tick();
     }
 
@@ -2844,8 +2846,11 @@ impl Player {
             (Some(end), Some(old), Some(new)) => {
                 let began = end.checked_sub(old).unwrap_or(end);
                 self.0.stop_countdown();
-                self.0.deadline.set(Some(began + new));
-                self.0.tick();
+                // As in `count_down`: a length the clock cannot hold is no countdown.
+                if let Some(end) = began.checked_add(new) {
+                    self.0.deadline.set(Some(end));
+                    self.0.tick();
+                }
             }
             (Some(_), _, None) => self.0.stop_countdown(),
             _ if self.0.state.get_untracked().ok() == Some(PlaybackState::Ended) => self.0.count_down(),

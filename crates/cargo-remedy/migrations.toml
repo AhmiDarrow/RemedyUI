@@ -46,7 +46,7 @@ view = "remedy_ui_view"
 webview = "remedy_ui_embed_webview"
 widgets = "remedy_ui_widgets_core"
 
-# Engine crates that became modules of other crates (1.0.0-rc.2): a path that starts with the
+# Engine crates that became modules of other crates (the release after 1.0.0-rc.1): a path that starts with the
 # old crate is rewritten to start with its new place, in `use` items and everywhere else.
 # The app's `Cargo.toml` is its author's to change: depend on the new crate with the feature
 # named after the module (`remedy-ui-widgets` with `viz`), or on `remedy-ui` and its features.

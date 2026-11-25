@@ -979,27 +979,17 @@ fn flatten(text: &RichText, base: &TextStyle) -> Vec<Segment> {
     if spans.is_empty() {
         return Vec::new();
     }
-    let mut cuts: Vec<usize> = spans.iter().flat_map(|s| [s.range.start, s.range.end]).collect();
-    cuts.push(0);
-    cuts.push(text.len());
-    cuts.sort_unstable();
-    cuts.dedup();
+    let ranges: Vec<Range<usize>> = spans.iter().map(|s| s.range.clone()).collect();
     let mut out = Vec::new();
-    for w in cuts.windows(2) {
-        let [start, end] = [w.first().copied().unwrap_or(0), w.get(1).copied().unwrap_or(0)];
-        if start >= end {
-            continue;
-        }
-        let covering: Vec<_> =
-            spans.iter().filter(|s| s.range.start <= start && s.range.end >= end).collect();
+    crate::rich::stretches(&ranges, text.len(), |range, over| {
         let mut style = base.clone();
         let mut link = None;
-        for s in covering {
+        for s in over.iter().filter_map(|i| spans.get(*i)) {
             style = s.patch.apply(&style);
             link = s.patch.link.or(link);
         }
-        out.push(Segment { range: start..end, style, link });
-    }
+        out.push(Segment { range, style, link });
+    });
     out
 }
 

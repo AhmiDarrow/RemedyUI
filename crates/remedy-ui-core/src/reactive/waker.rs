@@ -31,7 +31,9 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl PostQueue {
     pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
-        lock(&self.queue).clear();
+        // Dropped with the queue unlocked: what a post captured may post as it drops.
+        let posts = std::mem::take(&mut *lock(&self.queue));
+        drop(posts);
     }
 }
 

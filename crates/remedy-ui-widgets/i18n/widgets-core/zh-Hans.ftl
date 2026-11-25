@@ -7,6 +7,11 @@ lamp-on = 开
 lamp-off = 关
 loading = 正在加载
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = 移动{ $label }
+dock-move-hint = 拖动或按 Enter 键，将{ $label }停靠到另一侧
+dock-collapsed = { $label }（已折叠）
+
 ## Secret fields.
 show-password = 显示密码
 hide-password = 隐藏密码

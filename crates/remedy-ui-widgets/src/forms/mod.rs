@@ -15,7 +15,7 @@
 //! See `docs/design/15-widgets-and-media.md`.
 
 /// The form widgets' own words (status lines, error messages, screen reader names, keyboard
-/// hints) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a
+/// hints) in every language the engine ships, from `i18n/widgets-forms/*.ftl`. Apps reword them, or add a
 /// language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-forms`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings =
     remedy_ui_engine::engine_strings!("widgets-forms");

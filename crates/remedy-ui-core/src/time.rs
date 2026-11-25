@@ -173,7 +173,7 @@ impl WorkClock {
     }
 }
 
-/// Seconds since 1970-01-01T00:00:00Z, or 0 when the clock reads before it.
+/// Seconds since 1970-01-01T00:00:00Z: negative when the clock reads before it.
 pub fn unix_seconds() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),

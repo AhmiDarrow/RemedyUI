@@ -250,9 +250,11 @@ fn fill(ui: &Ui, root: &El, source: &str, open: &OpenLink) {
 
 impl Builder<'_> {
     /// Opens a quote, list or item past [`MAX_NESTING`] without an element of its own: what
-    /// is in it goes where its parent's blocks go. False when there is room for an element.
-    fn opens_flat(&mut self) -> bool {
-        if self.stack.len() < MAX_NESTING {
+    /// is in it goes where its parent's blocks go. False when there is room for an element
+    /// and `inside` more levels in it (a list needs one for its items, or it would stand
+    /// empty beside them).
+    fn opens_flat(&mut self, inside: usize) -> bool {
+        if self.stack.len() + inside < MAX_NESTING {
             return false;
         }
         match self.container() {
@@ -409,7 +411,7 @@ impl Builder<'_> {
             }
             Tag::BlockQuote(_) => {
                 self.flush();
-                if self.opens_flat() {
+                if self.opens_flat(0) {
                     return;
                 }
                 let body = self.ui.el("md_quote_body").column().grow(1.0).gap(self.unit * 2.0);
@@ -438,7 +440,7 @@ impl Builder<'_> {
             }
             Tag::List(start) => {
                 self.flush();
-                if self.opens_flat() {
+                if self.opens_flat(1) {
                     return;
                 }
                 let list = self
@@ -453,7 +455,7 @@ impl Builder<'_> {
             }
             Tag::Item => {
                 self.flush();
-                if self.opens_flat() {
+                if self.opens_flat(0) {
                     return;
                 }
                 let marker = match self.stack.last_mut() {

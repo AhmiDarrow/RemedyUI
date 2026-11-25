@@ -4,6 +4,8 @@ Each milestone ends with something real running and tested. From M5 on, each als
 
 Nothing is merged as a placeholder: a crate enters the workspace with its first real code and tests. Each milestone is judged by repeat runs of its scenario suites, its benchmarks against their targets, and its fuzzers.
 
+The milestones name each pack as it was built, a crate of its own then (`services-update`, `widgets-board`, `doc-rich`). Since the crates were merged, most are modules behind a feature of one of fifteen crates (`remedy-ui-widgets::update`, `remedy-ui-widgets::board`, `remedy-ui-widgets::doc_rich`); the layer table in [DESIGN.md](DESIGN.md) says where each lives now.
+
 ## What is still open
 
 The open items of every milestone in one place. Each milestone's section has the details.

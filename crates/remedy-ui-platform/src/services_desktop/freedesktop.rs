@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::services_desktop::DesktopError;
-use crate::services_desktop::autostart::{Entry, exec_quote};
+use crate::services_desktop::autostart::{Entry, entry_string, exec_quote};
 use crate::services_desktop::ini::{KeyFile, join, list};
 use crate::services_desktop::jump::Task;
 
@@ -112,8 +112,8 @@ fn launcher(x: &Xdg, app: &Entry) -> Result<KeyFile, DesktopError> {
     }
     let mut f = KeyFile::default();
     f.set(ENTRY, "Type", "Application");
-    f.set(ENTRY, "Name", &app.name);
-    f.set(ENTRY, "Exec", &exec_line(&app.program, &app.args));
+    f.set(ENTRY, "Name", &entry_string(&app.name));
+    f.set(ENTRY, "Exec", &entry_string(&exec_line(&app.program, &app.args)));
     f.set(ENTRY, "Terminal", "false");
     Ok(f)
 }
@@ -204,8 +204,8 @@ pub(crate) fn set_tasks(x: &Xdg, app: &Entry, tasks: &[Task]) -> Result<(), Desk
     for (i, t) in tasks.iter().enumerate() {
         let id = format!("task-{}", i + 1);
         let group = format!("{ACTION}{id}");
-        f.set(&group, "Name", &t.label);
-        f.set(&group, "Exec", &exec_line(&app.program, &t.args));
+        f.set(&group, "Name", &entry_string(&t.label));
+        f.set(&group, "Exec", &entry_string(&exec_line(&app.program, &t.args)));
         ids.push(id);
     }
     if ids.is_empty() {
@@ -531,6 +531,13 @@ mod tests {
         let root = temp("tasks");
         let x = places(&root);
         register_scheme(&x, &app(), "hearth").ok();
+        // A label or an argument with a line break or a backslash stays one key.
+        let odd = [Task::new("Two\nlines", &["a\\b \"c\""])];
+        set_tasks(&x, &app(), &odd).ok();
+        assert_eq!(
+            super::tasks(&x, &app()),
+            vec![("Two\\nlines".to_owned(), "/opt/Hearth/hearth \"a\\\\\\\\b \\\\\"c\\\\\"\"".to_owned())]
+        );
         let tasks = [Task::new("New note", &["--new"]), Task::new("Open \"Inbox\"", &["--open", "my inbox"])];
         set_tasks(&x, &app(), &tasks).ok();
         assert_eq!(

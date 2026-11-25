@@ -1398,6 +1398,11 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     });
     s.pump();
     assert!(visible(&view, "Cast"));
+    let said = el(&view, "Cast").info().and_then(|i| i.semantics);
+    assert_eq!(said.and_then(|s| s.popup()), Some(remedy_ui_core::a11y::Popup::Menu), "it opens a menu");
+    // The clock's parts are for the eye: its own name says the time, once.
+    let part = find(&view, "player_clock_now").first().and_then(El::info).and_then(|i| i.semantics);
+    assert!(part.is_some_and(|s| s.is_hidden()), "the elapsed time is not read a second time");
     named(&view, "Cast").unwrap_or_else(|| unreachable!()).focus();
     assert!(press(&s.ui, Key::Enter));
     assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1, "the app opens its menu");
@@ -1717,6 +1722,14 @@ fn the_arrows_scheme_answers_anywhere_in_the_player() {
     el(&view, "Seek").focus();
     assert!(press(&s.ui, Key::ArrowRight));
     at(&mut s, pos + 5.0);
+    // Not with Ctrl held: that key is the app's, and seeks nowhere.
+    let ctrl = remedy_ui_core::input::Modifiers { ctrl: true, ..Default::default() };
+    assert!(!s.ui.key(&KeyEvent::press(Key::ArrowRight).with_modifiers(ctrl).with_text(None)));
+    for k in [Key::Home, Key::End] {
+        let _ = s.ui.key(&KeyEvent::press(k).with_modifiers(ctrl).with_text(None));
+    }
+    s.idle(30);
+    assert!(near(p.position(), pos + 5.0, 0.001), "at {:?}", p.position());
     // The volume slider moves itself, a step as the arrows do; Space plays there.
     el(&view, "Volume").focus();
     assert!(press(&s.ui, Key::ArrowUp));
@@ -3359,7 +3372,11 @@ fn one_captions_button_says_what_shows_and_its_menu_picks_and_times() {
     assert!(press(&s.ui, Key::Enter));
     s.pump();
     s.pump();
-    while focused_name(&s.ui).is_some_and(|n| !n.starts_with("Later")) {
+    // Bounded: a menu that lost its "Later" must fail below, not go round for ever.
+    for _ in 0..20 {
+        if focused_name(&s.ui).is_none_or(|n| n.starts_with("Later")) {
+            break;
+        }
         assert!(press(&s.ui, Key::ArrowDown));
     }
     assert!(press(&s.ui, Key::Enter));

@@ -1688,6 +1688,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A second review pass closed the larger items the first left: the accessibility tree sends only nodes that changed; `hidden`, `disabled` and `pass_through` no longer undo one another's hit testing; an element keeps every `on_resize` and `on_hover` handler it is given; a move's completion runs when it is cut short; live HLS playlists slide instead of growing and read on after a server restart; the updater has no total time limit on a download, bounds it by the published size (`Release::size`) and never follows https to http; cookies follow RFC 6265bis limits and prefixes (`CookieJar::max_per_host`); a web view's page frames cannot reach the app's message handler on Linux; Linux settings are read once and followed by signal instead of on every focus.
+- A hovered or pressed primary button keeps its text contrast: the accent now moves away from the text on it.
+- A split-flap display is read once by a screen reader, and its flaps hold whole characters (grapheme clusters).
+- Memory-pressure listeners can go with their owner (`on_memory_pressure_for`).
+- `remedy_ui::android::main!` resolves again (broken by the crate merge).
 - A review of every crate fixed about 170 defects: overflows and endless loops on extreme or hostile input (media files, playlists, effect programs, Markdown, theme files, terminal output, fonts), state left wrong after an error, leaks of listeners and handles, right-to-left arrow keys in tabs, trees, grids and calendars, and docs that still named the crates merged away.
 - A script's time limit no longer counts one coarse step of the Windows thread clock as work, so a fair call is not stopped on a busy machine (`WorkClock::proven`).
 - The updater takes plain `http` only from the loopback host itself (not a name that starts like it), and refuses an installer whose signature Windows could not check.

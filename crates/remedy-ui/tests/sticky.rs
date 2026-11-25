@@ -138,8 +138,9 @@ fn a_sticky_header_sticks_takes_clicks_and_leaves_with_its_section() {
     assert!(header.states().contains(States::STUCK));
     assert_eq!(px(&host, id, 10, 10), [255, 255, 255, 255], "drawn at the top, styled stuck");
     assert_eq!(px(&host, id, 10, 100), [0, 255, 0, 255], "rows scroll under it");
-    // The screen reader's bounds and hit testing follow the stuck header.
-    assert_eq!(reader_bounds(&mut host, id, "Section header"), Some((0.0, 30.0)));
+    // The screen reader's bounds and hit testing follow the stuck header: it has not moved,
+    // so nothing new is sent for it.
+    assert_eq!(reader_bounds(&mut host, id, "Section header"), None);
     host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Down)));
     host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Up)));
     host.run_frames(&mut runner, 1);

@@ -410,9 +410,16 @@ pub(crate) fn call(
         }
         "inverse_lerp" => {
             arity(name, vals, 3, at)?;
-            let (a, _) = v(c, vals, 0, at)?;
-            let (b, _) = v(c, vals, 1, at)?;
-            let (x, t) = v(c, vals, 2, at)?;
+            let (a, ta) = v(c, vals, 0, at)?;
+            let (b, tb) = v(c, vals, 1, at)?;
+            let (x, tx) = v(c, vals, 2, at)?;
+            // The result is as wide as the widest argument, not only as `x`.
+            let t = unify(ta, tb).and_then(|t| unify(t, tx)).ok_or_else(|| {
+                Diagnostic::new(
+                    at,
+                    format!("`{name}` of a {}, a {} and a {}", ta.name(), tb.name(), tx.name()),
+                )
+            })?;
             let num = c.op(Op::Sub, 0, &[x, a], at)?;
             let den = c.op(Op::Sub, 0, &[b, a], at)?;
             Ok(Val::V(c.op(Op::Div, 0, &[num, den], at)?, t))
@@ -420,11 +427,16 @@ pub(crate) fn call(
         "remap" => {
             // remap(x, from_lo, from_hi, to_lo, to_hi)
             arity(name, vals, 5, at)?;
-            let (x, t) = v(c, vals, 0, at)?;
-            let (a, _) = v(c, vals, 1, at)?;
-            let (b, _) = v(c, vals, 2, at)?;
-            let (lo, _) = v(c, vals, 3, at)?;
-            let (hi, _) = v(c, vals, 4, at)?;
+            let mut t = Ty::F;
+            let mut arg = |c: &Compiler<'_>, k: usize| -> R<u32> {
+                let (id, tk) = v(c, vals, k, at)?;
+                // The result is as wide as the widest argument, not only as `x`.
+                t = unify(t, tk).ok_or_else(|| {
+                    Diagnostic::new(at, format!("`remap` of a {} and a {}", t.name(), tk.name()))
+                })?;
+                Ok(id)
+            };
+            let (x, a, b, lo, hi) = (arg(&*c, 0)?, arg(&*c, 1)?, arg(&*c, 2)?, arg(&*c, 3)?, arg(&*c, 4)?);
             let num = c.op(Op::Sub, 0, &[x, a], at)?;
             let den = c.op(Op::Sub, 0, &[b, a], at)?;
             let k = c.op(Op::Div, 0, &[num, den], at)?;

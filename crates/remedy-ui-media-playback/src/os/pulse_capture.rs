@@ -391,7 +391,7 @@ unsafe extern "C" fn sink_info(c: Ptr, i: *const SinkInfo, eol: c_int, ud: Ptr) 
     // SAFETY: a new record stream on the live context, monitoring the program's stream on its
     // output's monitor source; its callbacks get their own tag, freed when it ends.
     unsafe {
-        let stream = (pa.stream_new)(c, c"FreeSpeak shared sound".as_ptr(), &spec, std::ptr::null_mut());
+        let stream = (pa.stream_new)(c, c"Shared sound".as_ptr(), &spec, std::ptr::null_mut());
         if stream.is_null() {
             return;
         }
@@ -488,6 +488,8 @@ impl PulseCapture {
             recordings: HashMap::new(),
             failed: None,
         }));
+        // The client's name in the system's mixer: this app's (libpulse copies it).
+        let name = std::ffi::CString::new(super::app_name()).unwrap_or_else(|_| c"RemedyUI".to_owned());
         let raw = Arc::into_raw(state.clone());
         let ud = raw.cast_mut().cast::<c_void>();
         // SAFETY: the libpulse threaded main loop protocol: objects are made, the loop started,
@@ -498,7 +500,7 @@ impl PulseCapture {
                 drop(Arc::from_raw(raw));
                 return Err(MediaError::Device("PulseAudio's main loop could not start".into()));
             }
-            let ctx = (pa.context_new)((pa.mainloop_get_api)(ml), c"FreeSpeak".as_ptr());
+            let ctx = (pa.context_new)((pa.mainloop_get_api)(ml), name.as_ptr());
             {
                 let mut g = lock(&state);
                 g.mainloop = ml;

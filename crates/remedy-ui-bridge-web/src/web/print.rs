@@ -23,6 +23,9 @@ pub(crate) fn print_html(html: &str) -> Result<(), Unsupported> {
     let frame = document.create_element("iframe").map_err(err)?;
     frame.set_attribute(MARK, "").map_err(err)?;
     frame.set_attribute("style", "position:fixed;width:0;height:0;border:0;right:0;bottom:0").map_err(err)?;
+    // What is printed may quote text from anywhere: its scripts never run with the app's
+    // origin. The frame keeps the origin (and may open the dialog) so this page can print it.
+    frame.set_attribute("sandbox", "allow-same-origin allow-modals").map_err(err)?;
     frame.set_attribute("srcdoc", html).map_err(err)?;
     let body = document.body().ok_or_else(|| Unsupported::new("printing", "no body"))?;
     body.append_child(&frame).map_err(err)?;

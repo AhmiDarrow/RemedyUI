@@ -87,7 +87,8 @@ pub struct Limits {
     /// Tokens in the source.
     pub max_tokens: usize,
     /// How deep expressions and blocks nest (a chain of `else if` or of `.field`s counts a
-    /// level each; one statement also holds at most 1024 binary operators).
+    /// level each; one statement also holds at most 1024 binary operators). Once functions
+    /// are inlined, the whole may nest 192 deep.
     pub max_depth: u32,
     /// How deep functions call functions (all calls are inlined; there is no recursion).
     pub max_inline_depth: u32,
@@ -99,7 +100,7 @@ pub struct Limits {
     /// bounded with it: 32 steps a value, counting every expression worked out after inlining
     /// and unrolling, so work repeated without making new values ends too.
     pub max_values: usize,
-    /// Instructions in one program.
+    /// Instructions in one program: a pass, a particle emitter's, or the per-frame values'.
     pub max_instructions: usize,
     /// Registers one program may use, up to 255 (the instruction encoding's 8-bit register
     /// fields). The GPU kernel holds 64 in its fast form and builds a wider one the first
@@ -110,7 +111,7 @@ pub struct Limits {
     /// Cost of the whole effect per element pixel: every pass's cost weighted by its
     /// resolution (a pass at half resolution costs a quarter).
     pub max_effect_cost: u32,
-    /// Passes (bloom counts as three).
+    /// Passes (bloom counts as three; `output` of a pass that is not the last adds one).
     pub max_stages: usize,
     /// Parameters.
     pub max_params: usize,

@@ -427,3 +427,70 @@ fn effects_know_whether_they_move() {
         .collect();
     assert_eq!(still_ones, vec!["frost", "paper"], "the built-in effects that do not move");
 }
+
+#[test]
+fn a_matrix_in_reach_of_a_branch_is_left_alone() {
+    let e = compile(
+        "effect x { scale 1.0; pass p {
+            let m = mat3(vec3(0.0, 1.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0));
+            var k = 0.0;
+            if uv.x > 2.0 { k = 1.0; }
+            out = vec4(m * vec3(1.0, 0.0, k), 1.0);
+        } }",
+    )
+    .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(render(e, 0.0).get(..4), Some(&[0u8, 255, 0, 255][..]));
+}
+
+#[test]
+fn inverse_lerp_and_remap_are_as_wide_as_their_widest_argument() {
+    let e = compile(
+        "effect x { scale 1.0; pass p {
+            let a = inverse_lerp(vec2(0.0, 1.0), vec2(1.0, 0.0), 1.0);
+            let b = remap(0.5, 0.0, 1.0, vec2(0.0, 2.0), vec2(2.0, 0.0));
+            out = vec4(a, b.y - 1.0, b.x);
+        } }",
+    )
+    .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(render(e, 0.0).get(..4), Some(&[255u8, 0, 0, 255][..]));
+    assert!(err("effect x { pass p { out = inverse_lerp(vec2(0.0), vec3(1.0), 0.5); } }").contains("vec3"));
+}
+
+#[test]
+fn the_copy_an_output_adds_counts_as_a_pass() {
+    let src = "effect x { pass a { out = 1.0; } pass b { out = sample(a, uv); } output a; }";
+    let mut limits = Limits::default();
+    limits.max_stages = 2;
+    let r = Effect::compile_with(src, &limits).map_err(|e| e.to_string());
+    assert!(r.as_ref().is_err_and(|e| e.contains("more than 2 passes")), "{r:?}");
+    limits.max_stages = 3;
+    assert!(Effect::compile_with(src, &limits).is_ok_and(|e| e.stages.len() == 3));
+}
+
+#[test]
+fn particle_programs_hold_to_the_instruction_limit() {
+    let terms: Vec<String> = (1..40).map(|k| format!("sin(id * {k}.5)")).collect();
+    let src = format!("effect x {{ particles s (count: 4) {{ pos = vec2({}); }} }}", terms.join(" + "));
+    assert!(compile(&src).is_ok());
+    let mut limits = Limits::default();
+    limits.max_instructions = 16;
+    let r = Effect::compile_with(&src, &limits).map_err(|e| e.to_string());
+    assert!(r.as_ref().is_err_and(|e| e.contains("particles `s` are")), "{r:?}");
+}
+
+#[test]
+fn nesting_is_bounded_through_inlined_functions() {
+    // Each function nests 50 deep, within the parser's limit; inlined in one another they add up.
+    let chain = |levels: usize| {
+        let neg = "-".repeat(50);
+        let mut s = format!("effect x {{ fn f0(v: float) -> float {{ return {neg}v; }}\n");
+        for k in 1..levels {
+            s.push_str(&format!("fn f{k}(v: float) -> float {{ return {neg}f{}(v); }}\n", k - 1));
+        }
+        s.push_str(&format!("pass p {{ out = f{}(uv.x); }} }}", levels - 1));
+        s
+    };
+    assert!(compile(&chain(2)).is_ok());
+    let e = quick("deep inlining", || err(&chain(8)));
+    assert!(e.contains("once functions are inlined"), "{e}");
+}

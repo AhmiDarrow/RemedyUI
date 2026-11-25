@@ -7,7 +7,7 @@
 //!   started again in helper mode, so an app ships one binary.
 //! - [`enable`]: routes the image loader (`remedy-ui-media::media_image`: [`image()`], `load`,
 //!   `probe`, `decode_for_box`) and, with the `media-isolated-anim` feature (which
-//!   `media-isolated` turns on), animations (`remedy-ui-media::media_anim`) through helpers
+//!   the facade's `isolated` turns on), animations (`remedy-ui-media::media_anim`) through helpers
 //!   from then on, and says how they are sandboxed; [`disable`] decodes in the app again.
 //! - [`stats`]: how many helpers started, and how many were stopped and why.
 //!
@@ -25,6 +25,8 @@
 //!   programs, no executable memory, no changing its own limits), Landlock with no file
 //!   system access (and no TCP from Landlock ABI 4), a fresh network namespace where the
 //!   system lets unprivileged programs have one, and an address-space limit for each image.
+//!   The filter is written for x86-64 and AArch64; on other processors [`enable`] says
+//!   [`EnableError::Unsupported`].
 //! - **macOS**: a deny-by-default Seatbelt profile (the mechanism the App Sandbox is built
 //!   on) and a memory watch for each image.
 //! - **Android** (10 and later): an isolated service process (`android:isolatedProcess`, the

@@ -110,7 +110,7 @@ pub(crate) fn layout(
         let (il, bl) = (frame.inline_len(), frame.block_len());
         let (left, size) = s.box_across();
         let (i0, i_len) = (left / 100.0 * il, size / 100.0 * il);
-        // The lines, wrapped at spaces to the box (less its padding).
+        // The lines, wrapped to the box (less its padding).
         let room = (i_len - 2.0 * pad.0).max(0.0);
         let mut lines: Vec<(String, Size)> = Vec::new();
         for src in cue.text.lines() {
@@ -252,26 +252,62 @@ fn clamp(b: f32, len: f32, lo: f32, hi: f32) -> f32 {
     b.min(hi - len).max(lo)
 }
 
-/// `src` broken at spaces into lines no wider than `room` (a word wider than it on its own
-/// line), each with its measured size.
+/// `src` broken into lines no wider than `room`, each with its measured size: at spaces, and
+/// between the characters of scripts written without them ([`pieces`]). A word wider than
+/// `room` is on its own line.
 fn wrap(src: &str, room: f32, measure: &mut dyn FnMut(&str) -> Size, out: &mut Vec<(String, Size)>) {
     let mut line = String::new();
     let mut size = Size::new(0.0, 0.0);
     for word in src.split(' ') {
-        let next = if line.is_empty() { word.to_owned() } else { format!("{line} {word}") };
-        let s = measure(&next);
-        if s.width > room && !line.is_empty() {
-            out.push((std::mem::take(&mut line), size));
-            size = measure(word);
-            line = word.to_owned();
-        } else {
-            line = next;
-            size = s;
+        let mut gap = " ";
+        for piece in pieces(word) {
+            let next = if line.is_empty() { piece.to_owned() } else { format!("{line}{gap}{piece}") };
+            gap = "";
+            let s = measure(&next);
+            if s.width > room && !line.is_empty() {
+                out.push((std::mem::take(&mut line), size));
+                size = measure(piece);
+                line = piece.to_owned();
+            } else {
+                line = next;
+                size = s;
+            }
         }
     }
     if !line.trim().is_empty() {
         out.push((line, size));
     }
+}
+
+/// Marks a line does not start with (closing punctuation and the long-vowel mark), as
+/// Japanese and Chinese line breaking keeps them.
+const NO_START: &str = "\u{3001}\u{3002}\u{ff0c}\u{ff0e}\u{ff1a}\u{ff1b}\u{ff01}\u{ff1f}\u{ff09}\u{ff3d}\u{ff5d}\
+    \u{300d}\u{300f}\u{3011}\u{3009}\u{300b}\u{3015}\u{2019}\u{201d}\u{30fc},.!?:;)]}";
+/// Marks a line does not end with (opening brackets and quotes).
+const NO_END: &str =
+    "\u{ff08}\u{ff3b}\u{ff5b}\u{300c}\u{300e}\u{3010}\u{3008}\u{300a}\u{3014}\u{2018}\u{201c}([{";
+
+/// `word` (no spaces in it) in the pieces a line may break between: Chinese, Japanese and
+/// Korean are written without spaces and break between any two characters ([`upright`] ones,
+/// as in vertical text), but for the marks that stay with their neighbour. A word of other
+/// scripts is one piece.
+fn pieces(word: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    let mut before: Option<char> = None;
+    for (i, ch) in word.char_indices() {
+        if let Some(b) = before
+            && (upright(b) || upright(ch))
+            && !NO_START.contains(ch)
+            && !NO_END.contains(b)
+        {
+            out.push(word.get(from..i).unwrap_or_default());
+            from = i;
+        }
+        before = Some(ch);
+    }
+    out.push(word.get(from..).unwrap_or_default());
+    out
 }
 
 /// Whether `ch` stands upright in vertical text (Unicode's Vertical_Orientation U or Tu, for
@@ -418,5 +454,30 @@ mod tests {
         // Two rl cues at line 0: the second steps leftward.
         let two = run(&[cue("abc", "vertical:rl line:0"), cue("def", "vertical:rl line:0")], VP, VP);
         assert_eq!(two.get(1).map(|b| b.min.x), Some(360.0));
+    }
+
+    /// Text written without spaces wraps between its characters, a closing mark staying with
+    /// the character before it; text with spaces wraps as before.
+    #[test]
+    fn lines_without_spaces_wrap_between_characters() {
+        let lines = |src: &str| {
+            let mut out = Vec::new();
+            wrap(src, 50.0, &mut |t: &str| measure(t, false), &mut out);
+            out.into_iter().map(|(l, _)| l).collect::<Vec<_>>()
+        };
+        // "Nihongo no tekisuto desu." in kanji and kana: eleven characters, five to a line.
+        let japanese =
+            "\u{65e5}\u{672c}\u{8a9e}\u{306e}\u{30c6}\u{30ad}\u{30b9}\u{30c8}\u{3067}\u{3059}\u{3002}";
+        assert_eq!(
+            lines(japanese),
+            [
+                "\u{65e5}\u{672c}\u{8a9e}\u{306e}\u{30c6}",
+                "\u{30ad}\u{30b9}\u{30c8}\u{3067}",
+                "\u{3059}\u{3002}"
+            ]
+        );
+        assert_eq!(lines("aa bb cc"), ["aa bb", "cc"]);
+        assert_eq!(lines("abcdefgh ij"), ["abcdefgh", "ij"], "a long word is not cut");
+        assert_eq!(lines("ab \u{65e5}\u{672c} cd"), ["ab \u{65e5}\u{672c}", "cd"]);
     }
 }

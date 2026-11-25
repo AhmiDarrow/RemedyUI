@@ -18,7 +18,7 @@ use libloading::Library;
 
 use super::gstreamer::{
     GError, GST_MAP_READ, GST_MAP_WRITE, GST_STATE_CHANGE_FAILURE, GST_STATE_NULL, GST_STATE_PLAYING, Gst,
-    GstBuffer, GstMapInfo, Ptr, gst,
+    GstBuffer, GstMapInfo, Ptr, gst, launch_error, open_lib, sym,
 };
 use crate::deps;
 use crate::host::{
@@ -43,26 +43,6 @@ struct Extra {
 unsafe impl Send for Extra {}
 // SAFETY: as above.
 unsafe impl Sync for Extra {}
-
-fn open_lib(names: &[&str]) -> Result<Library, String> {
-    let mut last = String::new();
-    for n in names {
-        // SAFETY: loading GStreamer's and GLib's own libraries, safe to load into any process.
-        match unsafe { Library::new(n) } {
-            Ok(l) => return Ok(l),
-            Err(e) => last = e.to_string(),
-        }
-    }
-    Err(last)
-}
-
-macro_rules! sym {
-    ($lib:expr, $name:literal) => {
-        // SAFETY: the symbol's type is the documented C signature of that function; the
-        // library stays loaded while the table lives.
-        *unsafe { $lib.get(concat!($name, "\0").as_bytes()) }.map_err(|e| format!("{}: {e}", $name))?
-    };
-}
 
 impl Extra {
     fn load() -> Result<Extra, String> {
@@ -221,18 +201,24 @@ pub(crate) struct Pipe {
 }
 
 impl Pipe {
-    /// Builds `desc` and looks up `names`; nothing is started.
-    pub(crate) fn build(g: &'static Gst, desc: &str, names: &[&CStr]) -> Result<Pipe, MediaError> {
+    /// Builds `desc` and looks up `names`; nothing is started. An element the description
+    /// names that is not installed is the package to install, needed for `purpose`.
+    pub(crate) fn build(
+        g: &'static Gst,
+        desc: &str,
+        names: &[&CStr],
+        purpose: &str,
+    ) -> Result<Pipe, MediaError> {
         let desc = CString::new(desc).map_err(|e| MediaError::Unsupported(e.to_string()))?;
         let mut err: *mut GError = std::ptr::null_mut();
         // SAFETY: building a pipeline from a description; errors come back in `err`.
         let pipeline = unsafe { (g.parse_launch)(desc.as_ptr(), &mut err) };
         if pipeline.is_null() {
-            return Err(MediaError::Unsupported(g.take_error(err)));
+            return Err(launch_error(g.take_error(err), purpose, MediaError::Unsupported));
         }
         let mut p = Pipe { g, pipeline, named: Vec::new(), _live: super::Live::new() };
         if !err.is_null() {
-            return Err(MediaError::Unsupported(g.take_error(err)));
+            return Err(launch_error(g.take_error(err), purpose, MediaError::Unsupported));
         }
         for n in names {
             // SAFETY: looking up a named element (a new reference).
@@ -387,7 +373,7 @@ impl GstStreamEncoder {
             h = o.height,
             enc = kind.element,
         );
-        let pipe = Pipe::build(g, &desc, &[c"src", c"enc", c"sink"])?;
+        let pipe = Pipe::build(g, &desc, &[c"src", c"enc", c"sink"], ENCODING)?;
         let enc = pipe.get(1);
         let gop = if o.keyframe_interval == 0 { fps * 3 } else { o.keyframe_interval };
         for (name, value) in kind.settings {
@@ -580,7 +566,7 @@ impl GstScreenStream {
              ! appsink name=sink sync=false drop=true max-buffers=2",
             fd = fd.as_raw_fd(),
         );
-        let pipe = Pipe::build(g, &desc, &[c"sink"])?;
+        let pipe = Pipe::build(g, &desc, &[c"sink"], "sharing the screen on Wayland")?;
         pipe.start("pipewiresrc")?;
         Ok(GstScreenStream { g, pipe, _fd: fd })
     }

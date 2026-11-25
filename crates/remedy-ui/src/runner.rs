@@ -2271,6 +2271,9 @@ struct Win {
     /// When it was last drawn, and a frame held back by the app's frame-rate limit.
     last_frame: Option<Duration>,
     held: Option<TimerId>,
+    /// The next ambient frame's timer: its own, so a frame the limit holds back while it
+    /// waits still gets the limit's sooner timer.
+    wake: Option<TimerId>,
     /// A finger that is not yet a tap or a scroll, or that is scrolling.
     pan: Option<TouchPan>,
     /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
@@ -2675,6 +2678,19 @@ impl Runner {
         }
     }
 
+    /// Ends the app when its last window is gone, unless it keeps running without one.
+    fn exit_if_none_left(&mut self, host: &mut dyn Host) {
+        let (none_left, keep) = {
+            let s = self.app.0.borrow();
+            (s.open.is_empty(), s.keep_running)
+        };
+        if none_left && !keep {
+            // As a quit: persisted state still waiting for its debounce is written too.
+            self.save_now(host, Leaving::Quitting);
+            host.exit();
+        }
+    }
+
     fn host_of(&self, key: u64) -> Option<WindowId> {
         self.wins.get(&key).map(|w| w.host)
     }
@@ -2689,9 +2705,22 @@ impl Runner {
                 let id = match host.create_window(&spec.options) {
                     Ok(id) => id,
                     Err(e) => {
-                        let mut s = self.app.0.borrow_mut();
-                        s.open.remove(&key);
-                        s.open_errors.insert(key, e.to_string());
+                        // A window that never came is gone like a closed one: its callbacks
+                        // run, and an app left with no window ends.
+                        let closed = {
+                            let mut s = self.app.0.borrow_mut();
+                            s.open.remove(&key);
+                            s.open_errors.insert(key, e.to_string());
+                            s.visible.remove(&key);
+                            s.titles.remove(&key);
+                            s.maximized.remove(&key);
+                            s.fullscreen.remove(&key);
+                            s.on_closed.remove(&key).unwrap_or_default()
+                        };
+                        for f in closed {
+                            f();
+                        }
+                        self.exit_if_none_left(host);
                         return;
                     }
                 };
@@ -2752,6 +2781,7 @@ impl Runner {
                         zoom: 1.0,
                         last_frame: None,
                         held: None,
+                        wake: None,
                         pan: None,
                         cursor_hidden: false,
                         cursor: remedy_ui_engine::view::Cursor::Default,
@@ -3696,11 +3726,11 @@ impl Runner {
         if again && let Some(w) = self.wins.get(&key) {
             host.request_frame(w.host);
         } else if let (Some(wait), Some(w)) = (plan.wake_in, self.wins.get_mut(&key))
-            && w.held.is_none()
+            && w.wake.is_none()
         {
             // Ambient loops on the compositor: the next frame at their rate, not the next vsync.
             let t = host.set_timer(now + wait);
-            w.held = Some(t);
+            w.wake = Some(t);
             self.frame_timers.insert(t, key);
         }
     }
@@ -4214,15 +4244,7 @@ impl Runner {
                         ui.close();
                     }
                 }
-                let (none_left, keep) = {
-                    let s = self.app.0.borrow();
-                    (s.open.is_empty(), s.keep_running)
-                };
-                if none_left && !keep {
-                    // As a quit: persisted state still waiting for its debounce is written too.
-                    self.save_now(host, Leaving::Quitting);
-                    host.exit();
-                }
+                self.exit_if_none_left(host);
             }
             HostEvent::Timer(id) => {
                 if self.save_timer == Some(id) {
@@ -4263,7 +4285,12 @@ impl Runner {
                     }
                 } else if let Some(key) = self.frame_timers.remove(&id) {
                     if let Some(w) = self.wins.get_mut(&key) {
-                        w.held = None;
+                        if w.held == Some(id) {
+                            w.held = None;
+                        }
+                        if w.wake == Some(id) {
+                            w.wake = None;
+                        }
                         host.request_frame(w.host);
                     }
                 } else if let Some((w, down)) =

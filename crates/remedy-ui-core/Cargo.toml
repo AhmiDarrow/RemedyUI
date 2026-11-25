@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-core"
-description = "RemedyUI base types: geometry, units and pixel snapping, colors, generational ids and arenas, clocks, work off the UI thread on every platform, and the engine's tracing spans."
+description = "RemedyUI's core: base types (geometry, units, colors, arenas, clocks, work off the UI thread, tracing spans) and the parts of the engine that need neither a platform nor a renderer: reactive state, the element tree, layout, style and themes, input, motion, accessibility, the platform contract and a headless test harness."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

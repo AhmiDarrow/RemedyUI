@@ -669,6 +669,7 @@ impl QueueOut {
             }
             let frames = (format.frames_in(depth) / QUEUE_BUFFERS as u64).max(1);
             let bytes = u32::try_from(frames * u64::from(ch) * 4).unwrap_or(u32::MAX);
+            let mut queued = 0;
             for _ in 0..QUEUE_BUFFERS {
                 let mut buf: *mut QueueBuffer = std::ptr::null_mut();
                 if AudioQueueAllocateBuffer(queue, bytes, &mut buf) != 0 {
@@ -676,8 +677,14 @@ impl QueueOut {
                 }
                 if let Some(b) = buf.as_mut() {
                     ring.lock().unwrap_or_else(PoisonError::into_inner).fill(b);
-                    AudioQueueEnqueueBuffer(queue, buf, 0, std::ptr::null());
+                    queued += usize::from(AudioQueueEnqueueBuffer(queue, buf, 0, std::ptr::null()) == 0);
                 }
+            }
+            // With no buffer in it the queue never calls back: silence for ever, and no error.
+            if queued == 0 {
+                AudioQueueDispose(queue, 1);
+                drop(Arc::from_raw(user));
+                return Err(MediaError::Device("the sound output gave no buffers".into()));
             }
         }
         Ok((queue, user))

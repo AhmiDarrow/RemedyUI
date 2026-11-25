@@ -18,7 +18,8 @@ use crate::media_image::{DecodeError, fitted_scalable};
 use remedy_ui_engine::paint::Image;
 
 use super::{
-    Engine, Fail, Helper, per_byte, per_output_pixel, per_source_pixel, shm_with, startup_error, units,
+    Engine, Fail, Helper, out_region, per_byte, per_output_pixel, per_source_pixel, shm_with, startup_error,
+    units,
 };
 use crate::media_isolated::COUNTERS;
 use crate::media_isolated::os::Shm;
@@ -124,9 +125,7 @@ impl Host {
 
     fn next(&self, engine: &Engine, session: u32, a: &Animation) -> Result<Option<(Image, Duration)>, Fail> {
         let too_large = || Fail::Image(DecodeError::TooLarge { width: a.size.0, height: a.size.1 });
-        let len =
-            pixels(a.show_at).checked_mul(4).and_then(|n| usize::try_from(n).ok()).ok_or_else(too_large)?;
-        let out = Shm::new(len).map_err(|_| too_large())?;
+        let out = out_region(pixels(a.show_at)).ok_or_else(too_large)?;
         let (work, need) = Self::frame_cost(a);
         let what = format!("a frame of a {}×{} animation", a.size.0, a.size.1);
         self.run(engine, |h| {

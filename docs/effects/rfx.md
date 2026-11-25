@@ -130,9 +130,12 @@ Swizzles: `.x .y .z .w` or `.r .g .b .a`, up to four (`v.xy`, `c.rgb`, `p.yx`). 
 `vec2(…)`, `vec3(…)`, `vec4(…)`, `float(…)`, `mat3(c0, c1, c2)`, `mat4(c0, c1, c2, c3)` (columns),
 and tuples `(x, y)`. `M * v`, `v * M`, `M * M`. `pi` and `tau` are constants.
 
-Every operation is total: dividing by zero gives 0, square roots and logarithms of
-negatives are taken at 0, and no result is NaN or infinite, so a hostile program cannot
-poison a picture.
+Every operation is total: dividing by zero gives 0, and square roots and logarithms of
+negatives are taken at 0. Sums and products of huge numbers can still overflow to infinity,
+and from there to a value that is no number (infinity minus infinity, the sine of infinity).
+Neither reaches a picture: a colour, a per-frame value or a particle that is not finite is
+drawn as 0, `sample` at such a position reads transparent black, and noise takes it as cell 0,
+the same on both renderers, so a hostile program cannot poison a picture.
 
 ### Inputs (passes)
 
@@ -225,16 +228,31 @@ reason and where.
 |---|---|---|
 | Source size / tokens | 256 KiB / 100,000 | 64 KiB / 20,000 |
 | Nesting depth / function call depth | 64 / 16 | 48 / 8 |
+| Nesting in all, once functions are inlined | 192 | 192 |
+| Binary operators a statement | 1024 | 1024 |
+| Values after unrolling / compile steps | 100,000 / 3,200,000 | 30,000 / 960,000 |
 | Loop iterations (one loop / in all) | 256 / 4096 | 128 / 1024 |
 | Instructions a program | 8192 | 4096 |
 | Registers a program | 64 | 48 |
 | Cost a pass, per pixel | 40,000 | 16,000 |
 | **Cost of the effect, per element pixel** | 20,000 | 2,500 |
 | Passes (bloom counts three) | 16 | 10 |
+| Constants and per-frame values a program reads | 65,536 | 65,536 |
 | Parameters / textures | 32 / 4 | 16 / 4 |
 | Particles an emitter / particle work a frame | 8192 / 2,000,000 | 2048 / 400,000 |
 | Frames a second | 60 | 30 |
 | Earlier passes one pass samples | 8 | 8 |
+
+Nesting counts brackets, blocks, unary operators and call arguments; each `else if` of a
+chain and each `.field` of a chain (`v.xy.yx.x`) counts a level too. A long sum or product
+(`a + b + c + …`) does not nest, but one statement holds at most 1024 binary operators: split
+a longer one with `let`. Every function is inlined, so the nesting of a function's body adds
+to that of the call it is inlined at, and the whole may be 192 deep. Compile steps bound the
+time a compile takes where no new values are made (a function inlined again at every call,
+an `if` copying the names in reach): 32 steps for each value the effect may hold. The
+instruction limit holds for every program: a pass, a particle emitter's program, and the
+per-frame program the hoisted values make. `output` naming a pass that is not the last adds
+a pass that copies it, which counts as one.
 
 **Cost** is the sum of the instruction weights a pixel runs (arithmetic 1, division 2,
 trigonometry 4–6, a texture sample 10, value noise 14, gradient noise 18–36, cellular noise
@@ -275,7 +293,8 @@ effects all fit the untrusted limits.
   windows, elements, messages or the screen. Nothing it computes flows back to the theme or
   script, and time reaches it only as the coarse frame time, so it has no timing side channel
   to read what is on screen.
-- Parameter values are clamped; all arithmetic is total.
+- Parameter values are clamped; all arithmetic is total, and no value that is not finite
+  reaches a picture.
 
 ## Both renderers
 

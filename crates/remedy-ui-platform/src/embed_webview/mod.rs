@@ -46,7 +46,7 @@
 mod os;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -79,7 +79,9 @@ pub struct NavigationRequest {
     pub user_initiated: bool,
     /// A server redirect of an earlier navigation.
     pub redirect: bool,
-    /// The navigation of a frame inside the page, not the page itself.
+    /// The navigation of a frame inside the page, not the page itself. WebKitGTK does not
+    /// say which frame navigates, so there this is always false and a frame's navigation is
+    /// decided as the page's own.
     pub frame: bool,
 }
 
@@ -158,6 +160,10 @@ const VIEW_MISSING: &str = "the web view is missing";
 /// list must not grow with it.
 const BLOCKED_KEPT: usize = 1024;
 
+/// How many shown addresses the view remembers for the app's back, forward and reload: the
+/// latest, so a long session does not grow the list without end.
+const VISITED_KEPT: usize = 1024;
+
 /// How to make a web view.
 #[derive(Clone)]
 pub struct WebViewOptions {
@@ -231,9 +237,9 @@ pub(crate) struct Hub {
     /// first, numbered.
     expected: RefCell<Vec<(u64, Expected)>>,
     next_expected: Cell<u64>,
-    /// Top-level addresses the view has been allowed to show: where the app's back and
-    /// forward may go.
-    visited: RefCell<std::collections::HashSet<String>>,
+    /// Top-level addresses the view has been allowed to show, the latest [`VISITED_KEPT`],
+    /// oldest first: where the app's back and forward may go.
+    visited: RefCell<VecDeque<String>>,
     on_message: RefCell<Vec<MessageListener>>,
     on_blocked: RefCell<Vec<BlockedListener>>,
     blocked: RefCell<Vec<Blocked>>,
@@ -258,12 +264,14 @@ pub(crate) enum Expected {
 }
 
 impl Expected {
-    fn matches(&self, url: &str, visited: &std::collections::HashSet<String>) -> bool {
+    /// `history`: whether the platform says the navigation moves in the history or reloads
+    /// (`None` when it cannot tell).
+    fn matches(&self, url: &str, history: Option<bool>, visited: &VecDeque<String>) -> bool {
         match self {
             // Platforms add a trailing slash to a bare host.
             Expected::Url(u) => url == u || url.strip_suffix('/') == Some(u.as_str()),
             Expected::Html => url.starts_with("data:") || url.starts_with("about:"),
-            Expected::History => visited.contains(url),
+            Expected::History => history != Some(false) && visited.iter().any(|v| v == url),
         }
     }
 }
@@ -287,30 +295,50 @@ impl Hub {
 
     /// A top-level page finished loading at `url`.
     pub(crate) fn shown(&self, url: String) {
-        self.visited.borrow_mut().insert(url);
+        let mut visited = self.visited.borrow_mut();
+        visited.retain(|v| *v != url);
+        if visited.len() >= VISITED_KEPT {
+            visited.pop_front();
+        }
+        visited.push_back(url);
     }
 
     /// Who started a top-level navigation to `url`: the app when it matches one the app
     /// started (which, and those before it, are then done), else the page. A page cannot
     /// pass for the app: it would have to go exactly where the app asked.
-    fn source(&self, url: &str) -> NavigationSource {
+    fn source(&self, url: &str, history: Option<bool>) -> NavigationSource {
         let visited = self.visited.borrow();
         let mut expected = self.expected.borrow_mut();
-        match expected.iter().position(|(_, e)| e.matches(url, &visited)) {
+        match expected.iter().position(|(_, e)| e.matches(url, history, &visited)) {
             Some(i) => {
                 expected.drain(..=i);
                 NavigationSource::App
             }
-            None => NavigationSource::Page,
+            None => {
+                // The platform reports a back, forward or reload before anything the page
+                // starts after it, or not at all (a move inside one document, an address
+                // never shown). One still waiting is stale, and must not later lend the
+                // app's name to a navigation of the page.
+                expected.retain(|(_, e)| *e != Expected::History);
+                NavigationSource::Page
+            }
         }
     }
 
-    /// Asks the allow-list about a navigation; reports it when blocked.
-    pub(crate) fn decide(&self, url: String, user_initiated: bool, redirect: bool, frame: bool) -> bool {
+    /// Asks the allow-list about a navigation; reports it when blocked. `history`: whether
+    /// the platform says it moves in the history or reloads (`None` when it cannot tell).
+    pub(crate) fn decide(
+        &self,
+        url: String,
+        user_initiated: bool,
+        redirect: bool,
+        frame: bool,
+        history: Option<bool>,
+    ) -> bool {
         if self.closed.get() {
             return false;
         }
-        let source = if frame || redirect { NavigationSource::Page } else { self.source(&url) };
+        let source = if frame || redirect { NavigationSource::Page } else { self.source(&url, history) };
         let req = NavigationRequest { url, source, user_initiated, redirect, frame };
         let allowed = match &self.options.allow {
             Some(f) => f(&req),
@@ -653,7 +681,7 @@ pub fn web_view(ui: &Ui, options: WebViewOptions) -> (El, WebView) {
         status: Signal::new(WebViewStatus::Starting),
         expected: RefCell::new(Vec::new()),
         next_expected: Cell::new(0),
-        visited: RefCell::new(std::collections::HashSet::new()),
+        visited: RefCell::new(VecDeque::new()),
         on_message: RefCell::new(Vec::new()),
         on_blocked: RefCell::new(Vec::new()),
         blocked: RefCell::new(Vec::new()),
@@ -751,7 +779,7 @@ mod tests {
             status: Signal::new(WebViewStatus::Starting),
             expected: RefCell::new(Vec::new()),
             next_expected: Cell::new(0),
-            visited: RefCell::new(std::collections::HashSet::new()),
+            visited: RefCell::new(VecDeque::new()),
             on_message: RefCell::new(Vec::new()),
             on_blocked: RefCell::new(Vec::new()),
             blocked: RefCell::new(Vec::new()),
@@ -767,9 +795,9 @@ mod tests {
         let h = hub(WebViewOptions::new("Help"));
         h.app_navigates(Expected::Url("https://help.example".into()));
         // The page racing the app's navigation cannot pass for it.
-        assert!(!h.decide("https://elsewhere.example/".into(), true, false, false), "a link");
-        assert!(h.decide("https://help.example/".into(), false, false, false), "the app's own load");
-        assert!(!h.decide("https://help.example/".into(), false, false, false), "only once");
+        assert!(!h.decide("https://elsewhere.example/".into(), true, false, false, None), "a link");
+        assert!(h.decide("https://help.example/".into(), false, false, false, None), "the app's own load");
+        assert!(!h.decide("https://help.example/".into(), false, false, false, None), "only once");
         assert_eq!(
             h.blocked.borrow().as_slice(),
             [
@@ -788,19 +816,58 @@ mod tests {
             r.source == NavigationSource::App || r.url.starts_with("https://help.example/")
         }));
         h.app_navigates(Expected::Html);
-        assert!(h.decide("data:text/html,hi".into(), false, false, false));
+        assert!(h.decide("data:text/html,hi".into(), false, false, false, None));
         h.shown("https://help.example/a".into());
         let n = h.app_navigates(Expected::History);
         h.forget(n);
-        assert!(h.decide("https://help.example/a".into(), false, false, false));
-        assert!(h.decide("https://help.example/b".into(), true, false, false));
-        assert!(!h.decide("https://ads.example/frame".into(), false, false, true));
+        assert!(h.decide("https://help.example/a".into(), false, false, false, None));
+        assert!(h.decide("https://help.example/b".into(), true, false, false, None));
+        assert!(!h.decide("https://ads.example/frame".into(), false, false, true, None));
         let seen = seen.borrow();
         assert_eq!(seen.len(), 4);
         assert_eq!(seen.first().map(|r| r.source), Some(NavigationSource::App));
         assert_eq!(seen.get(1).map(|r| r.source), Some(NavigationSource::Page), "a forgotten call");
         assert_eq!(seen.get(2).map(|r| r.source), Some(NavigationSource::Page));
         assert!(seen.get(3).is_some_and(|r| r.frame));
+    }
+
+    #[test]
+    fn a_stale_history_navigation_does_not_lend_the_page_the_apps_name() {
+        let h = hub(WebViewOptions::new("Help"));
+        h.shown("https://help.example/a".into());
+        h.shown("https://help.example/b".into());
+        // A back the platform never reports (it stayed inside one document).
+        h.app_navigates(Expected::History);
+        // The page's link to an address shown before is the page's, by its kind.
+        assert!(!h.decide("https://help.example/a".into(), true, false, false, Some(false)));
+        assert!(h.expected.borrow().is_empty(), "and the stale back is gone");
+        assert!(!h.decide("https://help.example/a".into(), false, false, false, Some(true)));
+        // Where the platform cannot tell the kind, the first decision still ends it.
+        h.app_navigates(Expected::History);
+        assert!(!h.decide("https://elsewhere.example/".into(), true, false, false, None));
+        assert!(!h.decide("https://help.example/a".into(), true, false, false, None));
+        // The app's own back and reload pass, by kind or without one.
+        h.app_navigates(Expected::History);
+        assert!(h.decide("https://help.example/b".into(), false, false, false, Some(true)));
+        h.app_navigates(Expected::History);
+        assert!(h.decide("https://help.example/b".into(), false, false, false, None));
+        // A navigation to an address waits through the page's race, as before.
+        h.app_navigates(Expected::Url("https://help.example/c".into()));
+        assert!(!h.decide("https://elsewhere.example/".into(), true, false, false, Some(false)));
+        assert!(h.decide("https://help.example/c".into(), false, false, false, Some(false)));
+    }
+
+    #[test]
+    fn the_shown_addresses_kept_are_the_latest() {
+        let h = hub(WebViewOptions::new("Help"));
+        for n in 0..VISITED_KEPT + 2 {
+            h.shown(format!("https://help.example/{n}"));
+        }
+        h.shown("https://help.example/2".into());
+        let visited = h.visited.borrow();
+        assert_eq!(visited.len(), VISITED_KEPT);
+        assert_eq!(visited.front().map(String::as_str), Some("https://help.example/3"));
+        assert_eq!(visited.back().map(String::as_str), Some("https://help.example/2"), "shown again");
     }
 
     #[test]

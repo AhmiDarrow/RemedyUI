@@ -1319,6 +1319,10 @@ class RemedyMicrophone extends AudioWorkletProcessor {
 registerProcessor("remedy-microphone", RemedyMicrophone);
 "#;
 
+/// How much of the microphone's sound waits for its reader before the oldest is dropped: a
+/// page in the background runs its timers as seldom as once a minute, and reads then.
+const MIC_HELD_SECONDS: usize = 120;
+
 /// What the microphone's page callbacks share with its reader.
 #[derive(Default)]
 struct MicShared {
@@ -1512,6 +1516,11 @@ async fn start_microphone(
             None => m.queue.extend(samples.to_vec()),
             Some(c) => c.convert(&samples.to_vec(), &mut m.queue),
         }
+        // A reader that stopped reading must not grow memory without end: the oldest goes,
+        // in whole frames.
+        let ch = usize::from(format.channels.max(1));
+        let over = m.queue.len().saturating_sub(format.sample_rate as usize * ch * MIC_HELD_SECONDS);
+        m.queue.drain(..over.next_multiple_of(ch).min(m.queue.len()));
     });
     let port = get(&node, "port");
     let _ = Reflect::set(&port, &JsValue::from_str("onmessage"), on_message.as_ref());

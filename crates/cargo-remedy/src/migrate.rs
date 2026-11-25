@@ -302,10 +302,14 @@ impl<'ast> Visit<'ast> for Migrator<'_> {
 
     fn visit_path(&mut self, p: &'ast syn::Path) {
         let segs: Vec<String> = p.segments.iter().map(|s| s.ident.to_string()).collect();
-        // The crate itself, written out (not a local name a `use` gave something else).
+        // The crate itself, written out (not a local name a `use` gave something else; a
+        // `use remedy_ui_viz;` names the crate itself).
         if segs.len() > 1
             && let Some(first) = p.segments.first()
-            && !self.aliases.contains_key(&first.ident.to_string())
+            && self
+                .aliases
+                .get(&first.ident.to_string())
+                .is_none_or(|a| matches!(a.as_slice(), [only] if first.ident == only.as_str()))
         {
             self.moved_crate(&first.ident);
         }
@@ -540,6 +544,8 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("rx::Signal::new(0)"), "a local name is left as it is: {out}");
+        let whole = migrate("use remedy_ui_viz;\nfn f() { remedy_ui_viz::bars(); }\n");
+        assert_eq!(whole, "use remedy_ui_widgets::viz;\nfn f() { remedy_ui_widgets::viz::bars(); }\n");
         // Migrating twice changes nothing more, and an item renamed earlier is still found
         // under the crate's new path.
         assert_eq!(migrate(&out), out);

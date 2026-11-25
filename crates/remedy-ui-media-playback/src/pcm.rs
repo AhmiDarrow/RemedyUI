@@ -7,6 +7,11 @@ use crate::host::{MediaError, MediaHost, MediaSource};
 /// within a hundredth of a decibel and what would alias more than 70 dB down.
 const LOBES: f64 = 16.0;
 
+/// The sample rates [`decode_pcm`] takes a source at: every rate sound is kept at lies well
+/// inside (8 kHz speech to 768 kHz masters).
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+const SOURCE_RATES: std::ops::RangeInclusive<u32> = 1_000..=1_000_000;
+
 /// The average of the channels of interleaved `samples`: one value per frame.
 pub fn to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
     let ch = usize::from(channels.max(1));
@@ -49,7 +54,7 @@ pub fn resample(samples: &[f32], channels: u16, from: u32, to: u32) -> Vec<f32> 
     let cutoff = ratio.min(1.0) * 0.97;
     let reach = LOBES / cutoff;
     let out_frames = ((frames as f64) * ratio).round() as usize;
-    let mut out = Vec::with_capacity(out_frames * ch);
+    let mut out = Vec::with_capacity(out_frames.saturating_mul(ch));
     let mut weights: Vec<f64> = Vec::new();
     for i in 0..out_frames {
         let at = i as f64 / ratio;
@@ -103,6 +108,11 @@ pub async fn decode_pcm(
         poll_fn(|cx| decoder.poll_ready(cx)).await?;
         let format: AudioFormat =
             decoder.info().audio.ok_or_else(|| MediaError::Format("the source has no sound".into()))?;
+        // A rate no sound has: the conversion's cost and length follow it (a file claiming
+        // 1 Hz would come out thousands of times its size, one claiming GHz take millions of taps).
+        if !SOURCE_RATES.contains(&format.sample_rate) {
+            return Err(MediaError::Format(format!("a sample rate of {} Hz", format.sample_rate)));
+        }
         let mut mono = Vec::new();
         while let Some(sample) = poll_fn(|cx| decoder.poll_read(cx)).await? {
             if let Sample::Audio { samples, .. } = sample {

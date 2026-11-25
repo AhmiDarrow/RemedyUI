@@ -74,10 +74,30 @@ impl Canvas {
     }
 }
 
+thread_local! {
+    /// A window is being opened ([`open`]) and the browser has not answered yet.
+    static OPENING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Held while a window opens; however that ends, the next press may ask again.
+struct Opening;
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        OPENING.with(|o| o.set(false));
+    }
+}
+
 /// Opens the window for `player` (sized to its picture, as the browser allows) and hands it
 /// the player's pictures; the player hears when the person closes it. A refusal (no recent
 /// press in the page) opens nothing.
 pub(crate) fn open(player: &Player) {
+    // A page has one such window, and a second request closes the first: a press again while
+    // one is opening would leave its window open with the player told it had closed.
+    if OPENING.with(|o| o.replace(true)) {
+        return;
+    }
+    let opening = Opening;
     let (w, h) = player.info().and_then(|i| i.video).map_or((480, 270), |v| {
         let w = 480u32;
         (w, (u64::from(w) * u64::from(v.height.max(1)) / u64::from(v.width.max(1))) as u32)
@@ -89,6 +109,7 @@ pub(crate) fn open(player: &Player) {
     };
     let player = player.clone();
     wasm_bindgen_futures::spawn_local(async move {
+        let _opening = opening;
         let Ok(win) = JsFuture::from(js_sys::Promise::from(asked)).await else { return };
         let doc = get(&win, "document");
         let body = get(&doc, "body");

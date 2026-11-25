@@ -167,7 +167,11 @@ pub fn find_words(text: &str, language: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     with_segmenter(language, |segmenter| {
         for range in tokens(text) {
-            if code.iter().any(|c| c.start <= range.start && range.end <= c.end) {
+            // Code spans are in order and apart: only the first that ends at or after the
+            // token can hold it (a search, so a long text full of code is not checked span
+            // by span for every token).
+            let span = code.partition_point(|c| c.end < range.end);
+            if code.get(span).is_some_and(|c| c.start <= range.start) {
                 continue;
             }
             let Some(token) = text.get(range.clone()) else { continue };

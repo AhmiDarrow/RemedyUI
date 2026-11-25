@@ -67,6 +67,21 @@ impl Bar {
         self.menus.get(slot).map_or_else(|| crate::base::tr(&self.ui, MORE), MenuItem::label_text)
     }
 
+    /// The app has disabled the menu of `slot` ("more" never is): it neither opens nor runs.
+    fn slot_disabled(&self, slot: usize) -> bool {
+        self.menus.get(slot).is_some_and(MenuItem::is_disabled)
+    }
+
+    /// The first slot that is not disabled going `delta` at a time from place `at` of
+    /// `slots`, wrapping around (`at` itself last).
+    fn enabled_from(&self, slots: &[usize], at: usize, delta: isize) -> Option<usize> {
+        let k = slots.len() as isize;
+        (1..=k)
+            .filter_map(|i| usize::try_from((at as isize + delta * i).rem_euclid(k)).ok())
+            .filter_map(|i| slots.get(i).copied())
+            .find(|s| !self.slot_disabled(*s))
+    }
+
     pub(crate) fn slot_at(&self, p: Point) -> Option<usize> {
         self.slots()
             .into_iter()
@@ -114,7 +129,9 @@ impl Bar {
     fn activate(&self) {
         self.remember_focus();
         self.set_active(true);
-        if let Some(t) = self.slots().first().and_then(|s| self.titles.get(*s)) {
+        let slots = self.slots();
+        let first = self.enabled_from(&slots, slots.len().saturating_sub(1), 1).or(slots.first().copied());
+        if let Some(t) = first.and_then(|s| self.titles.get(s)) {
             t.focus();
         }
     }
@@ -187,6 +204,9 @@ impl Bar {
             self.deactivate(true);
             return;
         }
+        if self.slot_disabled(slot) {
+            return;
+        }
         match self.menus.get(slot) {
             Some(m) if !m.is_submenu() => self.run_plain(m),
             _ => {
@@ -198,20 +218,22 @@ impl Bar {
     /// The pointer moved onto a title while another's menu is open: that one opens instead.
     pub(crate) fn hover_slot(self: &Rc<Self>, slot: usize) {
         let open = untrack(|| self.open_slot.get());
-        if open.is_some_and(|o| o != slot) && self.menus.get(slot).is_none_or(MenuItem::is_submenu) {
+        if open.is_some_and(|o| o != slot)
+            && !self.slot_disabled(slot)
+            && self.menus.get(slot).is_none_or(MenuItem::is_submenu)
+        {
             let keyboard = self.open_chain().is_some_and(|c| c.opened_by_keyboard());
             let _ = self.open_slot_menu(slot, keyboard, false);
         }
     }
 
-    /// Left or Right at a menu's top level: the neighbouring menu opens.
+    /// Left or Right at a menu's top level: the neighbouring menu opens (disabled ones are
+    /// passed over).
     pub(crate) fn step(self: &Rc<Self>, delta: isize) {
         let slots = self.slots();
         let Some(open) = untrack(|| self.open_slot.get()) else { return };
         let Some(at) = slots.iter().position(|s| *s == open) else { return };
-        let k = slots.len() as isize;
-        let next =
-            usize::try_from((at as isize + delta).rem_euclid(k)).ok().and_then(|i| slots.get(i)).copied();
+        let next = self.enabled_from(&slots, at, delta.signum()).filter(|s| *s != open);
         if let Some(s) = next {
             self.set_active(true);
             match self.menus.get(s) {
@@ -311,7 +333,7 @@ impl Bar {
 
     fn menu_with_key(&self, c: Option<char>) -> Option<usize> {
         let c = c.and_then(|c| c.to_lowercase().next())?;
-        self.menus.iter().position(|m| m.access_key() == Some(c))
+        self.menus.iter().position(|m| m.access_key() == Some(c) && !m.is_disabled())
     }
 
     /// Opens menu `i` from the keyboard: directly, or inside "more" when it does not fit.
@@ -339,22 +361,22 @@ impl Bar {
         let slots = self.slots();
         let Some(cur) = self.focused_slot() else { return false };
         let at = slots.iter().position(|s| *s == cur).unwrap_or(0);
-        let k = slots.len().max(1);
         let (forward, back) = if self.el.is_rtl() {
             (Key::ArrowLeft, Key::ArrowRight)
         } else {
             (Key::ArrowRight, Key::ArrowLeft)
         };
-        let focus = |i: usize| {
-            if let Some(t) = slots.get(i).and_then(|s| self.titles.get(*s)) {
+        // Disabled menus are passed over: `from` is the place before the first one tried.
+        let focus = |from: usize, delta: isize| {
+            if let Some(t) = self.enabled_from(&slots, from, delta).and_then(|s| self.titles.get(s)) {
                 t.focus();
             }
         };
         match &e.key {
-            key if *key == forward => focus((at + 1) % k),
-            key if *key == back => focus((at + k - 1) % k),
-            Key::Home => focus(0),
-            Key::End => focus(k - 1),
+            key if *key == forward => focus(at, 1),
+            key if *key == back => focus(at, -1),
+            Key::Home => focus(slots.len().saturating_sub(1), 1),
+            Key::End => focus(0, -1),
             Key::ArrowDown | Key::Enter | Key::Space => self.key_open(cur, false),
             Key::ArrowUp => self.key_open(cur, true),
             Key::Escape | Key::Tab => {
@@ -372,6 +394,9 @@ impl Bar {
     }
 
     fn key_open(self: &Rc<Self>, slot: usize, last: bool) {
+        if self.slot_disabled(slot) {
+            return;
+        }
         match self.menus.get(slot) {
             Some(m) if !m.is_submenu() => self.run_plain(m),
             _ => {

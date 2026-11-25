@@ -405,3 +405,67 @@ fn opening_a_palette_and_resizing_does_not_send_a_stale_focus_id() {
     assert!(node(&u, 5).is_some(), "the focused search field is in the update");
     apply(&mut consumer, u);
 }
+
+#[test]
+fn setting_what_a_node_already_has_sends_nothing_and_what_was_merged_away_arrives_when_exposed() {
+    let mut t = chat();
+    t.connect();
+    let first = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    let mut consumer = accesskit_consumer::Tree::new(first, true);
+    // A sync that changes nothing: every element set again as it is.
+    t.set(14, Semantics::new(Role::Label).label("Meet at 10:30"));
+    t.set_children(11, &[12, 13, 14]);
+    t.set_children(1, &[10, 20]);
+    assert!(t.take_update().is_none(), "nothing changed, nothing sent");
+    // The row stops merging: its parts, never sent on their own, come with it.
+    t.set(11, Semantics::new(Role::ListItem).set_position(5032, 10_000).action(Action::Click));
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    let ids: Vec<NodeId> = u.nodes.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, [NodeId(11), NodeId(12), NodeId(13), NodeId(14)]);
+    apply(&mut consumer, u);
+    // It merges again, and one part moves out to the list: that part arrives with the list.
+    t.set(
+        11,
+        Semantics::new(Role::ListItem).merge_descendants().set_position(5032, 10_000).action(Action::Click),
+    );
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    apply(&mut consumer, u);
+    t.set_children(11, &[12, 13]);
+    t.set_children(10, &[11, 14]);
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    let ids: Vec<NodeId> = u.nodes.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, [NodeId(10), NodeId(11), NodeId(14)]);
+    apply(&mut consumer, u);
+    // A node set after its parent listed it: the parent is sent again, now with it.
+    t.set_children(10, &[11, 14, 15]);
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    apply(&mut consumer, u);
+    t.set(15, Semantics::new(Role::ListItem).label("Late"));
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    let ids: Vec<NodeId> = u.nodes.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, [NodeId(10), NodeId(15)]);
+    apply(&mut consumer, u);
+}
+
+#[test]
+fn child_lists_that_loop_do_not_hang() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("App"));
+    t.set(2, Semantics::new(Role::Group).label("A").merge_descendants());
+    t.set(3, Semantics::new(Role::Group).label("B").modal(true));
+    t.set_children(3, &[2]);
+    t.set_children(2, &[3]);
+    t.set_children(1, &[2, 2]);
+    assert_eq!(t.composed_label(2).as_deref(), Some("A, B"));
+    assert_eq!(t.reader_view().len(), 2);
+    t.connect();
+    assert_eq!(t.take_update().map(|u| u.nodes.len()), Some(2));
+    // Parent links that loop without reaching the window.
+    t.set(4, Semantics::new(Role::Dialog).modal(true));
+    t.set(5, Semantics::new(Role::Group).merge_descendants());
+    t.set_children(4, &[5]);
+    t.set_children(5, &[4]);
+    assert!(!t.is_inert(2));
+    t.set(4, Semantics::new(Role::Dialog).label("Loop").modal(true));
+    assert!(t.take_update().is_none(), "nothing attached changed");
+}

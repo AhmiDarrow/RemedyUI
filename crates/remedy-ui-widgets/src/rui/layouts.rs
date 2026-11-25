@@ -254,7 +254,7 @@ impl Layout {
         let (undo, redo) = (self.clone(), self.clone());
         let after = source.to_owned();
         i.ui.record_change(
-            format!("Change layout {}", i.file),
+            self.history_name("layout-change-named"),
             None,
             move || {
                 let _ = undo.write(before.as_deref());
@@ -276,7 +276,7 @@ impl Layout {
         self.write(None)?;
         let (undo, redo) = (self.clone(), self.clone());
         i.ui.record_change(
-            format!("Reset layout {}", i.file),
+            self.history_name("layout-reset-named"),
             None,
             move || {
                 let _ = undo.write(before.as_deref());
@@ -286,6 +286,12 @@ impl Layout {
             },
         );
         Ok(())
+    }
+
+    /// An undo history name for this screen, in the window's language now (not tracked).
+    fn history_name(&self, id: &str) -> String {
+        let locale = remedy_ui_core::reactive::untrack(|| self.0.ui.locale());
+        crate::rui::STRINGS.format_in(&locale, id, &[("file", (&self.0.file).into())])
     }
 
     /// Writes (or with `None` removes) the person's version and rebuilds.

@@ -418,10 +418,15 @@ fn feed(
     pts: Duration,
     mut collect: impl FnMut() -> Result<(), MediaError>,
 ) -> Result<(), MediaError> {
-    while !input(t, data, pts)? {
+    // A transform that neither takes input nor gives output would be asked for ever: it takes
+    // its input after a round or two of handing output over.
+    for _ in 0..64 {
+        if input(t, data, pts)? {
+            return collect();
+        }
         collect()?;
     }
-    collect()
+    Err(MediaError::Decode("the decoder takes no input and gives no output".into()))
 }
 
 /// [`Elementary`] with Media Foundation transforms.
@@ -700,8 +705,11 @@ impl Fetch for HttpFetch {
         // WinHTTP's own receive timeout did not end a body gone quiet, so a watchdog closes the
         // request, which ends the call waiting on it: no answer for first_byte(), no byte for
         // quiet() once it answered, or load() in all; or at once when the reader has gone (`stop`).
+        // The request with whether a WinHTTP call is using it: it is closed only under a call
+        // (which that ends); between calls the transfer is told instead and makes no more, so
+        // it never goes on with a handle value WinHTTP may have given to another request.
         let req = request.0;
-        let watched = (std::sync::Mutex::new(Some(request)), std::sync::Condvar::new());
+        let watched = (std::sync::Mutex::new((Some(request), false)), std::sync::Condvar::new());
         // When something last came (ms from `started`) and how long it may stop for.
         let (last, limit) = (AtomicU64::new(0), AtomicU64::new(first_byte().as_millis() as u64));
         let gave_up = AtomicBool::new(false);
@@ -713,7 +721,7 @@ impl Fetch for HttpFetch {
             // Named, so the leak tests count it; without it WinHTTP's timeouts still end the call.
             let _ = std::thread::Builder::new().name("remedy-hls-watchdog".into()).spawn_scoped(s, || {
                 let mut open = watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                while open.is_some() {
+                while open.0.is_some() {
                     let since = started.elapsed().as_millis() as u64;
                     let quiet = since.saturating_sub(last.load(Ordering::Relaxed));
                     if since > load().as_millis() as u64
@@ -721,7 +729,9 @@ impl Fetch for HttpFetch {
                         || stop.load(Ordering::Relaxed)
                     {
                         gave_up.store(true, Ordering::Relaxed);
-                        *open = None;
+                        if open.1 {
+                            open.0 = None;
+                        }
                         return;
                     }
                     open = watched
@@ -731,9 +741,15 @@ impl Fetch for HttpFetch {
                         .0;
                 }
             });
+            // Marks a call's start and end; false once the watchdog gave up (set under this lock).
+            let calling = |on: bool| {
+                let mut w = watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                w.1 = on;
+                !gave_up.load(Ordering::Relaxed)
+            };
             // SAFETY: `req` is open until the watchdog closes it, which ends the call using it.
-            let got = unsafe { transfer(req, url, &progress) };
-            *watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            let got = unsafe { transfer(req, url, &progress, &calling) };
+            watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).0 = None;
             watched.1.notify_all();
             got
         });
@@ -750,31 +766,44 @@ impl Fetch for HttpFetch {
 }
 
 /// Sends the request `req` and reads its answer, calling `progress` with how long it may next
-/// go quiet each time something comes (an answer, then bytes).
+/// go quiet each time something comes (an answer, then bytes). Each WinHTTP call is announced
+/// with `calling(true)` and its end with `calling(false)`; once that answers false no more is made.
 ///
 /// # Safety
-/// `req` is a WinHTTP request handle, open or closed by another thread meanwhile (which makes
-/// the call using it fail).
+/// `req` is a WinHTTP request handle, open, or closed by another thread only while `calling`
+/// was last told true (which makes the call using it fail).
 unsafe fn transfer(
     req: *mut std::ffi::c_void,
     url: &str,
     progress: &dyn Fn(Duration),
+    calling: &dyn Fn(bool) -> bool,
 ) -> Result<Vec<u8>, MediaError> {
     let failed = |e: windows::core::Error| MediaError::NotFound(format!("{url}: {}", e.message()));
+    fn during(
+        calling: &dyn Fn(bool) -> bool,
+        call: impl FnOnce() -> windows::core::Result<()>,
+    ) -> windows::core::Result<()> {
+        // ERROR_OPERATION_ABORTED when told to stop: the caller reports what it gave up for.
+        let done = if calling(true) { call() } else { Err(windows::core::HRESULT::from_win32(995).into()) };
+        calling(false);
+        done
+    }
     // SAFETY: the caller's handle; buffers outlive the calls that fill them.
     unsafe {
-        WinHttpSendRequest(req, None, None, 0, 0, 0).map_err(failed)?;
-        WinHttpReceiveResponse(req, std::ptr::null_mut()).map_err(failed)?;
+        during(calling, || WinHttpSendRequest(req, None, None, 0, 0, 0)).map_err(failed)?;
+        during(calling, || WinHttpReceiveResponse(req, std::ptr::null_mut())).map_err(failed)?;
         progress(quiet());
         let (mut status, mut size) = (0u32, 4u32);
-        WinHttpQueryHeaders(
-            req,
-            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-            PCWSTR::null(),
-            Some((&raw mut status).cast()),
-            &mut size,
-            std::ptr::null_mut(),
-        )
+        during(calling, || {
+            WinHttpQueryHeaders(
+                req,
+                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                PCWSTR::null(),
+                Some((&raw mut status).cast()),
+                &mut size,
+                std::ptr::null_mut(),
+            )
+        })
         .map_err(failed)?;
         if status != 200 {
             return Err(answered(url, status));
@@ -785,13 +814,14 @@ unsafe fn transfer(
             // Wait for bytes, then read only those: a read of a large buffer waits to fill it,
             // and the watchdog would take a slow download that is moving for a quiet one.
             let mut ready = 0u32;
-            WinHttpQueryDataAvailable(req, &mut ready).map_err(failed)?;
+            during(calling, || WinHttpQueryDataAvailable(req, &mut ready)).map_err(failed)?;
             if ready == 0 {
                 return Ok(out);
             }
             let mut n = 0u32;
             let want = ready.min(chunk.len() as u32);
-            WinHttpReadData(req, chunk.as_mut_ptr().cast(), want, &mut n).map_err(|e| format_error(&e))?;
+            during(calling, || WinHttpReadData(req, chunk.as_mut_ptr().cast(), want, &mut n))
+                .map_err(|e| format_error(&e))?;
             if n == 0 {
                 return Ok(out);
             }

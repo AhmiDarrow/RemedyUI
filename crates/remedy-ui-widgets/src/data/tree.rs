@@ -173,8 +173,15 @@ fn flatten<K: Clone + Eq + Hash>(
     for (i, r) in roots.iter().enumerate().rev() {
         stack.push((r.clone(), 0, None, (i + 1, n)));
     }
+    // The open items above the one being laid out, by depth. An item that is one of its own
+    // ancestors (the app's children go round in a circle) shows closed there: the tree ends.
+    let mut path: Vec<K> = Vec::new();
+    let mut on_path: HashSet<K> = HashSet::new();
     while let Some((item, depth, parent, pos)) = stack.pop() {
-        let open = item.has_children && expanded.contains(&item.key);
+        for left in path.drain(depth.min(path.len())..) {
+            on_path.remove(&left);
+        }
+        let open = item.has_children && expanded.contains(&item.key) && !on_path.contains(&item.key);
         let kids = if open { children.get(&item.key) } else { None };
         let loading = open && kids.is_none();
         if let Some(kids) = kids {
@@ -182,6 +189,8 @@ fn flatten<K: Clone + Eq + Hash>(
             for (i, c) in kids.iter().enumerate().rev() {
                 stack.push((c.clone(), depth + 1, Some(item.key.clone()), (i + 1, n)));
             }
+            path.push(item.key.clone());
+            on_path.insert(item.key.clone());
         }
         out.push(Line { item, depth, parent, pos, open, loading });
     }
@@ -253,7 +262,9 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
         let parents: HashMap<&K, Option<&K>> =
             lines.iter().map(|l| (&l.item.key, l.parent.as_ref())).collect();
         let mut cur = Some(k);
-        while let Some(c) = cur {
+        // No more steps than rows: a key the app shows twice could name itself its parent.
+        for _ in 0..=lines.len() {
+            let Some(c) = cur else { return false };
             if c == ancestor {
                 return true;
             }
@@ -688,4 +699,29 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
         .child(status)
         .child(sync)
         .semantics(Semantics::new(Role::Tree).label(l2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn children_that_go_round_in_a_circle_end() {
+        let roots = vec![TreeItem::branch("a", "A")];
+        let children: HashMap<&str, Vec<TreeItem<&str>>> = HashMap::from([
+            ("a", vec![TreeItem::branch("b", "B"), TreeItem::leaf("c", "C")]),
+            ("b", vec![TreeItem::branch("a", "A again")]),
+        ]);
+        let expanded = HashSet::from(["a", "b"]);
+        let lines = flatten(&roots, &children, &expanded);
+        let shape: Vec<(&str, usize, bool)> = lines.iter().map(|l| (l.item.key, l.depth, l.open)).collect();
+        assert_eq!(shape, [("a", 0, true), ("b", 1, true), ("a", 2, false), ("c", 1, false)]);
+        // The same item in two branches is no circle: both open.
+        let children: HashMap<&str, Vec<TreeItem<&str>>> = HashMap::from([
+            ("a", vec![TreeItem::branch("x", "X"), TreeItem::branch("x", "X")]),
+            ("x", vec![TreeItem::leaf("y", "Y")]),
+        ]);
+        let lines = flatten(&roots, &children, &HashSet::from(["a", "x"]));
+        assert_eq!(lines.iter().filter(|l| l.item.key == "y").count(), 2);
+    }
 }

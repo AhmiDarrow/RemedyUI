@@ -115,8 +115,9 @@ pub struct PageLayout {
     spread: Spread,
     rows: Vec<Row>,
     row_of: Vec<usize>,
-    /// Row tops in points, without gaps: `prefix[r]` is the height of rows before `r`.
-    prefix: Vec<f32>,
+    /// Row tops in points, without gaps: `prefix[r]` is the height of rows before `r`. Summed
+    /// in `f64`: an `f32` sum drifts by whole pixels over a hundred thousand pages.
+    prefix: Vec<f64>,
     widest_one: f32,
     widest_two: f32,
     gap: f32,
@@ -148,10 +149,10 @@ impl PageLayout {
         }
         let mut prefix = Vec::with_capacity(rows.len() + 1);
         let mut row_of = vec![0; shown.len()];
-        let mut acc = 0.0f32;
+        let mut acc = 0.0f64;
         for (r, row) in rows.iter().enumerate() {
             prefix.push(acc);
-            acc += row.height;
+            acc += f64::from(row.height);
             for p in row.first..row.first + row.count {
                 if let Some(slot) = row_of.get_mut(p) {
                     *slot = r;
@@ -223,21 +224,26 @@ impl PageLayout {
         let one = self.widest_one * zoom;
         let two = if self.widest_two > 0.0 { self.widest_two * zoom + self.gap } else { 0.0 };
         let rows = self.rows.len();
-        let total = self.prefix.last().copied().unwrap_or(0.0);
-        Size::new(
-            one.max(two) + 2.0 * self.margin,
-            total * zoom + self.gap * rows.saturating_sub(1) as f32 + 2.0 * self.margin,
-        )
+        let height = self.top(rows, zoom) - f64::from(self.gap) * f64::from(u8::from(rows > 0))
+            + f64::from(self.margin);
+        Size::new(one.max(two) + 2.0 * self.margin, height as f32)
+    }
+
+    /// The top of row `r` at `zoom`, before it is rounded to what a pixel position holds.
+    fn top(&self, r: usize, zoom: f32) -> f64 {
+        let points = self.prefix.get(r).copied().unwrap_or(0.0);
+        f64::from(self.margin) + points * f64::from(zoom) + f64::from(self.gap) * r as f64
     }
 
     /// The top of row `r` at `zoom`.
     pub fn row_top(&self, r: usize, zoom: f32) -> f32 {
-        self.margin + self.prefix.get(r).copied().unwrap_or(0.0) * zoom + self.gap * r as f32
+        self.top(r, zoom) as f32
     }
 
     /// The bottom of row `r` at `zoom`.
     pub fn row_bottom(&self, r: usize, zoom: f32) -> f32 {
-        self.row_top(r, zoom) + self.rows.get(r).map_or(0.0, |row| row.height) * zoom
+        let height = self.rows.get(r).map_or(0.0, |row| row.height);
+        (self.top(r, zoom) + f64::from(height) * f64::from(zoom)) as f32
     }
 
     /// The rows that cross `y0..y1` (content pixels) at `zoom`.
@@ -396,6 +402,23 @@ mod tests {
         }
         assert_eq!(l.pages_between(-100.0, 0.0, 1.0), 0..0);
         assert_eq!(l.pages_between(0.0, 1e9, 1.0), 0..300);
+    }
+
+    #[test]
+    fn the_last_rows_of_a_very_long_document_do_not_drift() {
+        // A4: a height an `f32` sum cannot add exactly once the total is in the millions.
+        let n = 100_000;
+        let a4 = vec![Size::new(595.276, 841.89); n];
+        let l = PageLayout::new(a4, Spread::Single, Rotation::None, 8.0, 16.0);
+        let exact = |r: usize| 16.0 + f64::from(841.89f32) * r as f64 + 8.0 * r as f64;
+        // What one `f32` holds at this size, and no more.
+        for r in [n - 1, n / 2, 12_345] {
+            assert!((f64::from(l.row_top(r, 1.0)) - exact(r)).abs() <= 4.0, "row {r}");
+        }
+        let total = f64::from(l.content_size(1.0).height);
+        assert!((total - (exact(n) - 8.0 + 16.0)).abs() <= 4.0);
+        let top = l.row_top(n - 2, 1.0);
+        assert_eq!(l.pages_between(top + 16.0, top + 32.0, 1.0), n - 2..n - 1);
     }
 
     #[test]

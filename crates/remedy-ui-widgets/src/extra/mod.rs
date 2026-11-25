@@ -16,7 +16,7 @@
 //! See `docs/design/15-widgets-and-media.md`.
 
 /// The pack's own words (button labels, screen reader names and values, keyboard hints) in
-/// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
+/// every language the engine ships, from `i18n/widgets-extra/*.ftl`. Apps reword them, or add a language,
 /// with [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-extra`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings =
     remedy_ui_engine::engine_strings!("widgets-extra");

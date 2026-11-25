@@ -139,3 +139,58 @@ fn a_mounted_script_builds_pictures_and_app_elements_and_survives_a_failure() {
     assert_eq!(stops.borrow().first().map(|s| s.0), Some(FailurePhase::Build));
     assert!(texts(&ui).iter().any(|t| t == "Turned"), "still shown");
 }
+
+#[test]
+fn a_deeply_nested_description_is_built_a_few_levels_deep_and_keeps_its_content() {
+    let ui = ui();
+    // As deep as a script's limits allow: laid out level for level it would stall the window.
+    let mut tree = json!({ "kind": "column", "children": [
+        { "kind": "text", "text": "Bottom" },
+        { "kind": "button", "label": "Press", "on": "pressed" },
+    ] });
+    for level in 0..40 {
+        let kind = if level % 2 == 0 { "row" } else { "column" };
+        let said = json!({ "kind": "text", "text": format!("Level {level}") });
+        tree = json!({ "kind": kind, "children": [said, tree] });
+    }
+    let got = Rc::new(RefCell::new(Vec::new()));
+    let fixed = Fixed { tree: Rc::new(RefCell::new(tree)), got: got.clone(), last: None };
+    let widget: SharedWidget = Rc::new(RefCell::new(Box::new(fixed)));
+    let hooks = ScriptHooks::new(|_| {}, |_, _| {});
+    let el = mount_script(&ui, widget, Map::new(), Signal::new(json!({})), hooks);
+    let _ = ui.root().child(el.clone());
+    frame(&ui);
+    let seen = texts(&ui);
+    for said in ["Bottom", "Press", "Level 0", "Level 39"] {
+        assert!(seen.iter().any(|t| t == said), "{said}: {seen:?}");
+    }
+    let mut deepest = 0;
+    let mut rest = vec![(el.clone(), 0)];
+    while let Some((e, depth)) = rest.pop() {
+        deepest = deepest.max(depth);
+        rest.extend(e.child_elements().into_iter().map(|c| (c, depth + 1)));
+    }
+    // The mount's holder, twelve levels, and what a button or a text is made of.
+    assert!(deepest <= 16, "{deepest} levels");
+
+    // Pressing with the keyboard renders again: the button built in its place has the focus.
+    let button = |ui: &Ui| {
+        let mut rest: Vec<El> = ui.layers().into();
+        while let Some(e) = rest.pop() {
+            let named = e.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
+            if named.as_deref() == Some("Press") && e.info().is_some_and(|i| i.widget == "button") {
+                return Some(e);
+            }
+            rest.extend(e.child_elements());
+        }
+        None
+    };
+    let Some(press) = button(&ui) else { unreachable!("the button is there") };
+    press.focus();
+    let enter = remedy_ui_core::input::KeyEvent::press(remedy_ui_core::input::Key::Enter).with_text(None);
+    let _ = ui.key(&enter);
+    frame(&ui);
+    assert_eq!(got.borrow().len(), 1, "the handler ran");
+    let Some(again) = button(&ui) else { unreachable!("the button is there again") };
+    assert!(again.id() != press.id() && again.is_focused(), "the new button has the focus");
+}

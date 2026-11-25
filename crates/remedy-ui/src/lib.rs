@@ -82,7 +82,11 @@ pub use remedy_ui_core as core;
 pub use remedy_ui_core::a11y;
 /// The Android bridge: the app's entry point (`remedy_ui::android::main!`), the system log.
 #[cfg(target_os = "android")]
-pub use remedy_ui_platform::bridge_android as android;
+pub mod android {
+    pub use remedy_ui_platform::bridge_android::*;
+    // An exported macro lives at its crate's root: here it is beside the bridge it starts.
+    pub use remedy_ui_platform::main;
+}
 #[cfg(feature = "headless")]
 pub use remedy_ui_platform::bridge_headless as headless;
 #[cfg(feature = "gpu-embed")]

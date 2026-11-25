@@ -1491,6 +1491,22 @@ fn closing_a_view_lets_everything_it_held_go() {
 }
 
 #[test]
+fn a_memory_listener_goes_with_its_owner() {
+    use remedy_ui_engine::view::device;
+    let before = device::memory_pressure_listeners();
+    let heard = Rc::new(Cell::new(0));
+    let owner = Rc::new(7);
+    let h = heard.clone();
+    device::on_memory_pressure_for(&owner, move |o, _| h.set(h.get() + **o));
+    device::memory_pressure(device::MemoryPressure::Moderate);
+    assert_eq!(heard.get(), 7);
+    drop(owner);
+    device::memory_pressure(device::MemoryPressure::Moderate);
+    assert_eq!(heard.get(), 7, "a dropped owner hears nothing");
+    assert_eq!(device::memory_pressure_listeners(), before, "and its listener is gone");
+}
+
+#[test]
 fn packs_hear_about_memory_and_the_machine() {
     use remedy_ui_engine::view::device;
     let heard = Rc::new(Cell::new(0));

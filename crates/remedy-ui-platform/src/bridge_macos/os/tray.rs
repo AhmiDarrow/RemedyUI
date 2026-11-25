@@ -69,7 +69,9 @@ pub(crate) fn set_waker(w: Waker) {
 /// An image from premultiplied RGBA (the bitmap format AppKit uses by default).
 fn image(size: u32, rgba: &[u8]) -> Option<Retained<NSImage>> {
     let n = isize::try_from(size).ok()?;
-    if rgba.len() != size as usize * size as usize * 4 {
+    // Checked: a size near `u32::MAX` squared does not fit.
+    let bytes = (size as usize).checked_mul(size as usize).and_then(|n| n.checked_mul(4));
+    if Some(rgba.len()) != bytes {
         return None;
     }
     // SAFETY: a bitmap that allocates its own buffer of exactly `rgba.len()` bytes (8 bits ×
