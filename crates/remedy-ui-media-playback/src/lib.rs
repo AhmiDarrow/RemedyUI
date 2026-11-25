@@ -75,6 +75,7 @@ mod capture;
 mod cue_layout;
 pub mod deps;
 mod engine;
+mod feed;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
 // shortcut: macOS only refuses playlists (no `Elementary` there yet); a page reads HLS through
@@ -97,6 +98,7 @@ mod player;
 mod session;
 mod stretch;
 mod subtitles;
+pub mod synth;
 mod widget;
 
 use std::sync::Arc;
@@ -104,8 +106,9 @@ use std::sync::Arc;
 pub use capture::{Microphone, MicrophoneOptions, MicrophoneState};
 pub use deps::{DependencyState, MissingDependency};
 pub use engine::{PlaybackState, PlaybackStats};
+pub use feed::AudioFeed;
 pub use host::{
-    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, MediaError, MediaHost, MediaInfo,
+    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaError, MediaHost, MediaInfo,
     MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource, ScreenStream,
     TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder,
     YuvMatrix, merge_ranges,

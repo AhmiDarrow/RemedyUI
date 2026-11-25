@@ -975,15 +975,28 @@ struct WebAudio {
     heard_base: u64,
     /// Where the next block starts on the context's clock.
     next_time: f64,
+    /// How far ahead of the clock sound is scheduled.
+    depth: Duration,
 }
 
 // SAFETY: as for the decoder: one thread in a page without shared memory.
 unsafe impl Send for WebAudio {}
 
 impl WebAudio {
-    fn new(format: AudioFormat) -> Result<WebAudio, MediaError> {
+    fn new(format: AudioFormat, latency: crate::host::Latency) -> Result<WebAudio, MediaError> {
         let opts = web_sys::AudioContextOptions::new();
         opts.set_sample_rate(format.sample_rate as f32);
+        // Interactive: the browser's shortest output path, and little scheduled ahead.
+        let depth = match latency {
+            crate::host::Latency::Interactive => {
+                let _ = js_sys::Reflect::set(&opts, &"latencyHint".into(), &"interactive".into());
+                Duration::from_millis(40)
+            }
+            _ => {
+                let _ = js_sys::Reflect::set(&opts, &"latencyHint".into(), &"playback".into());
+                AUDIO_BUFFER
+            }
+        };
         let ctx = web_sys::AudioContext::new_with_context_options(&opts)
             .or_else(|_| web_sys::AudioContext::new())
             .map_err(|e| MediaError::Device(js_error("WebAudio", &e)))?;
@@ -993,6 +1006,7 @@ impl WebAudio {
         Ok(WebAudio {
             ctx,
             format,
+            depth,
             blocks: VecDeque::new(),
             sources: VecDeque::new(),
             written: 0,
@@ -1014,12 +1028,12 @@ impl AudioOutput for WebAudio {
     }
 
     fn buffer(&self) -> Duration {
-        AUDIO_BUFFER
+        self.depth
     }
 
     fn room(&mut self) -> Result<usize, MediaError> {
         let queued = (self.next_time - self.ctx.current_time()).max(0.0);
-        let room = (AUDIO_BUFFER.as_secs_f64() - queued).max(0.0);
+        let room = (self.depth.as_secs_f64() - queued).max(0.0);
         Ok((room * f64::from(self.format.sample_rate)) as usize)
     }
 
@@ -1170,7 +1184,15 @@ impl MediaHost for WebHost {
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(WebAudio::new(format)?))
+        Ok(Box::new(WebAudio::new(format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(WebAudio::new(format, latency)?))
     }
 }
 
