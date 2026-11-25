@@ -1970,6 +1970,36 @@ fn app_signals_outlive_the_binding_that_first_asked_for_them() {
     }
 }
 
+/// Dragging a maximized window off the top (or Aero Snap / Win+Down) must
+/// update the window's maximized signal even when only a move event arrives.
+#[test]
+fn maximized_signal_tracks_a_user_restore_on_move() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.keep_running(true);
+        app.open(WindowSpec::new("Max").size(320.0, 200.0), |ui, _| {
+            let _ = ui.root().child(remedy_ui::widgets::text(ui, "Hello"));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = host.window_ids().first().copied().expect("a window");
+    let win = runner.app().windows().into_iter().next().expect("window");
+    win.set_maximized(true);
+    host.run_frames(&mut runner, 2);
+    assert!(win.is_maximized(), "set_maximized must flip the signal");
+    assert!(win.maximized().get());
+    // The user restores by dragging: the host changes state, then a move arrives
+    // (some platforms fire this without a resize first).
+    host.user_set_maximized(id, false);
+    host.send(HostEvent::Moved(id, Point::new(48.0, 48.0)));
+    host.run_frames(&mut runner, 2);
+    assert!(
+        !win.is_maximized(),
+        "the maximize icon must follow a drag-restore, not stay on restore"
+    );
+    assert!(!win.maximized().get());
+}
+
 /// A window shown again, or one the platform says is back in sight, is presented whole: the
 /// platform may not have kept what it showed (X11 forgets an unmapped window's pixels), and a
 /// present of only what changed would leave the rest blank.
