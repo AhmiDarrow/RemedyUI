@@ -25,6 +25,8 @@ mod macos;
 mod pulse_capture;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) mod web;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub(crate) use web::decode_audio;
 #[cfg(windows)]
 mod windows;
 

@@ -877,6 +877,48 @@ fn body_length(resp: &web_sys::Response) -> Option<u64> {
 /// Fetches `url` without blocking, a chunk at a time into `bytes`, and opens it as soon as
 /// its movie box is in (at once for a file made for streaming, its movie box first; at the
 /// end otherwise). Samples still to come wait in the feed; each chunk wakes the reader.
+/// All of `source`'s sound, mono, at `rate` frames a second: the browser decodes it
+/// (whatever it can play: mp3, wav, ogg, flac, m4a) and brings it to the rate asked for.
+pub(crate) async fn decode_audio(source: &MediaSource, rate: u32) -> Result<Vec<f32>, MediaError> {
+    let bytes: Vec<u8> = match source {
+        MediaSource::Bytes(b) => b.data.to_vec(),
+        MediaSource::File(path) => read_file(path)?,
+        MediaSource::Url(url) => {
+            let not_found = |e: JsValue| MediaError::NotFound(js_error(url, &e));
+            let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
+            let resp = JsFuture::from(win.fetch_with_str(url)).await.map_err(not_found)?;
+            let resp: web_sys::Response = resp.unchecked_into();
+            if !resp.ok() {
+                return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+            }
+            let buf = JsFuture::from(resp.array_buffer().map_err(not_found)?).await.map_err(not_found)?;
+            Uint8Array::new(&buf).to_vec()
+        }
+    };
+    let fail = |e: JsValue| MediaError::Format(js_error("the browser could not decode the sound", &e));
+    // An offline context at the wanted rate: what it decodes comes out at that rate.
+    let ctx = web_sys::OfflineAudioContext::new_with_number_of_channels_and_length_and_sample_rate(
+        1,
+        1,
+        rate as f32,
+    )
+    .map_err(|e| MediaError::Unsupported(js_error("no audio context at that rate", &e)))?;
+    let data = Uint8Array::from(bytes.as_slice()).buffer();
+    let decoded = JsFuture::from(ctx.decode_audio_data(&data).map_err(fail)?).await.map_err(fail)?;
+    let audio: web_sys::AudioBuffer = decoded.unchecked_into();
+    let channels = audio.number_of_channels();
+    let mut mono = vec![0.0f32; audio.length() as usize];
+    for c in 0..channels {
+        let plane = audio.get_channel_data(c).map_err(fail)?;
+        for (m, v) in mono.iter_mut().zip(plane) {
+            *m += v / channels as f32;
+        }
+    }
+    // A browser that kept the file's own rate leaves the last step to us.
+    let got = audio.sample_rate().round() as u32;
+    Ok(if got == rate { mono } else { crate::pcm::resample(&mono, 1, got, rate) })
+}
+
 fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>, bytes: SharedBytes) {
     wasm_bindgen_futures::spawn_local(async move {
         let not_found = |e: &JsValue| MediaError::NotFound(js_error(&url, e));
