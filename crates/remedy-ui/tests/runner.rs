@@ -1982,8 +1982,8 @@ fn maximized_signal_tracks_a_user_restore_on_move() {
     });
     let mut host = HeadlessHost::new();
     host.run_frames(&mut runner, 2);
-    let id = host.window_ids().first().copied().expect("a window");
-    let win = runner.app().windows().into_iter().next().expect("window");
+    let id = host.window_ids().first().copied().unwrap_or_else(|| unreachable!("a window"));
+    let win = runner.app().windows().into_iter().next().unwrap_or_else(|| unreachable!("window"));
     win.set_maximized(true);
     host.run_frames(&mut runner, 2);
     assert!(win.is_maximized(), "set_maximized must flip the signal");
@@ -1993,10 +1993,7 @@ fn maximized_signal_tracks_a_user_restore_on_move() {
     host.user_set_maximized(id, false);
     host.send(HostEvent::Moved(id, Point::new(48.0, 48.0)));
     host.run_frames(&mut runner, 2);
-    assert!(
-        !win.is_maximized(),
-        "the maximize icon must follow a drag-restore, not stay on restore"
-    );
+    assert!(!win.is_maximized(), "the maximize icon must follow a drag-restore, not stay on restore");
     assert!(!win.maximized().get());
 }
 
