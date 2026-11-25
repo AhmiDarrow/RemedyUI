@@ -1688,7 +1688,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
-- Layout no longer slows with depth. A growing container (`grow`) inside a row or column takes the room left and has no automatic minimum along that axis; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
+- Layout no longer slows with depth. A growing container (`grow`) in a row takes the width left and has no automatic minimum width; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
 - A held shortcut runs its command once. `Commands::set_repeats(id, true)` makes a command run again while its shortcut is held (undo, redo, zoom, next and previous).
 - A disabled menu in a menu bar takes keyboard focus like a disabled entry in a menu, and stays shut.
 - Custom color names from gradient CSS (`var(--name)`) are bounded: at most 4096 distinct names of at most 128 bytes are kept; a gradient naming more does not parse.
