@@ -2615,3 +2615,65 @@ fn a_sticky_label_in_a_snapping_shelf_stays_while_cards_snap() {
     let shelf_at = ui.tree().bounds(row.id()).map(|b| b.min.x);
     assert_eq!(at, shelf_at, "the label stuck");
 }
+
+#[test]
+fn a_window_can_refuse_to_close_and_stop_a_quit() {
+    use remedy_ui::CloseReason;
+    let asked: Rc<std::cell::RefCell<Vec<CloseReason>>> = Rc::default();
+    let allow = Rc::new(Cell::new(false));
+    let (a2, allow2) = (asked.clone(), allow.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let w = app.open(WindowSpec::new("Editor"), |_, _| {});
+        let (a, allow) = (a2.clone(), allow2.clone());
+        w.on_close_request(move |why| {
+            a.borrow_mut().push(why);
+            allow.get()
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = host.window_ids().first().copied().unwrap_or_else(|| unreachable!("a window"));
+
+    // The close button (and Alt+F4, which arrives the same way) is refused.
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_some(), "refused: still open");
+    // So is a quit.
+    runner.app().quit();
+    host.run_frames(&mut runner, 1);
+    assert!(!host.has_exited(), "the window stopped the quit");
+    assert_eq!(*asked.borrow(), [CloseReason::Window, CloseReason::Quit]);
+
+    // Once it agrees, the same request closes it.
+    allow.set(true);
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_none(), "allowed: closed");
+}
+
+#[test]
+fn closing_from_code_and_quit_now_do_not_ask() {
+    let asked = Rc::new(Cell::new(0));
+    let a2 = asked.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        for title in ["One", "Two"] {
+            let a = a2.clone();
+            app.open(WindowSpec::new(title), |_, _| {}).on_close_request(move |_| {
+                a.set(a.get() + 1);
+                false
+            });
+        }
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    // The app decided (after its Save or Discard): no question.
+    if let Some(w) = runner.app().windows().into_iter().next() {
+        w.close();
+    }
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.window_ids().len(), 1);
+    runner.app().quit_now();
+    host.run_frames(&mut runner, 1);
+    assert!(host.has_exited());
+    assert_eq!(asked.get(), 0, "neither asked");
+}

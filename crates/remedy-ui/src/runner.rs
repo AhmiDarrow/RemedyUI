@@ -732,6 +732,7 @@ impl Cancelled {
 enum Cmd {
     Open(u64, WindowSpec, Build),
     Close(u64),
+    QuitNow,
     Visible(u64, bool),
     Focus(u64),
     OnTop(u64, bool),
@@ -850,6 +851,8 @@ struct Shared {
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told when the app may be ended without another word ([`App::on_leaving`]).
     on_leaving: Option<Rc<dyn Fn(Leaving)>>,
+    /// Asked before a window closes ([`Window::on_close_request`]), by window key.
+    close_asks: HashMap<u64, CloseAsk>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
     /// Hears the app's language (its own, or the system's) when it changes.
@@ -881,6 +884,20 @@ struct Shared {
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
     #[cfg(feature = "agents")]
     agents: HashMap<u64, remedy_ui_automation::Agents>,
+}
+
+/// Asked before a window closes; false keeps it open.
+type CloseAsk = Rc<dyn Fn(CloseReason) -> bool>;
+
+/// Why a window is asked to close ([`Window::on_close_request`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CloseReason {
+    /// The person asked to close this window: its close button, Alt+F4 or the platform's
+    /// own shortcut, or a back action nothing took.
+    Window,
+    /// The app was asked to quit ([`App::quit`]).
+    Quit,
 }
 
 /// Why the app may be ended ([`App::on_leave`]).
@@ -1278,9 +1295,17 @@ impl App {
         }
     }
 
-    /// Quits.
+    /// Quits, after asking every window that has a close-request handler
+    /// ([`Window::on_close_request`], with [`CloseReason::Quit`]). The first that refuses
+    /// stops the quit; the windows after it are not asked.
     pub fn quit(&self) {
         self.push(Cmd::Quit);
+    }
+
+    /// Quits without asking any window: for after a Save or Discard answer to a prompt a
+    /// close-request handler opened.
+    pub fn quit_now(&self) {
+        self.push(Cmd::QuitNow);
     }
 
     /// True while a tray icon asked for with [`App::set_tray`] or [`App::tray_dyn`] is shown;
@@ -1828,9 +1853,25 @@ impl Window {
         self.app.0.borrow().visible.get(&self.key).copied().unwrap_or(false)
     }
 
-    /// Closes the window.
+    /// Closes the window, without asking its close-request handler: the app has decided.
     pub fn close(&self) {
         self.app.push(Cmd::Close(self.key));
+    }
+
+    /// Asks `f` before this window closes because the person asked (its close button,
+    /// Alt+F4, a back action nothing took) or because the app was told to quit
+    /// ([`App::quit`]). `f` returns true to let it close and false to keep it open: an
+    /// editor with unsaved work returns false, opens its Save / Discard / Cancel prompt, and
+    /// on Save or Discard calls [`Window::close`] (or [`App::quit_now`] when the reason was
+    /// [`CloseReason::Quit`]), neither of which asks again. A window that hides or minimizes
+    /// on close is not closing and is not asked. A second call replaces `f`.
+    pub fn on_close_request(&self, f: impl Fn(CloseReason) -> bool + 'static) {
+        self.app.0.borrow_mut().close_asks.insert(self.key, Rc::new(f));
+    }
+
+    /// Removes the close-request handler: the window closes when asked to.
+    pub fn clear_close_request(&self) {
+        self.app.0.borrow_mut().close_asks.remove(&self.key);
     }
 
     /// Shows or hides. Where the platform cannot hide an open window ([`Window::can_hide`]
@@ -2948,6 +2989,15 @@ impl Runner {
                 self.schedule_save(host);
             }
             Cmd::Quit => {
+                // In the order the windows were opened; the first refusal stops the quit.
+                let mut keys: Vec<u64> = self.wins.keys().copied().collect();
+                keys.sort_unstable();
+                if keys.into_iter().all(|key| self.may_close(key, CloseReason::Quit)) {
+                    self.save_now(host, Leaving::Quitting);
+                    host.exit();
+                }
+            }
+            Cmd::QuitNow => {
                 self.save_now(host, Leaving::Quitting);
                 host.exit();
             }
@@ -3137,9 +3187,16 @@ impl Runner {
         } else if hide {
             host.set_visible(window, false);
             self.app.note_visible(key, false);
-        } else {
+        } else if self.may_close(key, CloseReason::Window) {
             host.close_window(window);
         }
+    }
+
+    /// Asks the window's close-request handler, if it has one. The handler is called with no
+    /// borrow held, so it may open a prompt, close windows or quit.
+    fn may_close(&self, key: u64, why: CloseReason) -> bool {
+        let ask = self.app.0.borrow().close_asks.get(&key).cloned();
+        ask.is_none_or(|f| f(why))
     }
 
     /// Writes window geometry and persisted state now: before the app quits, and when it may
@@ -4032,6 +4089,7 @@ impl remedy_ui_host::App for Runner {
                         s.open.remove(&key);
                         let ui = s.uis.remove(&key);
                         s.visible.remove(&key);
+                        s.close_asks.remove(&key);
                         s.unhideable.remove(&key);
                         s.on_geometry.remove(&key);
                         s.on_visibility.remove(&key);
