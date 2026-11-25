@@ -2677,3 +2677,30 @@ fn closing_from_code_and_quit_now_do_not_ask() {
     assert!(host.has_exited());
     assert_eq!(asked.get(), 0, "neither asked");
 }
+
+#[test]
+fn the_app_hears_when_it_is_back_once_for_each_time_away() {
+    let back = Rc::new(Cell::new(0));
+    let b = back.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let b = b.clone();
+        app.on_return(move || b.set(b.get() + 1));
+        app.open(WindowSpec::new("Away"), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(back.get(), 0, "not at launch");
+    let id = first(&host);
+    // Shown again without having been hidden is not a return.
+    host.send(HostEvent::Occluded(id, false));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(back.get(), 0);
+    host.send(HostEvent::Occluded(id, true));
+    host.send(HostEvent::Occluded(id, false));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(back.get(), 1, "back in sight");
+    host.send(HostEvent::Suspended);
+    host.send(HostEvent::Resumed);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(back.get(), 2, "back from being frozen");
+}
