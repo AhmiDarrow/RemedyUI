@@ -48,7 +48,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |
 | Source migrations | `syn` 2 (`full`, `visit`) and `proc-macro2` (`span-locations`) | 2.0.119, 1.0.107 (the macro crates' versions) | `cargo-remedy` (a tool, not linked into apps) | `cargo remedy migrate` parses an app's sources and edits at token spans, so renames never touch strings or comments |
 | Gzip | `flate2` (`rust_backend`) | 1.1.11 (already in the tree through `zip`) | `cargo-remedy` | Linux packages are `.tar.gz`; MIT OR Apache-2.0 |
-| Crate paths in derives | `proc-macro-crate` | 3.5.0 (already in the tree through `toml_edit` users) | `macros` (build time only) | Finds how the deriving crate names RemedyUI (the `remedy-ui` facade, or `remedy-ui-reactive` directly, renamed or not), so generated code works for both; MIT OR Apache-2.0 |
+| Crate paths in derives | `proc-macro-crate` | 3.5.0 (already in the tree through `toml_edit` users) | `macros` (build time only) | Finds how the deriving crate names RemedyUI (the `remedy-ui` facade, or `remedy-ui-core::reactive` directly, renamed or not), so generated code works for both; MIT OR Apache-2.0 |
 | Platform APIs | `windows`, `objc2`, `ndk`, `jni` | pinned per bridge | bridges, `services-desktop` | OS calls, in the bridges' `os` modules only. `windows-collections` 0.3.2 (part of `windows` 0.62 and already in its tree) makes the list of files the Windows share window takes |
 | Notifications (macOS) | `objc2-user-notifications`, `block2` | 0.3.2, 0.6.2 | `bridge-macos` | The User Notifications framework's bindings from the `objc2` project the bridges already use (Zlib, Apache-2.0 or MIT), with only the classes the bridge calls; `block2` (already in the tree through AppKit's bindings) for its completion handlers. No imported audit covers `objc2-user-notifications` 0.3.2, so `cargo vet` exempts it like the other `objc2` 0.3.2 bindings: it is generated code from the same project and release |
 | Raw platform calls | `windows-sys`, `libc` | 0.61.2, 0.2.191 | `bridge-windows`, `bridge-linux`, `services-update`, `services-desktop` (the registry and power requests), `media-isolated`, `embed-webview` | The decoding helper's sandbox (AppContainer, restricted token, job object; seccomp-bpf, Landlock, memfds, descriptor passing; Seatbelt), in `media-isolated`'s `os` module only; `dlopen` of GTK 3 and WebKitGTK in `embed-webview`'s `os` module, so apps build and start without them |
@@ -73,16 +73,16 @@ Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `ca
 
 ### The developer tools
 
-`remedy-tools`, `cargo-remedy` and `remedy-mcp` are tools, and no app links them. They add:
+`cargo-remedy::devkit`, `cargo-remedy` and `remedy-mcp` are tools, and no app links them. They add:
 
 | Area | Crate | Version | Tool | Why this one |
 |---|---|---|---|---|
 | Model Context Protocol | `rmcp` | 3.11.0 | `remedy-mcp` | The official Rust MCP SDK (Apache-2.0): its server, the stdio and streamable-HTTP transports, and the client the tests script. It brings `chrono`, which is marked unmaintained (a maintenance notice, recorded in `deny.toml`) |
 | Async runtime | `tokio` | 1.54.1 | `remedy-mcp` | rmcp runs on it. The tools themselves block, and the server runs them on tokio's blocking pool |
 | HTTP server | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tower-service` | 1.12.0, 0.1.21, 0.1.5, 1.12.1, 0.3.3 | `remedy-mcp` (feature `http`) | Serves rmcp's streamable-HTTP service on loopback, behind the bearer-token check |
-| JSON schemas | `schemars` | 1.2.3 | `remedy-mcp`, `remedy-tools` (feature `schema`) | Every tool's input schema comes from its typed input, with the field docs as descriptions (the version rmcp uses) |
-| Compressed docs index | `flate2` (miniz_oxide back end) | 1.1.11 | `remedy-tools` (feature `docs`), `xtask` | The committed docs index is zlib-compressed JSON (about 470 KB instead of 1.6 MB); the version `cargo-remedy` already uses for packaging |
-| Manifests | `toml` | 1.2.1 | `cargo-remedy`, `remedy-tools` (feature `preview`) | Reads an app's Cargo.toml and writes the preview harness's |
+| JSON schemas | `schemars` | 1.2.3 | `remedy-mcp`, `cargo-remedy::devkit` (feature `schema`) | Every tool's input schema comes from its typed input, with the field docs as descriptions (the version rmcp uses) |
+| Compressed docs index | `flate2` (miniz_oxide back end) | 1.1.11 | `cargo-remedy::devkit` (feature `docs`), `xtask` | The committed docs index is zlib-compressed JSON (about 470 KB instead of 1.6 MB); the version `cargo-remedy` already uses for packaging |
+| Manifests | `toml` | 1.2.1 | `cargo-remedy`, `cargo-remedy::devkit` (feature `preview`) | Reads an app's Cargo.toml and writes the preview harness's |
 
 ## Rules
 

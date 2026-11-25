@@ -7,8 +7,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_host::HostEvent;
-use remedy_ui_input::{GamepadKeys, GamepadTuning, PadButtons, PadState};
+use remedy_ui_core::host::HostEvent;
+use remedy_ui_core::input::{GamepadKeys, GamepadTuning, PadButtons, PadState};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -36,7 +36,7 @@ pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window) {
     d.add_global(Listener::new(win, "gamepadconnected", |_| start()));
 }
 
-/// The app's tuning ([`remedy_ui_host::Host::set_gamepad_tuning`]).
+/// The app's tuning ([`remedy_ui_core::host::Host::set_gamepad_tuning`]).
 pub(crate) fn set_tuning(tuning: GamepadTuning) {
     KEYS.with_borrow_mut(|k| k.set_tuning(tuning));
 }

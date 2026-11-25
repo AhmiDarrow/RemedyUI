@@ -1,4 +1,4 @@
-"""Generates remedy-ui-themes/src/palettes.rs from Old-Remedy's themes.ts (the shared Remedy palettes)."""
+"""Generates remedy-ui-widgets/src/themes/palettes.rs from Old-Remedy's themes.ts (the shared Remedy palettes)."""
 import os
 import re
 import sys
@@ -49,7 +49,7 @@ for pid, name, kind, vals in found:
         out.append(f'        {k}: "{vals[v].lower()}",')
     out.append('    },')
 out.append('];')
-dest = os.path.expanduser('~/Projects/RemedyUI/crates/remedy-ui-themes/src/palettes.rs')
+dest = os.path.expanduser('~/Projects/RemedyUI/crates/remedy-ui-widgets/src/themes/palettes.rs')
 os.makedirs(os.path.dirname(dest), exist_ok=True)
 open(dest, 'w', encoding='utf-8', newline='\n').write('\n'.join(out) + '\n')
 print(len(found), 'palettes:', ', '.join(p[0] for p in found))

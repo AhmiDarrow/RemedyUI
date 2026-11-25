@@ -7,21 +7,21 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use remedy_ui_core::host::ImeEvent;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
 use remedy_ui_core::{Color, Point, Size, Vec2};
-use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
-use remedy_ui_paint::Item;
+use remedy_ui_engine::paint::Item;
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
 use remedy_ui_widgets_term::*;
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn find(el: &El, widget: &str) -> Vec<El> {
@@ -38,7 +38,7 @@ fn find(el: &El, widget: &str) -> Vec<El> {
     out
 }
 
-fn collect(layer: &remedy_ui_compositor::Layer, out: &mut Vec<Item>) {
+fn collect(layer: &remedy_ui_engine::compositor::Layer, out: &mut Vec<Item>) {
     out.extend(layer.content.items().iter().cloned());
     for c in &layer.children {
         collect(c, out);
@@ -92,7 +92,7 @@ impl H {
 
     fn frame(&mut self) {
         for _ in 0..6 {
-            let _ = remedy_ui_reactive::run_posted();
+            let _ = remedy_ui_core::reactive::run_posted();
             let f = self.ui.frame(self.size, 1.0);
             if let Some(t) = f.layers {
                 for r in &t.roots {
@@ -223,7 +223,7 @@ fn output_shows_in_theme_colors_on_rows_built_only_near_the_view() {
         items
             .iter()
             .filter(
-                |i| matches!(i, Item::FillRect { brush: remedy_ui_paint::Brush::Solid(b), .. } if *b == c),
+                |i| matches!(i, Item::FillRect { brush: remedy_ui_engine::paint::Brush::Solid(b), .. } if *b == c),
             )
             .count()
     };
@@ -451,7 +451,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
     h.fire_timers();
     let root = h.term.input_element();
     let s = root.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(s.role(), remedy_ui_a11y::Role::MultilineTextInput);
+    assert_eq!(s.role(), remedy_ui_core::a11y::Role::MultilineTextInput);
     assert_eq!(s.name(), Some("Terminal"));
     assert_eq!(s.value_text(), Some("build started\ncompiling\nbuild ok"));
     let announcer = find(&h.ui.root(), "terminal_announcer")
@@ -459,7 +459,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
         .next()
         .unwrap_or_else(|| unreachable!("announcer"));
     let a = announcer.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("announcer semantics"));
-    assert_eq!(a.live_state(), remedy_ui_a11y::Live::Polite);
+    assert_eq!(a.live_state(), remedy_ui_core::a11y::Live::Polite);
     assert_eq!(a.name(), Some("build started\ncompiling\nbuild ok"));
     // Output in quick succession is read in one go, after a pause (one timer, not one each).
     h.term.feeder().feed(b"\r\none");
@@ -488,7 +488,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
     assert_eq!(TerminalOptions::localized("ja").label, "ターミナル");
 }
@@ -546,14 +546,14 @@ fn a_view_scrolled_back_stays_on_its_lines_as_old_ones_leave() {
 
 #[test]
 fn theme_tokens_color_the_terminal() {
-    let mut theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let mut theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let derived = ansi(&theme, 1);
     let pink = Color::rgb8(255, 0, 170);
     theme.colors.custom.insert("term-1".into(), pink);
     assert_eq!(ansi(&theme, 1), pink);
     assert_ne!(derived, pink);
     // The derived colors read on the terminal's background.
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let bg = background(&theme);
     for i in 1..=6u8 {
         assert!(ansi(&theme, i).contrast(bg) >= 4.4, "term-{i}");
@@ -566,7 +566,7 @@ fn the_terminal_passes_the_accessibility_audit() {
     let mut h = H::new();
     h.feed(b"\x1b[1mhello\x1b[0m world");
     h.focus();
-    let audit = remedy_ui_devtools::audit(&h.ui);
+    let audit = remedy_ui_widgets::devtools::audit(&h.ui);
     assert!(audit.is_empty(), "{:#?}", audit.iter().map(|p| p.message()).collect::<Vec<_>>());
 }
 
@@ -724,7 +724,7 @@ fn memory_pressure_empties_the_scrollback() {
     }
     h.feed(&lines);
     assert!(h.term.with_emulator(Emulator::history_len) > 400);
-    remedy_ui_view::device::memory_pressure(remedy_ui_view::device::MemoryPressure::Critical);
+    remedy_ui_engine::view::device::memory_pressure(remedy_ui_engine::view::device::MemoryPressure::Critical);
     h.frame();
     assert_eq!(h.term.with_emulator(Emulator::history_len), 0);
     assert!(h.term.with_emulator(Emulator::screen_text).contains("line 499"));
@@ -761,12 +761,12 @@ fn a_real_monospace_face_is_preferred() {
     let h = H::new();
     assert!(!h.term.is_monospace());
     // With the system's fonts, the system's monospace face is used.
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::with_system_fonts();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
+    let ui = Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts);
     let h = H::on(ui, TerminalOptions::default());
     assert!(h.term.is_monospace(), "this machine has a monospace font");
 }

@@ -11,16 +11,80 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+reactive-persist = ["dep:serde", "dep:serde_json", "dep:wasm-bindgen", "dep:web-sys"]
+
 [dependencies]
+accesskit = { version = "=0.25.2" }
+raw-window-handle = { version = "=0.6.2" }
+serde = { version = "=1.0.229", optional = true }
+serde_json = { version = "=1.0.154", optional = true }
+stacker = { version = "=0.1.25" }
+taffy = { version = "=0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 
-# The page's clocks in a browser (std's panic on wasm32-unknown-unknown).
-# The calling thread's own processor time (the OS's per-thread clock), off the web.
+[dev-dependencies]
+accesskit_consumer = { version = "=0.39.2" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
+remedy-ui-core = { path = ".", features = ["reactive-persist"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "=0.2.130", optional = true }
+web-sys = { version = "=0.3.107", features = ["DomException", "Storage", "Window"], optional = true }
+web-time = { version = "=1.1.0" }
+
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 cpu-time = { version = "=1.0.0" }
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-web-time = { version = "=1.1.0" }
+[[test]]
+name = "input"
+path = "tests/input/input.rs"
+
+[[test]]
+name = "a11y"
+path = "tests/a11y/a11y.rs"
+
+[[test]]
+name = "layout"
+path = "tests/layout/layout.rs"
+
+[[test]]
+name = "virtual_list"
+path = "tests/layout/virtual_list.rs"
+
+[[test]]
+name = "motion"
+path = "tests/motion/motion.rs"
+
+[[test]]
+name = "tree"
+path = "tests/tree/tree.rs"
+
+[[test]]
+name = "style"
+path = "tests/style/style.rs"
+
+[[test]]
+name = "context_and_resources"
+path = "tests/reactive/context_and_resources.rs"
+
+[[test]]
+name = "debug"
+path = "tests/reactive/debug.rs"
+
+[[test]]
+name = "graph"
+path = "tests/reactive/graph.rs"
+
+[[test]]
+name = "posts_and_vecs"
+path = "tests/reactive/posts_and_vecs.rs"
+
+[[test]]
+name = "harness"
+path = "tests/testing/harness.rs"
 
 [lints]
 workspace = true

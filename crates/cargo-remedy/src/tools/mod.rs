@@ -1,4 +1,4 @@
-//! The developer-tool commands over `remedy-tools`: everything the `remedy-mcp` server offers
+//! The developer-tool commands over `cargo-remedy::devkit`: everything the `remedy-mcp` server offers
 //! agents, for people and scripts. Readable output by default, `--json` for scripts.
 //!
 //! - `cargo remedy docs <query>` / `docs read <path>` / `docs list`
@@ -162,7 +162,7 @@ impl Args {
 }
 
 /// A tool error as a command's error.
-pub fn err(e: remedy_tools::ToolError) -> String {
+pub fn err(e: cargo_remedy::devkit::ToolError) -> String {
     e.0
 }
 

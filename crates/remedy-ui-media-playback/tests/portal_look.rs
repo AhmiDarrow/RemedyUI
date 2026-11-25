@@ -7,16 +7,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_core::{Point, Size};
-use remedy_ui_devtools::Snapshot;
-use remedy_ui_input::{PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
+use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::{Picture, PixelFormat};
 use remedy_ui_media_playback::*;
-use remedy_ui_media_video::{Picture, PixelFormat};
-use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
-use remedy_ui_widgets_core::Icon;
+use remedy_ui_widgets::base::Icon;
+use remedy_ui_widgets::devtools::Snapshot;
 
 /// Portal's glyphs, as its page draws them: filled paths, and `.line` paths stroked 1.8 wide.
 fn portal_svg(icon: Icon) -> Option<&'static str> {
@@ -62,7 +62,7 @@ fn svg(ui: &Ui, body: &str, size: f32) -> El {
     let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">{body}</svg>"#
     );
-    remedy_ui_media_image::svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
+    remedy_ui_media::media_image::svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
 }
 
 /// What a Portal app hands the player for its glyphs.
@@ -75,10 +75,13 @@ fn pip_button(ui: &Ui) -> El {
     let size = ui.theme().metric("player-glyph", 16.0);
     ui.el("player_button")
         .row()
-        .align(remedy_ui_layout::Align::Center)
-        .justify(remedy_ui_layout::Justify::Center)
+        .align(remedy_ui_core::layout::Align::Center)
+        .justify(remedy_ui_core::layout::Justify::Center)
         .child(svg(ui, PIP, size))
-        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Picture in picture"))
+        .semantics(
+            remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button)
+                .label("Picture in picture"),
+        )
 }
 
 /// A frame of Portal's test file (tests/fixtures/portal-frame.png), as a decoder gives it.
@@ -147,7 +150,8 @@ struct Window {
 
 impl Window {
     fn new(id: &str, size: Size) -> Window {
-        let theme = remedy_ui_themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
+        let theme =
+            remedy_ui_widgets::themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
         let mut fonts = FontCollection::new();
         for face in remedy_ui_fonts::all() {
             let _ = fonts.add_static(face.data);
@@ -157,9 +161,9 @@ impl Window {
         SVG_FONTS.call_once(|| {
             remedy_ui_fonts::all()
                 .into_iter()
-                .for_each(|f| remedy_ui_media_image::svg::add_font(f.data.to_vec()))
+                .for_each(|f| remedy_ui_media::media_image::svg::add_font(f.data.to_vec()))
         });
-        let ui = Ui::new(theme.clone(), remedy_ui_themes::portal_sheet(&theme), fonts);
+        let ui = Ui::new(theme.clone(), remedy_ui_widgets::themes::portal_sheet(&theme), fonts);
         ui.set_reduced_motion(true);
         let (w, h) = (size.width as u32, size.height as u32);
         Window {
@@ -173,17 +177,17 @@ impl Window {
     }
 
     fn pump(&mut self) {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let f = self.ui.frame(self.size, 1.0);
         if let Some(l) = f.layers {
             self.comp.commit(l);
         }
         for r in self.ui.take_requests() {
             match r {
-                remedy_ui_view::Request::Timer { id, delay } => {
+                remedy_ui_engine::view::Request::Timer { id, delay } => {
                     self.timers.push((id, Instant::now() + delay))
                 }
-                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                remedy_ui_engine::view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
                 _ => {}
             }
         }
@@ -429,20 +433,21 @@ fn up_next_reads_as_portals_card_with_a_spaced_label() {
     let info = label.info().unwrap_or_else(|| unreachable!());
     // Drawn in capitals; its text (what is read and copied) as written.
     assert_eq!(info.text.as_deref(), Some("Up next"));
-    assert_eq!(info.style.text_transform, remedy_ui_style::TextTransform::Upper);
-    assert_eq!(info.style.letter_spacing, remedy_ui_style::LetterSpacing::Em(0.08));
+    assert_eq!(info.style.text_transform, remedy_ui_core::style::TextTransform::Upper);
+    assert_eq!(info.style.letter_spacing, remedy_ui_core::style::LetterSpacing::Em(0.08));
     // Laid out with the label's look, and without its spacing: seven clusters, 0.96 px each.
     let ui = view.ui().clone();
     let words = |spaced: bool| {
-        let look = remedy_ui_style::StylePatch::default().text_size(12.0);
-        let look = if spaced { look.letter_spacing(remedy_ui_style::LetterSpacing::Em(0.08)) } else { look };
+        let look = remedy_ui_core::style::StylePatch::default().text_size(12.0);
+        let look =
+            if spaced { look.letter_spacing(remedy_ui_core::style::LetterSpacing::Em(0.08)) } else { look };
         let el = ui.el("label").nowrap().style(look).text("UP NEXT").layout(|l| {
-            l.position = remedy_ui_layout::Position::Absolute;
+            l.position = remedy_ui_core::layout::Position::Absolute;
             l.inset = remedy_ui_core::Insets {
                 top: 0.0,
                 start: 0.0,
-                end: remedy_ui_layout::AUTO,
-                bottom: remedy_ui_layout::AUTO,
+                end: remedy_ui_core::layout::AUTO,
+                bottom: remedy_ui_core::layout::AUTO,
             };
         });
         let _ = ui.root().child(el.clone());

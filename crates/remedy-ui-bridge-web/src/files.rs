@@ -85,7 +85,7 @@ pub fn download_name(path: &Path) -> String {
 /// Hands `bytes` to the browser as a download named after `path`'s file name (a path a save
 /// dialog answered with). The browser shows it in its downloads and, as the user set it,
 /// asks where to put it or saves it to the downloads folder.
-pub fn save(path: &Path, bytes: &[u8]) -> Result<(), remedy_ui_host::Unsupported> {
+pub fn save(path: &Path, bytes: &[u8]) -> Result<(), remedy_ui_core::host::Unsupported> {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         crate::web::download(&download_name(path), bytes)
@@ -93,7 +93,7 @@ pub fn save(path: &Path, bytes: &[u8]) -> Result<(), remedy_ui_host::Unsupported
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         let _ = (path, bytes);
-        Err(remedy_ui_host::Unsupported::new("downloads", "downloads exist only in a browser page"))
+        Err(remedy_ui_core::host::Unsupported::new("downloads", "downloads exist only in a browser page"))
     }
 }
 

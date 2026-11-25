@@ -10,7 +10,7 @@ entry points, with each gap fixed at its root. The rules it applied are in
 enums, 150 constants, 22 traits, 19 aliases), searched for each rule below; a struct-literal
 census across the workspace and FreeSpeak (the one Remedy app on the engine whose sources
 are here) to size each change; then each crate's surface read where a rule flagged it.
-`remedy-ui-script` and `remedy-ui-widgets-board` were rebuilt on a language-neutral
+`remedy-ui-engine::script` and `remedy-ui-widgets::board` were rebuilt on a language-neutral
 interface with WebAssembly, and later on RemedyLua in place of the Rhai placeholder
 ("Scripted widgets" below).
 
@@ -23,17 +23,17 @@ under "Room to grow" with the replacement for each.
 
 | Crate | Old | New | Why |
 |---|---|---|---|
-| `remedy-ui-text` | `StylePatch` | `TextStylePatch` | Two public types were named `StylePatch` (element styles in `remedy-ui-style`, span styles here), both reachable through the facade. One name per concept. |
-| `remedy-ui-view` | re-export `TextPatch` | `TextStylePatch` | The same type under a third name. |
-| `remedy-ui-bridge-headless` | `HeadlessWindow::{maximized, fullscreen, minimized, frame_requested}` | `is_maximized`, `is_fullscreen`, `is_minimized`, `is_frame_requested` | Boolean states read `is_*` everywhere, as on the facade's `Window` (`is_fullscreen`, `is_maximized`, `is_visible`). |
-| `remedy-ui-bridge-headless` | `HeadlessHost::exited` | `has_exited` | Same rule, for an event that happened. |
+| `remedy-ui-text` | `StylePatch` | `TextStylePatch` | Two public types were named `StylePatch` (element styles in `remedy-ui-core::style`, span styles here), both reachable through the facade. One name per concept. |
+| `remedy-ui-engine::view` | re-export `TextPatch` | `TextStylePatch` | The same type under a third name. |
+| `remedy-ui-platform::bridge_headless` | `HeadlessWindow::{maximized, fullscreen, minimized, frame_requested}` | `is_maximized`, `is_fullscreen`, `is_minimized`, `is_frame_requested` | Boolean states read `is_*` everywhere, as on the facade's `Window` (`is_fullscreen`, `is_maximized`, `is_visible`). |
+| `remedy-ui-platform::bridge_headless` | `HeadlessHost::exited` | `has_exited` | Same rule, for an event that happened. |
 | `remedy-ui-media-playback` | `Player::{muted, fullscreen}` | `is_muted`, `is_fullscreen` | Pairs `set_muted` / `request_fullscreen` with the facade's `set_*` / `is_*`. |
-| `remedy-ui-embed-webview` | `WebView::loading` | `is_loading` | Boolean state. |
-| `remedy-ui-view` | `Ui::occluded` | `is_occluded` | Boolean state. |
+| `remedy-ui-platform::embed_webview` | `WebView::loading` | `is_loading` | Boolean state. |
+| `remedy-ui-engine::view` | `Ui::occluded` | `is_occluded` | Boolean state. |
 | `remedy-ui-widgets-term` | `Terminal::monospace` | `is_monospace` | Boolean state. |
-| `remedy-ui-view` | `Ui::set_time(ms: u64)` | `Ui::set_clock(Duration)` | The unit was only in a parameter name; the setter now takes a `Duration`. Not mechanical (the argument changes type), so not in the migration table. |
-| `remedy-ui-widgets-core` | `label(ui, s, variant)` (deprecated, kept) | `text(ui, s).variant(variant)` | The variant was always required; `text` plus the `variant` builder is the one way, with the variant optional. FreeSpeak uses `label`, so it stays deprecated for a release. `cargo remedy migrate` rewrites the calls. |
-| `remedy-ui-rui` | `build::compile_dir_to(dir, out, customs, cargo)` | `compile_dir_to(root, dir, out, customs, cargo)` | Compiled markup names the runtime by a root path (below). |
+| `remedy-ui-engine::view` | `Ui::set_time(ms: u64)` | `Ui::set_clock(Duration)` | The unit was only in a parameter name; the setter now takes a `Duration`. Not mechanical (the argument changes type), so not in the migration table. |
+| `remedy-ui-widgets::base` | `label(ui, s, variant)` (deprecated, kept) | `text(ui, s).variant(variant)` | The variant was always required; `text` plus the `variant` builder is the one way, with the variant optional. FreeSpeak uses `label`, so it stays deprecated for a release. `cargo remedy migrate` rewrites the calls. |
+| `remedy-ui-widgets::rui` | `build::compile_dir_to(dir, out, customs, cargo)` | `compile_dir_to(root, dir, out, customs, cargo)` | Compiled markup names the runtime by a root path (below). |
 
 Names examined and kept, with the rule they follow:
 
@@ -73,14 +73,14 @@ implements `std::error::Error` and `Display`. No `Result<_, String>` is public.
 |---|---|---|
 | `remedy-ui` | `RunError(pub String)` | `#[non_exhaustive] enum RunError { SingleInstance, Bridge, UnsupportedPlatform, NeedsFeature }` |
 | `remedy-ui` | `App::open_url(.., FnOnce(Result<(), String>))` | `FnOnce(Result<(), host::Unsupported>)` |
-| `remedy-ui-bridge-winit`, `remedy-ui-bridge-web` | `RunError(pub String)` | opaque `RunError` (`new`, `reason()`) |
+| `remedy-ui-platform::bridge_winit`, `remedy-ui-bridge-web` | `RunError(pub String)` | opaque `RunError` (`new`, `reason()`) |
 | `remedy-ui-core` | `exec::SpawnError(pub String)` | opaque (`reason()`) |
-| `remedy-ui-devtools` | `Snapshot::to_png / from_png -> Result<_, String>` | `PngError`; `GoldenError` implements `Error` and gains `Png` |
-| `remedy-ui-services-desktop` | `autostart::set`, `set_in`, `reveal -> Result<(), String>` | `DesktopError` (`NotFound`, `NoAutostartFolder`, `Io`, `Platform`) |
-| `remedy-ui-services-spell` | `SpellBackend::{check_word, suggest}`, `BackendFactory` with `String` | `BackendError` (`From<String>` / `From<&str>`, so back ends keep using `?`); `SpellError::Backend(BackendError)` with `source()` |
-| `remedy-ui-embed-gpu` | `GpuContent::prepare -> Result<(), String>` | `PrepareError` |
-| `remedy-ui-widgets-core` | validators returning `Result<(), String>` | `Rejection`, the reason an app turns down a person's edit, used by `Column::editable`, `TreeState::set_import`, `MoveBox` and `Form::field` |
-| `remedy-ui-widgets-nav` | (new) | `BindingsError` for imported shortcut bindings |
+| `remedy-ui-widgets::devtools` | `Snapshot::to_png / from_png -> Result<_, String>` | `PngError`; `GoldenError` implements `Error` and gains `Png` |
+| `remedy-ui-platform::services_desktop` | `autostart::set`, `set_in`, `reveal -> Result<(), String>` | `DesktopError` (`NotFound`, `NoAutostartFolder`, `Io`, `Platform`) |
+| `remedy-ui-widgets::spell` | `SpellBackend::{check_word, suggest}`, `BackendFactory` with `String` | `BackendError` (`From<String>` / `From<&str>`, so back ends keep using `?`); `SpellError::Backend(BackendError)` with `source()` |
+| `remedy-ui-platform::embed_gpu` | `GpuContent::prepare -> Result<(), String>` | `PrepareError` |
+| `remedy-ui-widgets::base` | validators returning `Result<(), String>` | `Rejection`, the reason an app turns down a person's edit, used by `Column::editable`, `TreeState::set_import`, `MoveBox` and `Form::field` |
+| `remedy-ui-widgets::nav` | (new) | `BindingsError` for imported shortcut bindings |
 | `remedy-ui-core` | (new) | `ParseEditionError` |
 
 ## Room to grow
@@ -91,52 +91,52 @@ comment saying why. Per crate:
 | Crate | Changed |
 |---|---|
 | `remedy-ui` | enums: RendererChoice, RendererKind, RunError; structs: AppConfig, WindowSpec |
-| `remedy-ui-a11y` | enums: Action, Live, Role; structs: ReaderNode |
-| `remedy-ui-automation` | enums: AgentAction, Answer, Refused, Request, Scope; structs: CommandNode, Node, Snapshot |
-| `remedy-ui-bridge-android` | structs: AndroidSettings |
+| `remedy-ui-core::a11y` | enums: Action, Live, Role; structs: ReaderNode |
+| `remedy-ui-widgets::automation` | enums: AgentAction, Answer, Refused, Request, Scope; structs: CommandNode, Node, Snapshot |
+| `remedy-ui-platform::bridge_android` | structs: AndroidSettings |
 | `remedy-ui-bridge-web` | enums: Mount; structs: RunError, WebConfig |
-| `remedy-ui-bridge-winit` | enums: Backend, UserEvent, WindowNotice; structs: RunError |
-| `remedy-ui-compositor` | structs: FrameReport; kept exhaustive: CompositeOp |
+| `remedy-ui-platform::bridge_winit` | enums: Backend, UserEvent, WindowNotice; structs: RunError |
+| `remedy-ui-engine::compositor` | structs: FrameReport; kept exhaustive: CompositeOp |
 | `remedy-ui-core` | enums: Edition, ParseColorError |
-| `remedy-ui-customize` | enums: Area, CustomizeError, RefusalKind, TokenKind, TokenValue; structs: ContrastWarning, ImportPolicy, ImportReport, Notice, Refusal |
-| `remedy-ui-devtools` | enums: GoldenError, PngError, ProblemKind, RemoteAnswer, RemoteRequest, Unreachable; structs: FrameSample, Problem, ReaderLine, RemoteBinding, RemoteElement, RemoteFrame, RemoteNode, RemoteOptions, RemoteProblem, RemoteRead, RemoteReaderNode, RemoteUpdate, Slice, UpdateEntry |
-| `remedy-ui-doc-code` | enums: DiffLine, Kind; structs: CodeOptions |
-| `remedy-ui-doc-pages` | enums: AnnotationKind, Fit, RenderError, Shape, Spread, Tool; structs: PageStats, RenderRequest, SearchStatus; kept exhaustive: Rotation |
-| `remedy-ui-doc-rich` | structs: RichEditorOptions |
-| `remedy-ui-embed-gpu` | enums: EmbedInput, EmbedStatus; structs: EmbedStats, Gpu, PrepareError, Target |
-| `remedy-ui-embed-webview` | enums: BlockReason, NavigationSource, WebViewStatus; structs: Blocked, DownloadRequest, NavigationRequest |
+| `remedy-ui-widgets::customize` | enums: Area, CustomizeError, RefusalKind, TokenKind, TokenValue; structs: ContrastWarning, ImportPolicy, ImportReport, Notice, Refusal |
+| `remedy-ui-widgets::devtools` | enums: GoldenError, PngError, ProblemKind, RemoteAnswer, RemoteRequest, Unreachable; structs: FrameSample, Problem, ReaderLine, RemoteBinding, RemoteElement, RemoteFrame, RemoteNode, RemoteOptions, RemoteProblem, RemoteRead, RemoteReaderNode, RemoteUpdate, Slice, UpdateEntry |
+| `remedy-ui-widgets::doc_code` | enums: DiffLine, Kind; structs: CodeOptions |
+| `remedy-ui-widgets::doc_pages` | enums: AnnotationKind, Fit, RenderError, Shape, Spread, Tool; structs: PageStats, RenderRequest, SearchStatus; kept exhaustive: Rotation |
+| `remedy-ui-widgets::doc_rich` | structs: RichEditorOptions |
+| `remedy-ui-platform::embed_gpu` | enums: EmbedInput, EmbedStatus; structs: EmbedStats, Gpu, PrepareError, Target |
+| `remedy-ui-platform::embed_webview` | enums: BlockReason, NavigationSource, WebViewStatus; structs: Blocked, DownloadRequest, NavigationRequest |
 | `remedy-ui-fonts` | enums: Style |
-| `remedy-ui-host` | enums: TrayEvent; structs: FileDialog, SystemSettings, TextInputState, TrayIcon, Unsupported, WindowOptions; kept exhaustive: AccessibilityEvent, DialogStarted, DragEvent, DragStarted, DropEffect, HostEvent, ImeEvent, MemoryPressure, ResizeEdge, TrayItem (after 1.0.0-rc.1 it gained `Check`, `Submenu` and `Item::default`: a major change by design, listed in the CHANGELOG under Changed) |
-| `remedy-ui-input` | enums: Claim, GestureKind, Key, Platform, PointerKind, Scope; structs: ChordError, Clash, Conflict, GestureSettings, KeyEvent, PinchEvent, PointerEvent, ScrollPhysics, WheelEvent; kept exhaustive: Modifiers, PinchPhase, PointerPhase |
-| `remedy-ui-layout` | enums: Align, Display, JumpAlign, Justify, Length, Position, Track; structs: LayoutStyle, MeasureInput; kept exhaustive: Available, Axis, Direction |
-| `remedy-ui-media-anim` | kept exhaustive: Loops, Opened |
-| `remedy-ui-media-image` | enums: DecodeError, Fit, ImageState, Source; structs: Decoded |
-| `remedy-ui-media-isolated` | enums: EnableError, Layer; structs: Isolation, Stats |
+| `remedy-ui-core::host` | enums: TrayEvent; structs: FileDialog, SystemSettings, TextInputState, TrayIcon, Unsupported, WindowOptions; kept exhaustive: AccessibilityEvent, DialogStarted, DragEvent, DragStarted, DropEffect, HostEvent, ImeEvent, MemoryPressure, ResizeEdge, TrayItem (after 1.0.0-rc.1 it gained `Check`, `Submenu` and `Item::default`: a major change by design, listed in the CHANGELOG under Changed) |
+| `remedy-ui-core::input` | enums: Claim, GestureKind, Key, Platform, PointerKind, Scope; structs: ChordError, Clash, Conflict, GestureSettings, KeyEvent, PinchEvent, PointerEvent, ScrollPhysics, WheelEvent; kept exhaustive: Modifiers, PinchPhase, PointerPhase |
+| `remedy-ui-core::layout` | enums: Align, Display, JumpAlign, Justify, Length, Position, Track; structs: LayoutStyle, MeasureInput; kept exhaustive: Available, Axis, Direction |
+| `remedy-ui-media::media_anim` | kept exhaustive: Loops, Opened |
+| `remedy-ui-media::media_image` | enums: DecodeError, Fit, ImageState, Source; structs: Decoded |
+| `remedy-ui-media::media_isolated` | enums: EnableError, Layer; structs: Isolation, Stats |
 | `remedy-ui-media-playback` | enums: MediaError, MediaSource, PlaybackState, Sample, SubtitleFormat, UnseenPolicy; structs: AudioFormat, MediaInfo, PlaybackStats, PlayerOptions, TextTrackInfo, VideoInfo |
-| `remedy-ui-media-video` | enums: VideoFit; structs: VideoStats |
-| `remedy-ui-motion` | enums: Easing, Motion |
-| `remedy-ui-paint` | kept exhaustive: Blend, Brush, Item, PathEl, PixelFormat, Sampling, StrokeCap, StrokeJoin, YuvMatrix |
-| `remedy-ui-reactive` | enums: NodeKind, ReactiveError, Segment, StoreError, VecDiff; structs: Cause, NodeInfo, PostReport, Stats, Update |
-| `remedy-ui-render-cpu` | enums: ImageKey, RenderError |
-| `remedy-ui-render-gpu` | enums: GpuError, Presented, Rung; structs: LadderOptions |
-| `remedy-ui-rui` | enums: Binding, Bound, BuildError, Kind, SaveError, Space, Value; structs: RuiError |
-| `remedy-ui-services-desktop` | enums: DesktopError, KnownFolder |
-| `remedy-ui-services-i18n` | enums: Arg, DecimalError, Problem; structs: OverrideProblem; kept exhaustive: Weekday |
-| `remedy-ui-services-net` | enums: NetError; structs: HttpError, Response |
-| `remedy-ui-services-spell` | enums: Availability, Prepared, SpellError; structs: BackendError, BackendReport, MenuLabels, SpellOptions |
-| `remedy-ui-services-update` | enums: Apply, Feed, SignatureStatus, Trust, UpdateError, UpdateState; structs: BannerText, Release, UpdateConfig |
-| `remedy-ui-style` | enums: Density; structs: ColorRoles, DerivedTokens, MotionTokens, Radii, Spacing, StylePatch, Theme, ThemeAssets, TypeScale |
+| `remedy-ui-media::media_video` | enums: VideoFit; structs: VideoStats |
+| `remedy-ui-core::motion` | enums: Easing, Motion |
+| `remedy-ui-engine::paint` | kept exhaustive: Blend, Brush, Item, PathEl, PixelFormat, Sampling, StrokeCap, StrokeJoin, YuvMatrix |
+| `remedy-ui-core::reactive` | enums: NodeKind, ReactiveError, Segment, StoreError, VecDiff; structs: Cause, NodeInfo, PostReport, Stats, Update |
+| `remedy-ui-engine::render_cpu` | enums: ImageKey, RenderError |
+| `remedy-ui-engine::render_gpu` | enums: GpuError, Presented, Rung; structs: LadderOptions |
+| `remedy-ui-widgets::rui` | enums: Binding, Bound, BuildError, Kind, SaveError, Space, Value; structs: RuiError |
+| `remedy-ui-platform::services_desktop` | enums: DesktopError, KnownFolder |
+| `remedy-ui-platform::services_i18n` | enums: Arg, DecimalError, Problem; structs: OverrideProblem; kept exhaustive: Weekday |
+| `remedy-ui-platform::services_net` | enums: NetError; structs: HttpError, Response |
+| `remedy-ui-widgets::spell` | enums: Availability, Prepared, SpellError; structs: BackendError, BackendReport, MenuLabels, SpellOptions |
+| `remedy-ui-widgets::update` | enums: Apply, Feed, SignatureStatus, Trust, UpdateError, UpdateState; structs: BannerText, Release, UpdateConfig |
+| `remedy-ui-core::style` | enums: Density; structs: ColorRoles, DerivedTokens, MotionTokens, Radii, Spacing, StylePatch, Theme, ThemeAssets, TypeScale |
 | `remedy-ui-text` | enums: Align, Antialias, Hinting, LineHeight, Pseudo; structs: AtlasStats, GlyphRunInfo, LineInfo, ParagraphOptions, TextStyle, TextStylePatch; kept exhaustive: Affinity, Block, Direction, Mark |
-| `remedy-ui-themes` | enums: ThemeChoice, TokenError |
-| `remedy-ui-tree` | enums: HitMode, Phase, TreeError; structs: Dispatch, Failure |
-| `remedy-ui-view` | enums: DecorationKind, FieldKind, TextInput; structs: DirtyRecord, ElementInfo, FrameStats, HistoryItem, Placement; kept exhaustive: Request |
-| `remedy-ui-viz` | enums: Range, Zone; structs: BarsOptions, MeterOptions, RingOptions, SparklineOptions; kept exhaustive: Orientation |
-| `remedy-ui-widgets-core` | enums: Icon; structs: Rejection |
-| `remedy-ui-widgets-data` | enums: Change, SortValue; kept exhaustive: SortDirection |
-| `remedy-ui-widgets-extra` | enums: QrError; structs: CarouselOptions, EncodeOptions, QrOptions, RatingOptions, StepperLabels, SwatchOptions; kept exhaustive: Ecc, Mode |
-| `remedy-ui-widgets-forms` | enums: SubmitState; structs: NumberOptions |
-| `remedy-ui-widgets-music` | enums: Clef, Inlays, MarkKind, NoteValue, StringState, Technique; structs: ChordOptions, FretboardOptions, NoteStaffOptions, TabOptions; kept exhaustive: Step |
-| `remedy-ui-widgets-nav` | enums: Edge; structs: CommandInfo |
+| `remedy-ui-widgets::themes` | enums: ThemeChoice, TokenError |
+| `remedy-ui-core::tree` | enums: HitMode, Phase, TreeError; structs: Dispatch, Failure |
+| `remedy-ui-engine::view` | enums: DecorationKind, FieldKind, TextInput; structs: DirtyRecord, ElementInfo, FrameStats, HistoryItem, Placement; kept exhaustive: Request |
+| `remedy-ui-widgets::viz` | enums: Range, Zone; structs: BarsOptions, MeterOptions, RingOptions, SparklineOptions; kept exhaustive: Orientation |
+| `remedy-ui-widgets::base` | enums: Icon; structs: Rejection |
+| `remedy-ui-widgets::data` | enums: Change, SortValue; kept exhaustive: SortDirection |
+| `remedy-ui-widgets::extra` | enums: QrError; structs: CarouselOptions, EncodeOptions, QrOptions, RatingOptions, StepperLabels, SwatchOptions; kept exhaustive: Ecc, Mode |
+| `remedy-ui-widgets::forms` | enums: SubmitState; structs: NumberOptions |
+| `remedy-ui-widgets::music` | enums: Clef, Inlays, MarkKind, NoteValue, StringState, Technique; structs: ChordOptions, FretboardOptions, NoteStaffOptions, TabOptions; kept exhaustive: Step |
+| `remedy-ui-widgets::nav` | enums: Edge; structs: CommandInfo |
 | `remedy-ui-widgets-term` | enums: CursorShape, MouseAction, MouseButton, MouseEncoding, MouseMode, PromptMark, Scrollback, TermColor, Underline; structs: CursorState, Modes, TerminalOptions |
 
 So apps (and the engine's own tests) can still make these types:
@@ -166,7 +166,7 @@ literals; they become `PointerEvent::new(phase, at).with_buttons(b)` and
 
 ## Nothing public by accident, and dependencies in the API
 
-- `remedy-ui-test` (the engine's scenario harness) is `publish = false`; apps test with the new
+- `remedy-ui-core::testing` (the engine's scenario harness) is `publish = false`; apps test with the new
   `remedy_ui::testing`.
 - Dependency types in public signatures were each checked. Kept, as deliberate re-exported
   interop versioned with RemedyUI (STABILITY.md): `wgpu` in `render-gpu` / `embed-gpu`,
@@ -181,9 +181,9 @@ literals; they become `PointerEvent::new(phase, at).with_buttons(b)` and
 
 ## Scripted widgets
 
-The earlier `remedy-ui-script` (one built-in language) was replaced by a language-neutral interface and two engine
-crates. The handwritten engine is now `remedy-ui-script-lua` (RemedyLua); WebAssembly is
-`remedy-ui-script-wasm`. Facade features are `script-lua` and `script-wasm`, modules
+The earlier `remedy-ui-engine::script` (one built-in language) was replaced by a language-neutral interface and two engine
+crates. The handwritten engine is now `remedy-ui-engine::script_lua` (RemedyLua); WebAssembly is
+`remedy-ui-engine::script_wasm`. Facade features are `script-lua` and `script-wasm`, modules
 `remedy_ui::script`, `script_lua`, `script_wasm`. Rhai (`script-rhai`, `script_rhai`,
 `Language::RHAI`, `Package::rhai`) was a placeholder and is not shipped. `migrations.toml`
 renames the mechanical paths; the rest of that break is in the changelog. The changes, with
@@ -191,17 +191,17 @@ their replacements:
 
 | Crate | Old | New |
 |---|---|---|
-| `remedy-ui-script` | `struct ScriptWidget` with `ScriptWidget::load(source, limits)` | `trait ScriptWidget`; widgets load through an engine: `LuaEngine::new().load_source(source, limits)`, `WasmEngine::new().load_module(bytes, limits)`, or any enabled engine with `Engines::load(&Package, limits)` |
-| `remedy-ui-script` | `Limits { memory, time }` literals | `#[non_exhaustive]`; `Limits::default()` or `for_device`, then a setter per field (`memory`, `time`, `operations`, `call_depth`, `stack`, `nesting`) |
-| `remedy-ui-script` | `SettingSpec { .. }` literals | `#[non_exhaustive]`; `SettingSpec::new(key, label, kind, default)` |
-| `remedy-ui-script` | `ScriptError`, `SettingKind` exhaustive | `#[non_exhaustive]`; `ScriptError` gains `Denied`, `OutOfFuel`, `TooDeep` |
-| `remedy-ui-script` | (new) | `Language`, `Package`, `Manifest`, `Described` (`#[non_exhaustive]`), `ScriptEngine`, `Engines`, `manifest`, `describe`, `resolve_settings`; `StepRate` and `calibrate_with` (each engine's steps a millisecond, measured on the device) |
-| `remedy-ui-script-lua`, `remedy-ui-script-wasm` | (new) | `rate()`, `measure()`, `calibrate()`, and `FALLBACK_STEPS_PER_MS` / `FALLBACK_FUEL_PER_MS` for the moment before the first measurement |
-| `remedy-ui-script` | `Node`, `TextStyle` | kept exhaustive, with a comment: the element protocol is a closed set every host builds in full |
-| `remedy-ui-widgets-board` | `ScriptKind::new(id, source, limits)` | `ScriptKind::new(id, Package, &Engines, limits)` |
-| `remedy-ui-widgets-board` | `Context` | `#[non_exhaustive]` (made with `Context::local`), gains `engines`: the languages the board accepts |
-| `remedy-ui-widgets-board` | `build_node(ui, node, &Rc<RefCell<ScriptWidget>>, version, open)` | `build_node(ui, node, &SharedWidget, version, open, stopped)`, `SharedWidget = Rc<RefCell<Box<dyn ScriptWidget>>>`; `stopped` takes a handler's stop (`FailurePhase`, `ScriptError`) |
-| `remedy-ui-widgets-board` | a stopped script showed a label (a handler's stop a toast) | each scripted widget is a `catch_errors` boundary: a stop goes to `Ui::failures` and the error hook, and the widget shows why with a "Start again" button (its `Retry`) |
+| `remedy-ui-engine::script` | `struct ScriptWidget` with `ScriptWidget::load(source, limits)` | `trait ScriptWidget`; widgets load through an engine: `LuaEngine::new().load_source(source, limits)`, `WasmEngine::new().load_module(bytes, limits)`, or any enabled engine with `Engines::load(&Package, limits)` |
+| `remedy-ui-engine::script` | `Limits { memory, time }` literals | `#[non_exhaustive]`; `Limits::default()` or `for_device`, then a setter per field (`memory`, `time`, `operations`, `call_depth`, `stack`, `nesting`) |
+| `remedy-ui-engine::script` | `SettingSpec { .. }` literals | `#[non_exhaustive]`; `SettingSpec::new(key, label, kind, default)` |
+| `remedy-ui-engine::script` | `ScriptError`, `SettingKind` exhaustive | `#[non_exhaustive]`; `ScriptError` gains `Denied`, `OutOfFuel`, `TooDeep` |
+| `remedy-ui-engine::script` | (new) | `Language`, `Package`, `Manifest`, `Described` (`#[non_exhaustive]`), `ScriptEngine`, `Engines`, `manifest`, `describe`, `resolve_settings`; `StepRate` and `calibrate_with` (each engine's steps a millisecond, measured on the device) |
+| `remedy-ui-engine::script_lua`, `remedy-ui-engine::script_wasm` | (new) | `rate()`, `measure()`, `calibrate()`, and `FALLBACK_STEPS_PER_MS` / `FALLBACK_FUEL_PER_MS` for the moment before the first measurement |
+| `remedy-ui-engine::script` | `Node`, `TextStyle` | kept exhaustive, with a comment: the element protocol is a closed set every host builds in full |
+| `remedy-ui-widgets::board` | `ScriptKind::new(id, source, limits)` | `ScriptKind::new(id, Package, &Engines, limits)` |
+| `remedy-ui-widgets::board` | `Context` | `#[non_exhaustive]` (made with `Context::local`), gains `engines`: the languages the board accepts |
+| `remedy-ui-widgets::board` | `build_node(ui, node, &Rc<RefCell<ScriptWidget>>, version, open)` | `build_node(ui, node, &SharedWidget, version, open, stopped)`, `SharedWidget = Rc<RefCell<Box<dyn ScriptWidget>>>`; `stopped` takes a handler's stop (`FailurePhase`, `ScriptError`) |
+| `remedy-ui-widgets::board` | a stopped script showed a label (a handler's stop a toast) | each scripted widget is a `catch_errors` boundary: a stop goes to `Ui::failures` and the error hook, and the widget shows why with a "Start again" button (its `Retry`) |
 
 ## Reachable through the facade
 
@@ -214,7 +214,7 @@ From the documentation work's findings:
   (`proc-macro-crate`), so its code names `remedy_ui::reactive` for facade users.
 - Compiled `.rui` code reaches the runtime through one `use` of a root path:
   `remedy_ui::markup` by default; `codegen::compile_in` / `build::compile_dir_in` take another
-  (`DIRECT_ROOT` for apps on `remedy-ui-rui` itself). A facade test compiles markup through it.
+  (`DIRECT_ROOT` for apps on `remedy-ui-widgets::rui` itself). A facade test compiles markup through it.
 - `remedy_ui::testing::TestApp` (features `headless` and `widgets`): opens an app on the
   in-memory host and finds, presses and types into elements by role and accessible name. The
   `cargo remedy new` templates' tests use it.
@@ -261,7 +261,7 @@ The guides' writer met these while writing; each is fixed at its root.
 | `remedy_ui::testing` | `TestApp` used the app's real data folder: every window made `<AppData>/<name>/state` for persisted signals | A private temporary folder, removed when the `TestApp` drops, unless the test sets `AppConfig::data_dir`; `TestApp::data_dir` says which |
 | `remedy_ui::testing` | `find` / `press` matched each element's own label, so list rows (which merge their contents into one name) were never found | They match the accessible name screen readers get (`Ui::reader_view`): by role and name, merged names included, merged-away parts not found on their own; `TestApp::reader_view` |
 | `remedy_ui::testing` | `key` sent no release; no way to read a node's state | `key` presses and releases; `key_press` / `key_release` separately; `node(role, name)` returns the `ReaderNode`: value and `checked`, `selected`, `expanded`, `disabled`, `focused` |
-| `remedy-ui-a11y` | `ReaderNode` had states only as words | `checked`, `selected`, `expanded`, `disabled` fields (it is `#[non_exhaustive]`, so additive) |
+| `remedy-ui-core::a11y` | `ReaderNode` had states only as words | `checked`, `selected`, `expanded`, `disabled` fields (it is `#[non_exhaustive]`, so additive) |
 | `remedy-ui` | `show`, `catch_errors`, `suspense` only at `remedy_ui::view::*` | Also `remedy_ui::{show, catch_errors, suspense}` with `Show`, `SuspenseBoundary`, `CaughtError`, `Retry`; `catch_errors` documents (with an example) that its content is a builder closure, rebuilt on retry |
 | `widgets-data` | `chat_list` took only `Signal<Vec<T>>` | `impl Into<ListItems<T>>` like the other lists: `Signal<Vec<T>>` or `SignalVec<T>`; `ListItems::get` is the subscribing read it uses |
 | `style` | `Space` stopped at `S8` with no half step | The design's scale (design 13, "Spacing scale"): half steps `S0_5` … `S3_5`, whole steps to `S8`, layout steps `S10`, `S12`, `S16`, `S20`, `S24`; `units()` is `f32`; `ALL`, `name`, `from_name`; every step resolves through the theme's unit |

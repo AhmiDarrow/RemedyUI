@@ -48,7 +48,7 @@
 //!   the browser reveals it, Apple's shortcut conventions on Apple devices, and the device's
 //!   memory where the browser says.
 //!
-//! What a browser cannot do reports [`remedy_ui_host::Unsupported`] with the reason: tray
+//! What a browser cannot do reports [`remedy_ui_core::host::Unsupported`] with the reason: tray
 //! icons, keeping windows out of screen capture, dragging out of the page, moving or sizing
 //! the page itself, reading the clipboard outside a paste without permission, and opening a
 //! file picker or share sheet except in answer to a click or key, and sharing where the
@@ -159,7 +159,7 @@ impl std::error::Error for RunError {}
 /// Only in a browser page (`wasm32-unknown-unknown`); apps start through `remedy_ui::run`,
 /// which calls this with `AppConfig::web`'s settings.
 #[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
-pub fn run(app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
+pub fn run(app: impl remedy_ui_core::host::App + 'static) -> Result<(), RunError> {
     run_with(WebConfig::default(), app)
 }
 
@@ -168,7 +168,7 @@ pub fn run(app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
 ///
 /// Only in a browser page (`wasm32-unknown-unknown`).
 #[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
-pub fn run_with(config: WebConfig, app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
+pub fn run_with(config: WebConfig, app: impl remedy_ui_core::host::App + 'static) -> Result<(), RunError> {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         web::fonts::set_asset_base(&config.assets);
@@ -193,7 +193,7 @@ pub fn run_single_instance(
     name: &str,
     args: Vec<String>,
     config: WebConfig,
-    app: impl remedy_ui_host::App + 'static,
+    app: impl remedy_ui_core::host::App + 'static,
     deliver: impl Fn(Vec<String>) + 'static,
 ) -> Result<(), RunError> {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]

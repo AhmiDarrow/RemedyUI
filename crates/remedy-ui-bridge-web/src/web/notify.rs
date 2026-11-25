@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use js_sys::{Function, Object, Promise, Reflect};
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, PermissionId, Unsupported};
+use remedy_ui_core::host::{HostEvent, Notification, NotificationResponse, PermissionId, Unsupported};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -63,7 +63,7 @@ pub(crate) fn show(n: &Notification) -> Result<(), Unsupported> {
     set("tag", JsValue::from_str(&format!("remedy-{}", n.id)));
     set("silent", JsValue::from_bool(n.silent));
     // Warnings and errors stay until the person dismisses them.
-    set("requireInteraction", JsValue::from_bool(n.urgency != remedy_ui_host::Urgency::Info));
+    set("requireInteraction", JsValue::from_bool(n.urgency != remedy_ui_core::host::Urgency::Info));
     let shown = Reflect::construct(&class, &js_sys::Array::of2(&JsValue::from_str(&n.title), &opts))
         .map_err(|e| unsupported(format!("{e:?}")))?;
     let id = n.id;
@@ -94,8 +94,8 @@ pub(crate) fn withdraw(id: u64) {
 
 /// Asks the browser for leave to notify: answered at once when the person already decided,
 /// otherwise the browser's prompt answers through [`HostEvent::Permission`].
-pub(crate) fn request() -> Result<remedy_ui_host::PermissionStarted, Unsupported> {
-    use remedy_ui_host::PermissionStarted;
+pub(crate) fn request() -> Result<remedy_ui_core::host::PermissionStarted, Unsupported> {
+    use remedy_ui_core::host::PermissionStarted;
     let Some(class) = class() else {
         return Ok(PermissionStarted::Finished(false));
     };

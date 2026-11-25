@@ -2,7 +2,7 @@
 
 `remedy-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server. With it, an AI agent (Claude Code or any other MCP client) can build apps with RemedyUI: search the docs and the widget catalog, check `.rui` markup, create an app, look at its screens as images, audit them, and run its tests. It can also operate a running RemedyUI app that the person has granted it access to.
 
-The tools' logic lives in the `remedy-tools` crate. `cargo remedy` offers the same tools as commands ([CLI.md](CLI.md)).
+The tools' logic lives in the `cargo-remedy::devkit` crate. `cargo remedy` offers the same tools as commands ([CLI.md](CLI.md)).
 
 ## Install
 
@@ -12,7 +12,7 @@ From a RemedyUI checkout:
 cargo install --path crates/remedy-mcp
 ```
 
-This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (the `remedy-templates` crate, shared with `cargo remedy new`).
+This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/cargo-remedy/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (the `cargo-remedy::templates` crate, shared with `cargo remedy new`).
 
 ### Smaller builds
 
@@ -21,9 +21,9 @@ Each tool group is a cargo feature. `full` is the default and includes `http`. A
 | Feature | Tools | What it compiles in |
 |---|---|---|
 | `docs` | `docs_search`, `docs_read`, `widget_catalog`; the guides as resources | the docs index only |
-| `markup` | `rui_check`, `rui_compile`, `rui_elements` | `remedy-ui-rui` without its runtime |
-| `effects` | `rfx_check`, `rfx_render`, `rfx_library` | `remedy-ui-effects` (its compiler and CPU interpreter) |
-| `scaffold` | `new_app` | `remedy-templates` (the app templates, shared with `cargo remedy new`) |
+| `markup` | `rui_check`, `rui_compile`, `rui_elements` | `remedy-ui-widgets::rui` without its runtime |
+| `effects` | `rfx_check`, `rfx_render`, `rfx_library` | `remedy-ui-engine::effects` (its compiler and CPU interpreter) |
+| `scaffold` | `new_app` | `cargo-remedy::templates` (the app templates, shared with `cargo remedy new`) |
 | `preview` | `render_preview`, `list_previews`, `a11y_audit` | nothing (it builds a harness against the app) |
 | `testing` | `run_tests`, `budget_check` | nothing (it runs Cargo) |
 | `live` | `app_connect`, `app_snapshot`, `app_act`, `app_command`, `app_undo`, `app_wait`, `app_disconnect` | nothing (it speaks the protocol) |
@@ -97,7 +97,7 @@ The server listens on `http://127.0.0.1:7801/mcp`. Every request needs `Authoriz
 - **`rfx_render`** `{source | path | name, width?, height?, scale?, time?, values?, background?}`: renders a frame of the effect on the CPU (the reference renderer the GPU kernel is tested against) and returns it as a PNG image the size of the element (`width`, `height` times `scale`), stretched smoothly as the element draws it, with the resolution the effect drew at and the time it took. `values` sets parameters by name (one number for a float, up to four for a color).
 - **`rfx_library`**: the built-in effects, with what each is, its parameters and its cost.
 - **`rui_check`** `{source | path, file?, elements?}`: checks `.rui` markup against the built-in elements, plus the app's own elements passed as specs (`{name, params: [{name, kind, required}], children, path}`). It reports the first problem at `file:line:column` with a hint. A valid file returns the signals it binds (with their Rust types) and the commands it names.
-- **`rui_compile`**: the same input. Returns the Rust that `remedy_ui_rui::build` would generate. App elements need their builder's `path`.
+- **`rui_compile`**: the same input. Returns the Rust that `remedy_ui_widgets::rui::build` would generate. App elements need their builder's `path`.
 - **`rui_elements`**: lists the built-in elements and their arguments.
 - **`new_app`** `{name, folder?, template?, remedy_path?}`: creates an app from the app templates (the same as `cargo remedy new`) (`basic`, `tray`, `multi-window`, `document`, `android`) in a new folder inside the workspace, and lists the files it made.
 - **`render_preview`** `{app, function, width?, height?, scale?, theme?, locale?, text_scale?, save_png?}`: renders part of an app headlessly. It returns:
@@ -117,7 +117,7 @@ An app exposes what to preview as plain public functions in its library, `pub fn
 
 For each preview, the server does this:
 
-1. It writes a small harness crate into `<app's target>/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
+1. It writes a small harness crate into `<app's target>/cargo-remedy/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
 2. It builds the harness into the app's target folder, so the harness shares the app's compiled dependencies.
 3. It runs the harness. The harness renders with the devtools' `Preview`, using the CPU renderer, so the pixels are the same as the app's golden images.
 
@@ -188,8 +188,8 @@ A debug build serves its devtools with `Window::serve_devtools` or `RemoteServer
 `remedy-mcp` is also a library. Other tools can serve some or all of the groups:
 
 ```rust
-use remedy_mcp::{Config, Server};
-use remedy_tools::{Group, Workspace};
+use cargo_remedy::mcp::{Config, Server};
+use cargo_remedy::devkit::{Group, Workspace};
 
 let config = Config::new(Workspace::new([project_dir])?);
 let server = Server::builder(config)
@@ -198,13 +198,13 @@ let server = Server::builder(config)
 server.serve_stdio().await?;
 ```
 
-Each group is a `ToolGroup` (`remedy_mcp::group(Group::Docs)`). A tool of your own can be added with `ServerBuilder::group`. `Server::call(name, args)` calls a tool directly, without MCP. The logic under every tool is a plain function in `remedy-tools` (for example `remedy_tools::preview::render`), with typed input and output.
+Each group is a `ToolGroup` (`cargo_remedy::mcp::group(Group::Docs)`). A tool of your own can be added with `ServerBuilder::group`. `Server::call(name, args)` calls a tool directly, without MCP. The logic under every tool is a plain function in `cargo-remedy::devkit` (for example `cargo_remedy::devkit::preview::render`), with typed input and output.
 
 ## Engine APIs the tools depend on
 
 The tools use only these engine entry points, so engine changes reach them in one place:
 
 - **The facade's `devtools` feature**, in the preview harness: `Preview`, `Variation`, `reader_lines`, `audit`, `is_rtl` and `Snapshot::to_png`. Also `remedy_ui::themes::PALETTES`, and `Ui::element(..).node_id()`.
-- **`remedy_ui_rui`**: `Markup::parse`, `spec::{built_in, check, Kind, Param, Spec}` and `codegen::compile`.
-- **The JSON-lines protocols** of the agents listener (`remedy-ui-automation`) and the remote devtools server (`remedy-ui-devtools`). The tests check these against the real crates.
-- **The app templates** (`remedy-templates`), which follow the facade like any app.
+- **`remedy_ui_widgets::rui`**: `Markup::parse`, `spec::{built_in, check, Kind, Param, Spec}` and `codegen::compile`.
+- **The JSON-lines protocols** of the agents listener (`remedy-ui-widgets::automation`) and the remote devtools server (`remedy-ui-widgets::devtools`). The tests check these against the real crates.
+- **The app templates** (`cargo-remedy::templates`), which follow the facade like any app.

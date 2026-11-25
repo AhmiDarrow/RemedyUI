@@ -148,7 +148,7 @@ impl NdkElementary {
         self.video = None;
         self.vout = Out::default();
         // On the GPU when a renderer takes pictures there, else copied.
-        if remedy_ui_paint::gpu_video_adapter().is_some() {
+        if remedy_ui_engine::paint::gpu_video_adapter().is_some() {
             match Reader::new(ndk, w, h) {
                 Ok((reader, window)) => match open(ndk, c"video/avc", &ints, &buffers, window) {
                     Some(c) => {

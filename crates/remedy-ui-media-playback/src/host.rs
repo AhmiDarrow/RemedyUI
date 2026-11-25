@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub use remedy_ui_media_video::{Picture, PixelFormat, Plane, YuvMatrix};
+pub use remedy_ui_media::media_video::{Picture, PixelFormat, Plane, YuvMatrix};
 
 /// What to play.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

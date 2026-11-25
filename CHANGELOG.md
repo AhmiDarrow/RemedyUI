@@ -14,6 +14,33 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **The engine is 15 crates, down from 68.** Apps that depend on `remedy-ui` change nothing:
+  its features and `remedy_ui::…` paths are the same. The crates behind it were merged, each
+  old crate becoming a module behind a feature of the same name:
+  `remedy-ui-core` (input, a11y, layout, motion, tree, style, host, reactive, testing),
+  `remedy-ui-engine` (paint, view, compositor, render_cpu, render_gpu, effects,
+  media_effects, script, script_lua, script_wasm), `remedy-ui-platform` (the `bridge_*`
+  modules for Windows, macOS, Linux, Android, winit and headless, `services_desktop`,
+  `services_net`, `services_i18n`, `services_webstorage`, `embed_webview`, `embed_gpu`),
+  `remedy-ui-media` (media_image, media_anim, media_video, media_isolated) and
+  `remedy-ui-widgets` (base, nav, forms, data, extra, stage, music, board, viz, themes,
+  customize, rui, doc_rich, doc_code, doc_pages, devtools, automation, spell, update).
+  `remedy-ui-macros`, `remedy-ui-text`, `remedy-ui-bridge-web`, `remedy-ui-widgets-term`,
+  `remedy-ui-media-playback`, `remedy-ui-fonts`, `remedy-ui-fonts-cjk` and `remedy-ui-build`
+  are as they were. An app that names an old crate directly runs `cargo remedy migrate`,
+  which rewrites `remedy_ui_viz::bars` to `remedy_ui_widgets::viz::bars` and the like, and
+  changes its `Cargo.toml` by hand to the new crate with the module's feature
+  (`remedy-ui-widgets = { features = ["viz"] }`).
+
+- **The tools are one crate.** `remedy-tools`, `remedy-templates` and `remedy-mcp` are parts
+  of `cargo-remedy` (`cargo_remedy::devkit`, `templates` and `mcp`). `cargo install
+  cargo-remedy` builds the command as before; the MCP server is still the `remedy-mcp`
+  binary, built with `cargo install cargo-remedy --bin remedy-mcp --features mcp-full` (or
+  `mcp` with the `mcp-*` tool groups wanted, without the default features).
+
+- **Catalogs sit under their names.** A crate's translations are `i18n/<catalog>/<locale>.ftl`
+  (`engine_strings!("viz")` reads `i18n/viz/`), so one crate can hold several.
+
 - **Touch**: a finger dragged over a view that scrolls itself (a page view, a text area)
   now scrolls it, as the wheel does, and a second finger brings the first with it, so a
   pinch starts. A file dialog filter of `*` matches files without an extension on Linux
@@ -343,7 +370,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   unchanged), an `i32`, or `InstanceReply::later()` for a code sent from any thread once slower
   work is done (`ReplyLater::send`). Windows (the pipe is now duplex, one instance per waiting
   launch) and Linux and macOS (the socket) both carry it; a reply that does not come in time
-  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_bridge_windows` adds
+  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_platform::bridge_windows` adds
   `claim_single_instance_replying`, `ReplyWait`, `Claim` and `Replier`.
 - **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
   hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
@@ -417,7 +444,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   alpha, as `color-mix(in srgb, var(--gold) 16%, transparent)`. `Gradient::parse` and
   `parse_layers` read CSS gradient text (`var(--role)`, `rgb()`, `#hex`, `color-mix` with
   `transparent`, `px`/`rem`/`%`, angles and `to <side>`); `Gradient::geometry` places one in a
-  box as CSS does, and `remedy_ui_view::gradient_brush` turns it into a brush. Portal's
+  box as CSS does, and `remedy_ui_engine::view::gradient_brush` turns it into a brush. Portal's
   gradients (page glow, poster art, cast screen, hero and info scrims, full-screen scrims,
   seek track) match Chrome drawing the same CSS to within 5 levels
   (`devtools/tests/portal_gradients.rs`); the GPU matches the CPU.
@@ -487,7 +514,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Keepalive requests finish in the background on Android**: while one is under way the
   bridge's new `Keepalive` service (declared by `cargo remedy package`) keeps the process
   from being frozen, and the way out waits for them as on the desktop
-  (`remedy_ui_bridge_android::hold_process`, `remedy_ui_services_net::on_keepalive`).
+  (`remedy_ui_platform::bridge_android::hold_process`, `remedy_ui_platform::services_net::on_keepalive`).
 - `HttpError` carries the response headers (`HttpError::header`), so a `304 Not Modified`
   exposes its new `ETag`, `Last-Modified` and `Cache-Control`. The `media-image` disk cache
   now keeps them, so a revalidated image gets the new validators and freshness.
@@ -520,7 +547,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Windows' keyboard settings, GNOME's through the desktop portal, 500 ms and 33 ms elsewhere);
   the web also reads the left stick now. `App::set_gamepad_tuning(GamepadTuning)` sets the
   app's own delay, interval and stick dead zone (0.5 by default), through
-  `Host::set_gamepad_tuning`. `remedy_ui_input::GamepadKeys` is the shared state machine,
+  `Host::set_gamepad_tuning`. `remedy_ui_core::input::GamepadKeys` is the shared state machine,
   and a platform bridge hands the shared core its pads through `PlatformHooks::gamepads`.
 - **Every controller on Windows, and the real keyboard repeat on any Linux desktop.**
   Windows now also reads PlayStation, Switch Pro and generic HID gamepads through
@@ -976,7 +1003,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   dependency), and pictures follow the same clock, on the sound device or the wall. The
   widget gains a speed button (in all 11 languages) and Shift+> / Shift+<. The speed carries
   over to what plays next. At any speed the sound plays to the very end of the media.
-- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
+- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_engine::render_gpu::health`).
   Each rung of the backend ladder draws a small reference scene that must match the CPU
   renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves
   down. Every present is watched from a thread: one running past `PRESENT_HANG` (3 s) marks
@@ -1006,7 +1033,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `contrast`, `invert` (the CSS filter functions) and `Style::color_matrix` (SVG
   `feColorMatrix`), chained into one matrix (`StylePatch::color_matrix`,
   `ResolvedStyle::color_matrix`); `Filter::ColorMatrix` and `ColorMatrix` (in
-  `remedy_ui_core`, re-exported by `remedy_ui_paint`: presets, `then`, `limited`, `apply`,
+  `remedy_ui_core`, re-exported by `remedy_ui_engine::paint`: presets, `then`, `limited`, `apply`,
   `apply_premultiplied`). vello runs no colour matrices, so RemedyUI draws the group into a
   picture of its own and runs the matrix itself (unpremultiply, matrix, clamp, premultiply),
   on the CPU and in a GPU pass; it works inside display lists and on layers the compositor
@@ -1097,7 +1124,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   colour, 2D and 3D signed-distance shapes, cameras and GGX lighting), compiled with
   optimizations (inlining, unrolling, folding, shared work, per-frame hoisting) against
   `Limits` (`Limits::untrusted` for themes and scripts) into programs for one fixed GPU kernel
-  (`remedy_ui_render_gpu::effects::GpuEffect`, GL 3.3 and WebGL2 included) and the CPU
+  (`remedy_ui_engine::render_gpu::effects::GpuEffect`, GL 3.3 and WebGL2 included) and the CPU
   interpreter (`CpuEffect`), which match. `effect_view(ui, Instance)` draws one in an element
   under the ambient policy, with a still frame and a CPU quality ladder; parameters by name
   (`EffectView::set`). 30 built-in effects (`library`, `LIBRARY`): fire, embers, glow,
@@ -1114,7 +1141,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Every word the engine shows itself (widget labels, menus, keyboard hints, the media player,
   the board editor, the customization pages, the agent prompts, the update strip, what screen
   readers hear) is a Fluent message in its crate's `i18n/<locale>.ftl`, compiled in as that
-  crate's `STRINGS` (`remedy_ui_view::strings`: `Strings`, `engine_strings!`, `add_messages`,
+  crate's `STRINGS` (`remedy_ui_engine::view::strings`: `Strings`, `engine_strings!`, `add_messages`,
   `check`), following the window's locale live, with CLDR plurals, the locale's digits and
   isolated placeholders. Word structs gain `localized(locale)` (`BoardLabels`,
   `StepperLabels`, `spell::MenuLabels`, the update banner's `BannerText`). Windows lay out
@@ -1485,7 +1512,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `svg-raster-images` and `svg-text`); `remedy-ui-secure` is a private module of `remedy-ui`.
   Apps going through the facade change nothing: `remedy_ui::svg` and the `svg` feature stay.
   Code that named the removed crates directly should use `remedy_ui_core::phase!` and
-  `remedy_ui_core::trace`, `remedy_ui::svg` (or `remedy_ui_media_image::svg`), and the
+  `remedy_ui_core::trace`, `remedy_ui::svg` (or `remedy_ui_media::media_image::svg`), and the
   existing `App::idle_lock` / `App::copy_secret` APIs.
 - **Web pages load their large data when it is needed, not with the module.** The fallback
   faces (`script-fonts`: Noto Sans Arabic, Devanagari, Bengali, SC and JP, about 9.5 MB) are
@@ -2067,7 +2094,7 @@ The first release candidate of 1.0: everything since the start of the project, b
 ### Changed
 
 - `.rui` spacing words are the theme's spacing scale, half steps and layout steps included
-  (`s0_5` … `s24`); `remedy_ui_rui::rt::Space::Units(u8)` is now `Space::Token(Space)` and
+  (`s0_5` … `s24`); `remedy_ui_widgets::rui::rt::Space::Units(u8)` is now `Space::Token(Space)` and
   `spec::space_units` is `spec::space_token`. A wrong word lists the scale.
 - Generated apps' README and `remedy.toml` describe `cargo remedy package --target web` and
   the other targets.
@@ -2124,7 +2151,7 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
   Their time limit counts the work done on their own thread (new `remedy_ui_core::time`
   `ThreadTime` and `WorkClock`: over a budget only when both the thread's processor time and
   the monotonic clock say so), speed measurements last several ticks of the thread clock
-  (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_script::min_sample`), and
+  (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_engine::script::min_sample`), and
   until a device's speed is measured only the time limit applies (`Limits::step_budget`).
 - On a virtual machine whose host takes the processor away, a script's own thread clock counts
   that time as run: the time limit now stops a call only when it also made its steps at the

@@ -2,16 +2,16 @@
 
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Live, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
+use remedy_ui_core::input::{Buttons, Key, PointerKind, PointerPhase};
+use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
-use remedy_ui_input::{Buttons, Key, PointerKind, PointerPhase};
-use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
-use remedy_ui_media_video::{VideoFit, video_surface};
-use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
-use remedy_ui_view::motion::{Easing, Motion, Target};
-use remedy_ui_view::{El, Ui};
-use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
+use remedy_ui_engine::paint::Brush;
+use remedy_ui_engine::view::motion::{Easing, Motion, Target};
+use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::{VideoFit, video_surface};
+use remedy_ui_widgets::base::{self as w, Icon, MenuItem};
 
 use crate::{CaptionPick, KeyScheme, MediaError, PlaybackState, Player};
 
@@ -82,7 +82,7 @@ fn toggle_fullscreen(p: &Player) {
 fn toggle_theater(p: &Player) {
     if theater_toggles(p) {
         // T while compact opens straight into theater mode, as Portal's mini player.
-        if remedy_ui_reactive::untrack(|| p.is_compact()) {
+        if remedy_ui_core::reactive::untrack(|| p.is_compact()) {
             p.set_compact(false);
             if !p.is_theater() {
                 p.request_theater(true);
@@ -317,7 +317,7 @@ fn toggle_mute(p: &Player) {
 /// buttons); and [`Player::set_compact`] switches to Portal's
 /// mini player. [`player_with`] adds the app's own controls.
 ///
-/// The theme sizes it: in its [`metrics`](remedy_ui_style::Theme::metrics),
+/// The theme sizes it: in its [`metrics`](remedy_ui_core::style::Theme::metrics),
 /// `player-compact-width` and `player-compact-height` are the compact layout's picture (17
 /// and 9.5 units; a height of 0 follows the picture's shape), and `player-narrow` is a
 /// window width (none by default) at or under which the bar and its parts take the sheet's
@@ -412,7 +412,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             l.position = Position::Absolute;
             l.inset = Insets { top: u * 3.0, start: u * 3.0, end: u * 3.0, bottom: AUTO };
         })
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+        .style(remedy_ui_core::style::StylePatch::default().padding(Insets {
             top: u,
             bottom: u,
             start: u * 1.5,
@@ -433,7 +433,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let text = if s.busy && p.canceling() { tr(&mu, "playback-canceling") } else { s.text };
             let said = Semantics::new(Role::Status).label(text.clone()).live(Live::Polite);
             let _ = msg.clone().hidden(false).semantics(said);
-            let _ = msg.clone().text(remedy_ui_view::RichText::plain(text));
+            let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text));
             return;
         }
         let _ = msg.clone().semantics(Semantics::new(Role::Alert));
@@ -481,7 +481,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             },
         };
         let _ = msg.clone().hidden(text.is_none());
-        let _ = msg.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
+        let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text.unwrap_or_default()));
     });
     // A spinner centered over the picture while opening or waiting for data; clicks pass.
     let busy = ui
@@ -536,7 +536,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 }
                 // A tap on a rested full screen brings the controls back and does no more
                 // (Portal's would also play or pause).
-                if e.kind == PointerKind::Touch && !remedy_ui_reactive::untrack(|| p.controls_shown()) {
+                if e.kind == PointerKind::Touch && !remedy_ui_core::reactive::untrack(|| p.controls_shown()) {
                     rest.wake();
                     return true;
                 }
@@ -654,7 +654,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let volume = volume.bind(move || {
         let v = level.get() as f32;
         // Following an unknown device volume (the local one, shown) is not setting it.
-        if remedy_ui_reactive::untrack(|| p.volume_known()) {
+        if remedy_ui_core::reactive::untrack(|| p.volume_known()) {
             p.set_volume(v);
         }
     });
@@ -767,7 +767,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             move || {
                 let pictures = p.info().is_none_or(|i| i.video.is_some());
                 let _ = tb.clone().hidden(!pictures || !p.theater_offered());
-                tb.state(remedy_ui_style::States::CHECKED, p.is_theater());
+                tb.state(remedy_ui_core::style::States::CHECKED, p.is_theater());
                 let _ = tb.clone().disabled(!theater_toggles(&p));
             }
         });
@@ -789,7 +789,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         let (pb, p) = (button.clone(), player.clone());
         button.bind(move || {
             let _ = pb.clone().hidden(!p.pip_available() && !p.is_pip());
-            pb.state(remedy_ui_style::States::CHECKED, p.is_pip());
+            pb.state(remedy_ui_core::style::States::CHECKED, p.is_pip());
         })
     });
     // Cast: one name that says whether it is casting; the app opens its menu of devices.
@@ -814,7 +814,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         let p = player.clone();
         move || {
             let _ = cb.clone().hidden(!p.cast_offered());
-            cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
+            cb.state(remedy_ui_core::style::States::CHECKED, p.is_remote());
         }
     });
     // Portal's Back and Forward 10 seconds, after Play.
@@ -969,7 +969,9 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let (p, me, was) = (player.clone(), home.clone(), std::cell::Cell::new(false));
             move || {
                 let full = p.is_fullscreen();
-                if full && !was.replace(full) && !me.states().contains(remedy_ui_style::States::FOCUS_WITHIN)
+                if full
+                    && !was.replace(full)
+                    && !me.states().contains(remedy_ui_core::style::States::FOCUS_WITHIN)
                 {
                     let _ = me.clone().focusable(true);
                     me.focus();
@@ -997,7 +999,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             move || {
                 let n = p.key_wakes();
                 if was.replace(Some(n)).is_some_and(|w| w != n) {
-                    remedy_ui_reactive::untrack(|| rest.wake());
+                    remedy_ui_core::reactive::untrack(|| rest.wake());
                 }
             }
         })
@@ -1022,7 +1024,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let p = player.clone();
             move || {
                 if p.is_compact() {
-                    remedy_ui_reactive::untrack(|| w::close_menus_in(&menus));
+                    remedy_ui_core::reactive::untrack(|| w::close_menus_in(&menus));
                 }
             }
         })
@@ -1030,7 +1032,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
 
 /// The player's key map ([`Player::handle_key`]): `space` when Space may play and pause in
 /// [`KeyScheme::Arrows`]. True when the key was the player's.
-pub(crate) fn apply_key(p: &Player, e: &remedy_ui_input::KeyEvent, space: bool) -> bool {
+pub(crate) fn apply_key(p: &Player, e: &remedy_ui_core::input::KeyEvent, space: bool) -> bool {
     if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
         return false;
     }
@@ -1084,7 +1086,7 @@ impl Rest {
         let me = self.clone();
         self.timer.set(Some(self.ui.after(WAKE, move || {
             me.timer.set(None);
-            let full = remedy_ui_reactive::untrack(|| me.player.is_fullscreen());
+            let full = remedy_ui_core::reactive::untrack(|| me.player.is_fullscreen());
             match full && me.hold.get().is_some_and(|h| h()) {
                 true => me.wake(),
                 false => me.player.set_awake(false),
@@ -1097,7 +1099,7 @@ impl Rest {
 fn keyboard_focus_in(el: &El) -> bool {
     let mut stack = vec![el.clone()];
     while let Some(e) = stack.pop() {
-        if e.states().contains(remedy_ui_style::States::FOCUS_VISIBLE) {
+        if e.states().contains(remedy_ui_core::style::States::FOCUS_VISIBLE) {
             return true;
         }
         stack.extend(e.child_elements());
@@ -1129,7 +1131,7 @@ fn overlay(
 ) -> (El, El) {
     let theme = ui.theme();
     let u = theme.spacing.unit;
-    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+    let fill = |l: &mut remedy_ui_core::layout::LayoutStyle| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
     };
@@ -1144,8 +1146,8 @@ fn overlay(
                     start: remedy_ui_core::Point::new(0.0, 0.0),
                     end: remedy_ui_core::Point::new(0.0, cx.size.height),
                     stops: vec![
-                        remedy_ui_paint::Stop { offset: 0.0, color: from },
-                        remedy_ui_paint::Stop { offset: 1.0, color: to },
+                        remedy_ui_engine::paint::Stop { offset: 0.0, color: from },
+                        remedy_ui_engine::paint::Stop { offset: 1.0, color: to },
                     ],
                 },
             );
@@ -1196,7 +1198,7 @@ fn overlay(
             l.position = Position::Absolute;
             l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: AUTO };
         })
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+        .style(remedy_ui_core::style::StylePatch::default().padding(Insets {
             top: u * 2.2,
             bottom: u * 6.0,
             start: u * 3.0,
@@ -1222,8 +1224,8 @@ fn overlay(
     let _ = rest.hold.set(Box::new({
         let (c, n, held) = (chrome.clone(), next.clone(), held.clone());
         move || {
-            let hovered = |e: &El| e.states().contains(remedy_ui_style::States::HOVER);
-            remedy_ui_reactive::untrack(&held)
+            let hovered = |e: &El| e.states().contains(remedy_ui_core::style::States::HOVER);
+            remedy_ui_core::reactive::untrack(&held)
                 || hovered(&c)
                 || hovered(&n)
                 || keyboard_focus_in(&c)
@@ -1256,7 +1258,7 @@ fn overlay(
     let chrome = chrome.bind(move || {
         let now = (p.is_fullscreen(), held());
         if last.replace(Some(now)) != Some(now) && now.0 {
-            remedy_ui_reactive::untrack(|| r.wake());
+            remedy_ui_core::reactive::untrack(|| r.wake());
         }
     });
     let motion = Motion::Tween { duration: FADE, easing: Easing::EASE_IN_OUT };
@@ -1274,7 +1276,7 @@ fn overlay(
                 l.inset = Insets { top: AUTO, start: AUTO, end: u * 2.8, bottom: high + u * 2.0 };
                 l.width = Length::Px(u * 80.0);
                 l.max_width = Length::Percent(1.0);
-                l.axis = remedy_ui_layout::Axis::Column;
+                l.axis = remedy_ui_core::layout::Axis::Column;
                 l.align_items = Align::Stretch;
             }
             (false, true) => {
@@ -1282,7 +1284,7 @@ fn overlay(
                 l.inset = Insets { top: AUTO, start: AUTO, end: next_margin, bottom: high + next_margin };
                 l.width = Length::Px(next_width.min(wide - next_margin * 2.0).max(0.0));
                 l.max_width = Length::Auto;
-                l.axis = remedy_ui_layout::Axis::Column;
+                l.axis = remedy_ui_core::layout::Axis::Column;
                 l.align_items = Align::Stretch;
             }
             (false, false) => {
@@ -1290,12 +1292,12 @@ fn overlay(
                 l.inset = Insets::ZERO;
                 l.width = Length::Auto;
                 l.max_width = Length::Auto;
-                l.axis = remedy_ui_layout::Axis::Column;
+                l.axis = remedy_ui_core::layout::Axis::Column;
                 l.align_items = Align::Stretch;
             }
         });
         let theme = n.ui().theme();
-        let look = remedy_ui_style::StylePatch::default();
+        let look = remedy_ui_core::style::StylePatch::default();
         let look = match full || corner {
             true => look
                 .background(theme.colors.panel.with_alpha(0.92))
@@ -1303,13 +1305,13 @@ fn overlay(
                 .border_width(1.0)
                 .radius(12.0)
                 .backdrop_blur(10.0)
-                .shadow(remedy_ui_style::Shadow::new(0.0, 12.0, 30.0, Color::BLACK.with_alpha(0.45))),
+                .shadow(remedy_ui_core::style::Shadow::new(0.0, 12.0, 30.0, Color::BLACK.with_alpha(0.45))),
             false => look
                 .background(Color::TRANSPARENT)
                 .border_width(0.0)
                 .radius(0.0)
                 .backdrop_blur(0.0)
-                .shadow(remedy_ui_style::Shadow::new(0.0, 0.0, 0.0, Color::TRANSPARENT)),
+                .shadow(remedy_ui_core::style::Shadow::new(0.0, 0.0, 0.0, Color::TRANSPARENT)),
         };
         let _ = n.clone().style(look);
     };
@@ -1336,7 +1338,7 @@ fn overlay(
             },
             false => Insets { top: 0.0, bottom: 0.0, start: 0.0, end: 0.0 },
         };
-        let _ = c.clone().style(remedy_ui_style::StylePatch::default().padding(pad));
+        let _ = c.clone().style(remedy_ui_core::style::StylePatch::default().padding(pad));
         let _ = back.clone().hidden(!full);
         let corner = placement == NextUpPlacement::Corner && !p.is_compact();
         float_next(&n, full, corner, high.get(), wide.get());
@@ -1365,7 +1367,7 @@ fn big_play(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> (El, El) {
     let nudge = theme.metric("player-big-play-nudge", 0.0);
     let hover_text = theme.colors.custom.get("player-big-play-hover-text").copied().unwrap_or(Color::WHITE);
     let look = move |hover: bool, accent: Color| {
-        remedy_ui_style::StylePatch::default()
+        remedy_ui_core::style::StylePatch::default()
             .background(if hover { accent } else { Color::BLACK.with_alpha(0.55) })
             .foreground(if hover { hover_text } else { Color::WHITE })
             .radius(size / 2.0)
@@ -1473,8 +1475,10 @@ fn clock(ui: &Ui, player: &Player) -> El {
             let (lead, trail) = clean.split_once(pos.as_str()).unwrap_or((clean.as_str(), ""));
             let shown = !clean.is_empty() && clean.contains(pos.as_str());
             for (el, text) in [(&b, lead), (&n, if shown { pos.as_str() } else { "" }), (&a, trail)] {
-                let _ =
-                    el.clone().hidden(text.is_empty()).text(remedy_ui_view::RichText::plain(text.to_owned()));
+                let _ = el
+                    .clone()
+                    .hidden(text.is_empty())
+                    .text(remedy_ui_engine::view::RichText::plain(text.to_owned()));
             }
             let _ = b.parent().map(|c| c.semantics(Semantics::new(Role::Label).label(clean.clone())));
         })
@@ -1563,7 +1567,7 @@ fn stage_cancel(ui: &Ui, player: &Player) -> El {
 #[track_caller]
 fn cast_stage(ui: &Ui, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
-    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+    let fill = |l: &mut remedy_ui_core::layout::LayoutStyle| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
     };
@@ -1578,16 +1582,17 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
                 start: remedy_ui_core::Point::new(0.0, 0.0),
                 end: remedy_ui_core::Point::new(0.0, cx.size.height),
                 stops: vec![
-                    remedy_ui_paint::Stop { offset: 0.0, color: top },
-                    remedy_ui_paint::Stop { offset: 1.0, color: bottom },
+                    remedy_ui_engine::paint::Stop { offset: 0.0, color: top },
+                    remedy_ui_engine::paint::Stop { offset: 1.0, color: bottom },
                 ],
             },
         );
     });
     // "Playing on" small and muted, the device's name large, in the order the language puts them.
     let words = |size: f32, weight: f32, color: Color| {
-        ui.el("label")
-            .style(remedy_ui_style::StylePatch::default().text_size(size).weight(weight).foreground(color))
+        ui.el("label").style(
+            remedy_ui_core::style::StylePatch::default().text_size(size).weight(weight).foreground(color),
+        )
     };
     let lead_color = Color::rgb8(0xd9, 0xd1, 0xc2);
     let before = words(u * 3.6, 400.0, lead_color);
@@ -1600,7 +1605,7 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
         .justify(Justify::Center)
         .gap(u * 1.2)
         .layout(fill)
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+        .style(remedy_ui_core::style::StylePatch::default().padding(Insets {
             top: u * 4.0,
             bottom: u * 4.0,
             start: u * 4.0,
@@ -1637,7 +1642,7 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
         let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));
         for (line, s) in [(&before, lead.trim()), (&name_line, name.as_str()), (&after, trail.trim())] {
             let _ = line.clone().hidden(s.is_empty());
-            let _ = line.clone().text(remedy_ui_view::RichText::plain(s.to_owned()));
+            let _ = line.clone().text(remedy_ui_engine::view::RichText::plain(s.to_owned()));
         }
         let _ = text.clone().semantics(Semantics::new(Role::Status).label(said).live(Live::Polite));
         // The app's poster, put in when it changes.
@@ -1665,8 +1670,11 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
     // Drawn in capitals, as a label above a title is set (casing follows the language's own
     // rules); read and copied as written.
-    let label =
-        ui.el("player_next_label").nowrap().text_transform(remedy_ui_view::TextTransform::Upper).text({
+    let label = ui
+        .el("player_next_label")
+        .nowrap()
+        .text_transform(remedy_ui_engine::view::TextTransform::Upper)
+        .text({
             let u = ui.clone();
             move || tr(&u, "playback-next-up-label")
         });
@@ -1675,7 +1683,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let title = title.bind(move || {
         let title = p.next_up().map(|n| n.title).unwrap_or_default();
         let whole = crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.clone().into())]);
-        let _ = t.clone().text(remedy_ui_view::RichText::plain(title)).semantics(said(whole));
+        let _ = t.clone().text(remedy_ui_engine::view::RichText::plain(title)).semantics(said(whole));
     });
     let left = ui.el("label").nowrap();
     let (lb, p, tu) = (left.clone(), player.clone(), ui.clone());
@@ -1686,7 +1694,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
         let Some(d) = countdown else { return };
         let secs = d.as_secs() + u64::from(d.subsec_nanos() > 0);
         let text = crate::STRINGS.format(&tu, "playback-next-up-in", &[("count", secs.into())]);
-        let _ = lb.clone().text(remedy_ui_view::RichText::plain(text.clone())).semantics(said(text));
+        let _ = lb.clone().text(remedy_ui_engine::view::RichText::plain(text.clone())).semantics(said(text));
     });
     let p = player.clone();
     let now = w::button(
@@ -1723,7 +1731,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
         .column()
         .align(Align::Stretch)
         .gap(u)
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+        .style(remedy_ui_core::style::StylePatch::default().padding(Insets {
             top: u,
             bottom: u,
             start: u * 1.5,
@@ -1761,13 +1769,13 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
 fn caption_line(ui: &Ui, line: &str) -> El {
     let u = ui.theme().spacing.unit;
     ui.el("player_caption")
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+        .style(remedy_ui_core::style::StylePatch::default().padding(Insets {
             top: u * 0.5,
             bottom: u * 0.5,
             start: u * 1.5,
             end: u * 1.5,
         }))
-        .text(remedy_ui_view::RichText::plain(line.to_owned()))
+        .text(remedy_ui_engine::view::RichText::plain(line.to_owned()))
 }
 
 /// Draws cues laid out by WebVTT's rules on the picture shown at `aspect` in the stage,
@@ -1775,7 +1783,12 @@ fn caption_line(ui: &Ui, line: &str) -> El {
 /// draws one (light text on a dark box). Vertical cues follow CSS's `text-orientation:
 /// mixed`: CJK, kana, Hangul and other upright characters one under another, and runs of
 /// Latin and other sideways text turned a quarter clockwise, reading downward.
-fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
+fn paint_cues(
+    cx: &mut remedy_ui_engine::view::PaintCx<'_>,
+    cues: &[crate::Cue],
+    aspect: Option<f32>,
+    lift: f32,
+) {
     use crate::cue_layout::vertical_runs;
     let theme = cx.theme;
     let u = theme.spacing.unit;
@@ -1789,7 +1802,7 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
         None => theme.metric("player-caption-size", theme.type_scale.body),
     };
     let token = |name: &str| theme.colors.custom.get(name).copied();
-    let text = remedy_ui_view::TextPaint {
+    let text = remedy_ui_engine::view::TextPaint {
         size,
         weight: 400.0,
         color: token("player-caption-text").unwrap_or(Color::WHITE),
@@ -1858,12 +1871,15 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
                 // Sideways: the run turned a quarter clockwise about its middle.
                 let w = cx.measure_text(&run, text).width;
                 let at = remedy_ui_core::Point::new(c.x, y + w / 2.0);
-                let turn = remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
-                    .then(remedy_ui_paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
-                    .then(remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(at.x, at.y)));
-                cx.list.push(remedy_ui_paint::Item::PushTransform(turn));
+                let turn =
+                    remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
+                        .then(remedy_ui_engine::paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
+                        .then(remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(
+                            at.x, at.y,
+                        )));
+                cx.list.push(remedy_ui_engine::paint::Item::PushTransform(turn));
                 cx.text(&run, at, mid, text);
-                cx.list.push(remedy_ui_paint::Item::PopTransform);
+                cx.list.push(remedy_ui_engine::paint::Item::PopTransform);
                 y += w;
             }
         }
@@ -1961,7 +1977,7 @@ fn captions_control(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player, open:
     let (b, p) = (button.clone(), player.clone());
     let button = button.bind(move || {
         let _ = b.clone().hidden(!p.captions_offered());
-        b.state(remedy_ui_style::States::CHECKED, p.caption_pick() != CaptionPick::Off);
+        b.state(remedy_ui_core::style::States::CHECKED, p.caption_pick() != CaptionPick::Off);
     });
     pulse_while_loading(ui, player, &glyph);
     button
@@ -1977,7 +1993,7 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
     let mut items = Vec::new();
     let (on, set) = pick(CaptionPick::Off);
     items.push(MenuItem::radio(tr(ui, "playback-captions-menu-off"), on, set));
-    if remedy_ui_reactive::untrack(|| p.auto_offered()) {
+    if remedy_ui_core::reactive::untrack(|| p.auto_offered()) {
         let (on, set) = pick(CaptionPick::Auto);
         let (q, u) = (p.clone(), ui.clone());
         items.push(MenuItem::radio(String::new(), on, set).label(move || {
@@ -1990,7 +2006,7 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
             }
         }));
     }
-    let tracks = remedy_ui_reactive::untrack(|| p.subtitle_tracks());
+    let tracks = remedy_ui_core::reactive::untrack(|| p.subtitle_tracks());
     if !tracks.is_empty() {
         items.push(MenuItem::separator());
     }
@@ -1998,7 +2014,7 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
         let (on, set) = pick(CaptionPick::Track(i));
         items.push(MenuItem::radio(t.label, on, set));
     }
-    let choices = remedy_ui_reactive::untrack(|| p.caption_choices());
+    let choices = remedy_ui_core::reactive::untrack(|| p.caption_choices());
     if !choices.is_empty() {
         items.push(MenuItem::separator());
     }
@@ -2020,11 +2036,11 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
             }
         }));
     }
-    if let Some(note) = remedy_ui_reactive::untrack(|| p.caption_note()) {
+    if let Some(note) = remedy_ui_core::reactive::untrack(|| p.caption_note()) {
         items.push(MenuItem::new(note, || {}).disabled(true));
     }
     // A TV shows the file as it is, as on Portal's page: no timing while remote.
-    if !remedy_ui_reactive::untrack(|| p.is_remote()) {
+    if !remedy_ui_core::reactive::untrack(|| p.is_remote()) {
         items.push(MenuItem::separator());
         // Portal's timing step by default: half a second, within ten minutes either way.
         let ms = |d: Duration| i64::try_from(d.as_millis()).unwrap_or(i64::MAX);
@@ -2153,11 +2169,11 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     // The time under `x`: on a timeline in whole seconds, as its seeks are.
     let (b2, p, len) = (bar.clone(), player.clone(), length.clone());
     let time_at = move |x: f32| -> Option<Duration> {
-        let (b, d) = (b2.bounds()?, remedy_ui_reactive::untrack(&len)?);
+        let (b, d) = (b2.bounds()?, remedy_ui_core::reactive::untrack(&len)?);
         let r = (end, b.width());
         let t = ((x - b.min.x - r.0) / (r.1 - 2.0 * r.0).max(1.0)).clamp(0.0, 1.0);
         let at = d.mul_f64(f64::from(t));
-        let film = remedy_ui_reactive::untrack(|| p.timeline().is_some());
+        let film = remedy_ui_core::reactive::untrack(|| p.timeline().is_some());
         Some(if film { Duration::from_secs(at.as_secs()) } else { at })
     };
     // The tip with the time under the pointer: Portal's #dock-hover, above the bar.
@@ -2169,13 +2185,14 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     let scrub = ui.el("player_scrub").grow(1.0).row().align(Align::Center);
     let (t2, s2, p, time) = (tip.clone(), scrub.clone(), player.clone(), time_at.clone());
     let show_tip = move |x: Option<f32>| {
-        let busy = remedy_ui_reactive::untrack(|| p.skipping().is_some() || p.starting_next().is_some());
+        let busy =
+            remedy_ui_core::reactive::untrack(|| p.skipping().is_some() || p.starting_next().is_some());
         let (Some(x), Some(host), false) = (x, s2.bounds(), busy) else {
             let _ = t2.clone().hidden(true);
             return;
         };
         let Some(at) = time(x) else { return };
-        let _ = t2.clone().hidden(false).text(remedy_ui_view::RichText::plain(format_time(at)));
+        let _ = t2.clone().hidden(false).text(remedy_ui_engine::view::RichText::plain(format_time(at)));
         // Centered on the pointer, kept 4 px inside the bar's ends.
         let half = t2.bounds().map_or(0.0, |b| b.width() / 2.0);
         let x = (x - host.min.x).max(half + 4.0).min((host.width() - half - 4.0).max(half + 4.0));
@@ -2205,8 +2222,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             let track_color = pick("track").unwrap_or(d.line);
             let loaded = pick("player-loaded").unwrap_or(d.text.with_alpha(0.35));
             let thumb_color = token("player-thumb").unwrap_or(d.text);
-            let on = cx.states.contains(remedy_ui_style::States::HOVER)
-                && !cx.states.contains(remedy_ui_style::States::DISABLED);
+            let on = cx.states.contains(remedy_ui_core::style::States::HOVER)
+                && !cx.states.contains(remedy_ui_core::style::States::DISABLED);
             let (r, half) = if on { (thumb_hover, track_hover) } else { (thumb, track) };
             let mid = cx.size.height / 2.0;
             let (x0, x1) = (end, cx.size.width - end);
@@ -2264,7 +2281,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         .on_pointer({
             let p = player.clone();
             move |e| {
-                let held = remedy_ui_reactive::untrack(|| p.scrubbing());
+                let held = remedy_ui_core::reactive::untrack(|| p.scrubbing());
                 let x = e.position.x;
                 match e.phase {
                     PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => p.set_scrubbing(time(x)),

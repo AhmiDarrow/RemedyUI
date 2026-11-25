@@ -6,7 +6,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_host::Waker;
+use remedy_ui_core::host::Waker;
 
 /// A later launch: its arguments, and where its reply code goes when it waits for one.
 pub(crate) struct Launch {
@@ -64,13 +64,14 @@ pub(crate) fn claim(
 ) -> Result<Claimed, String> {
     #[cfg(windows)]
     {
-        let wait = wait.map(|w| remedy_ui_bridge_windows::ReplyWait { reply: w.reply, exit: w.exit });
-        remedy_ui_bridge_windows::claim_single_instance_replying(app, args, wait, move |a, r| {
+        let wait =
+            wait.map(|w| remedy_ui_platform::bridge_windows::ReplyWait { reply: w.reply, exit: w.exit });
+        remedy_ui_platform::bridge_windows::claim_single_instance_replying(app, args, wait, move |a, r| {
             deliver(&inbox, a, r);
         })
         .map(|c| match c {
-            remedy_ui_bridge_windows::Claim::First => Claimed::First,
-            remedy_ui_bridge_windows::Claim::HandedOver(code) => Claimed::HandedOver(code),
+            remedy_ui_platform::bridge_windows::Claim::First => Claimed::First,
+            remedy_ui_platform::bridge_windows::Claim::HandedOver(code) => Claimed::HandedOver(code),
         })
         .map_err(|e| e.to_string())
     }

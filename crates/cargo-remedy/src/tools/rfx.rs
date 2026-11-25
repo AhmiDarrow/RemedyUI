@@ -1,7 +1,7 @@
 //! `cargo remedy rfx check|render|library`.
 
-use remedy_tools::Workspace;
-use remedy_tools::effects::{EffectInput, RenderInput, check, check_text, library, render};
+use cargo_remedy::devkit::Workspace;
+use cargo_remedy::devkit::effects::{EffectInput, RenderInput, check, check_text, library, render};
 
 use super::{Args, err};
 

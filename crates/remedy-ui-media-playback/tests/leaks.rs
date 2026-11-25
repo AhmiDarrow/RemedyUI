@@ -13,15 +13,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
 
 static TURN: Mutex<()> = Mutex::new(());
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), FontCollection::new())
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), FontCollection::new())
 }
 
 /// Whether a thread is one of RemedyUI's: every thread the player and its platform code
@@ -65,7 +65,7 @@ fn settles_within(
 ) {
     let start = Instant::now();
     loop {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let now = census(decoders);
         if now.0 <= before.0 && now.1 <= before.1 && now.2 <= before.2 {
             // The system's own threads that stayed, for the record (its pools idle out later).
@@ -90,7 +90,7 @@ fn settles(what: &str, before: (usize, usize, usize), threads: &[(String, String
 fn wait(what: &str, ok: impl Fn() -> bool) {
     let start = Instant::now();
     while !ok() {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         assert!(start.elapsed() < Duration::from_secs(30), "waited for {what}");
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -259,7 +259,7 @@ fn fail_called_by_the_app() {
     scripted(Script::SlowRead, |p| {
         wait("opened", || p.state() == PlaybackState::Paused);
         p.fail("the app gave up");
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
     });
 }
 
@@ -396,7 +396,7 @@ fn gpu_renderer() {
     watch_d3d_devices();
     #[cfg(windows)]
     {
-        use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+        use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
         static MADE: std::sync::Once = std::sync::Once::new();
         MADE.call_once(|| match GpuContext::shared(&LadderOptions::default()) {
             Ok(ctx) => std::mem::forget(GpuRenderer::new(ctx, None)),

@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_host::{EnterKey, HostEvent, ImeEvent, InputPurpose, TextInputState, WindowId};
+use remedy_ui_core::host::{EnterKey, HostEvent, ImeEvent, InputPurpose, TextInputState, WindowId};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 

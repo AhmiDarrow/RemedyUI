@@ -43,7 +43,7 @@ pub(crate) fn key_press(name: &str) -> Option<Press> {
 /// Does `press` on `p` (in remote mode, on the device); false when it means nothing now
 /// (Next with nothing queued).
 pub(crate) fn apply(p: &Player, press: Press) -> bool {
-    let playing = remedy_ui_reactive::untrack(|| {
+    let playing = remedy_ui_core::reactive::untrack(|| {
         matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering)
     });
     match press {

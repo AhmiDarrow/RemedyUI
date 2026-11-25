@@ -9,25 +9,26 @@
 //!   (`rust-version`), installing that toolchain with rustup when it is missing.
 //!
 //! - **Layers.** Every `remedy-ui-*` crate has a layer (docs/design/00-principles-and-modularity.md).
-//!   A crate may depend on crates in lower layers, plus the sideways edges listed in
-//!   [`SIDEWAYS`]. Anything else, and any crate missing from [`LAYERS`], fails the check.
+//!   A crate may depend on crates in lower layers; any crate missing from [`LAYERS`] fails the
+//!   check. The parts of the merged crates ([`MODULES`]) keep their own layers: inside a crate
+//!   a module may use modules of lower layers, plus the sideways edges in [`SIDEWAYS`].
 //! - **Unsafe code.** Every crate inherits the workspace lints (`unsafe_code = "deny"`; deny
 //!   rather than forbid, because forbid cannot be lifted even where it must be). Only the
-//!   crates in [`UNSAFE_BOUNDARY`] may contain `allow(unsafe_code)`, and only on a module named
-//!   `os` or `ffi`; this check is what holds that line.
+//!   crates and modules in [`UNSAFE_BOUNDARY`] may contain `allow(unsafe_code)`, and only on a
+//!   module named `os` or `ffi`; this check is what holds that line.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// What the developer tools know of the checkout: the same code `remedy-tools` reads a live
+/// What the developer tools know of the checkout: the same code `cargo-remedy::devkit` reads a live
 /// checkout with, so the committed index and `--docs-root` agree.
-#[path = "../../crates/remedy-tools/src/extract.rs"]
-#[allow(dead_code, reason = "xtask uses the index writer; remedy-tools the readers")]
+#[path = "../../crates/cargo-remedy/src/devkit/extract.rs"]
+#[allow(dead_code, reason = "xtask uses the index writer; cargo-remedy::devkit the readers")]
 mod extract;
 
-/// The committed docs index (zlib-compressed JSON), embedded by `remedy-tools`.
-const DOCS_INDEX: &str = "crates/remedy-tools/data/docs-index.json.zz";
+/// The committed docs index (zlib-compressed JSON), embedded by `cargo-remedy::devkit`.
+const DOCS_INDEX: &str = "crates/cargo-remedy/remedy-tools/data/docs-index.json.zz";
 
 /// The checkout's root.
 fn repo_root() -> PathBuf {
@@ -64,228 +65,174 @@ fn check_docs_index(problems: &mut Vec<String>) {
     }
 }
 
-/// Each RemedyUI crate and its layer: L0 base … L6 app-facing.
+/// Each RemedyUI crate and its layer: a crate may depend only on crates in lower layers.
 const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-core", 0),
-    ("remedy-ui-reactive", 1),
-    // Proc macros run at build time; they sit with the state layer they generate code for.
+    ("remedy-ui-build", 0),
     ("remedy-ui-macros", 1),
-    ("remedy-ui-tree", 2),
-    ("remedy-ui-style", 2),
-    ("remedy-ui-layout", 2),
-    ("remedy-ui-text", 2),
-    ("remedy-ui-input", 2),
-    ("remedy-ui-paint", 3),
-    ("remedy-ui-motion", 3),
-    ("remedy-ui-a11y", 3),
-    ("remedy-ui-compositor", 3),
-    // Prism, the effects system: the .rfx language, its validator and the CPU kernels. Plain
-    // data and arithmetic over the display list's types; renderers and elements build on it.
-    ("remedy-ui-effects", 3),
-    // Scripted widgets: the language-neutral interface for untrusted code that describes
-    // elements, with no UI of its own, and its engines (RemedyLua, WebAssembly).
-    ("remedy-ui-script", 3),
-    ("remedy-ui-script-lua", 3),
-    ("remedy-ui-script-wasm", 3),
-    // The host model: the platform-neutral contract bridges implement.
-    ("remedy-ui-host", 3),
-    // The view layer: elements, the frame pipeline and input routing, over L0-L3.
-    ("remedy-ui-view", 4),
-    ("remedy-ui-render-gpu", 4),
-    ("remedy-ui-render-cpu", 4),
-    // The desktop bridges share one winit core.
-    ("remedy-ui-bridge-winit", 4),
-    ("remedy-ui-bridge-windows", 4),
-    ("remedy-ui-bridge-macos", 4),
-    ("remedy-ui-bridge-linux", 4),
-    ("remedy-ui-bridge-android", 4),
-    ("remedy-ui-bridge-web", 4),
-    ("remedy-ui-bridge-remedyos", 4),
-    ("remedy-ui-bridge-ios", 4),
-    ("remedy-ui-bridge-headless", 4),
-    ("remedy-ui-widgets-core", 5),
-    ("remedy-ui-widgets-nav", 5),
-    ("remedy-ui-widgets-data", 5),
-    ("remedy-ui-widgets-forms", 5),
-    ("remedy-ui-widgets-extra", 5),
-    ("remedy-ui-widgets-stage", 5),
-    ("remedy-ui-widgets-music", 5),
-    ("remedy-ui-widgets-term", 5),
-    ("remedy-ui-widgets-board", 5),
-    ("remedy-ui-doc-rich", 5),
-    ("remedy-ui-doc-code", 5),
-    ("remedy-ui-automation", 5),
-    ("remedy-ui-rui", 5),
-    ("remedy-ui-doc-pages", 5),
-    ("remedy-ui-media-image", 5),
-    ("remedy-ui-media-anim", 5),
-    ("remedy-ui-media-video", 5),
-    ("remedy-ui-media-playback", 5),
-    ("remedy-ui-media-isolated", 5),
-    // Prism effects as elements: the GPU kernel or the CPU renderer, under the ambient policy.
-    ("remedy-ui-media-effects", 5),
-    ("remedy-ui-viz", 5),
-    ("remedy-ui-embed-webview", 5),
-    ("remedy-ui-embed-gpu", 5),
-    ("remedy-ui-services-desktop", 5),
-    ("remedy-ui-services-update", 5),
-    // The HTTP client: JSON, errors, uploads, keepalive and cancellation, natively and in a page.
-    ("remedy-ui-services-net", 5),
-    ("remedy-ui-services-spell", 5),
-    ("remedy-ui-services-i18n", 5),
-    // Reads a web view's localStorage store (LevelDB) so apps moving off one keep their data.
-    ("remedy-ui-services-webstorage", 5),
-    ("remedy-ui-themes", 5),
-    ("remedy-ui-fonts", 5),
-    // Chinese and Japanese fallback faces: a crate of their own, larger than every other face
-    // together.
-    ("remedy-ui-fonts-cjk", 5),
-    ("remedy-ui-devtools", 5),
-    // The code-fluid layer: what people change about an app, and its editors.
-    ("remedy-ui-customize", 5),
-    ("remedy-ui", 6),
-    ("remedy-ui-test", 6),
-    // Tools: build on everything, nothing builds on them. remedy-tools holds the developer
-    // tools' logic; cargo-remedy (the command line) and remedy-mcp (for AI agents) present it.
-    ("cargo-remedy", 7),
-    ("remedy-tools", 7),
-    ("remedy-mcp", 7),
-    // The app templates, shared by `cargo remedy new` and remedy-tools' `new_app`. A crate of
-    // their own: remedy-tools cannot depend on cargo-remedy, which depends on remedy-tools.
-    ("remedy-templates", 7),
-    // Build-script help for apps (the Windows executable's icon and version); cargo-remedy
-    // writes the same resources when it packages.
-    ("remedy-ui-build", 7),
+    ("remedy-ui-text", 1),
+    ("remedy-ui-fonts", 1),
+    ("remedy-ui-fonts-cjk", 2),
+    ("remedy-ui-engine", 2),
+    ("remedy-ui-bridge-web", 2),
+    ("remedy-ui-platform", 3),
+    ("remedy-ui-media", 4),
+    ("remedy-ui-widgets", 5),
+    ("remedy-ui-widgets-term", 6),
+    ("remedy-ui-media-playback", 6),
+    ("remedy-ui", 7),
+    ("cargo-remedy", 8),
 ];
 
-/// Allowed dependencies inside one layer: (crate, dependency).
-const SIDEWAYS: &[(&str, &str)] = &[
-    ("remedy-ui-widgets-nav", "remedy-ui-widgets-core"),
-    ("remedy-ui-widgets-data", "remedy-ui-widgets-core"),
-    ("remedy-ui-widgets-forms", "remedy-ui-widgets-core"),
-    // Form values and locale data live in the localization service.
-    ("remedy-ui-widgets-forms", "remedy-ui-services-i18n"),
-    ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
-    // Tooltips for single notes of a score.
-    ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
-    // The carousel's slide runs on the viz pack's timer loop, which rests while nothing moves.
-    ("remedy-ui-widgets-extra", "remedy-ui-viz"),
-    // Stage widgets animate on the viz pack's timer loop, and a fader shows its level meter.
-    ("remedy-ui-widgets-stage", "remedy-ui-viz"),
-    ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
-    ("remedy-ui-widgets-term", "remedy-ui-widgets-core"),
-    // Boards are built from widgets, and edit settings in the property grid.
-    ("remedy-ui-widgets-board", "remedy-ui-widgets-core"),
-    ("remedy-ui-widgets-board", "remedy-ui-widgets-data"),
-    // Moment settings use the form pack's date and time pickers; the board's words are
-    // templates filled the localization service's way.
-    ("remedy-ui-widgets-board", "remedy-ui-widgets-forms"),
-    ("remedy-ui-widgets-board", "remedy-ui-services-i18n"),
-    ("remedy-ui-doc-rich", "remedy-ui-widgets-core"),
-    ("remedy-ui-doc-code", "remedy-ui-widgets-core"),
-    ("remedy-ui-automation", "remedy-ui-widgets-core"),
-    ("remedy-ui-rui", "remedy-ui-widgets-core"),
-    ("remedy-ui-automation", "remedy-ui-widgets-nav"),
-    ("remedy-ui-doc-pages", "remedy-ui-widgets-core"),
-    ("remedy-ui-viz", "remedy-ui-widgets-core"),
-    ("remedy-ui-embed-webview", "remedy-ui-widgets-core"),
-    ("remedy-ui-embed-gpu", "remedy-ui-widgets-core"),
-    ("remedy-ui-widgets-music", "remedy-ui-viz"),
-    ("remedy-ui-doc-rich", "remedy-ui-doc-code"),
-    ("remedy-ui-media-anim", "remedy-ui-media-image"),
-    // Images from addresses are fetched with the HTTP client.
-    ("remedy-ui-media-image", "remedy-ui-services-net"),
-    // The sandboxed helper decodes with the image pack and is the loader's router.
-    ("remedy-ui-media-isolated", "remedy-ui-media-image"),
-    // ...and the animation pack's opener, playing animations decoded in the helper.
-    ("remedy-ui-media-isolated", "remedy-ui-media-anim"),
-    // The player shows its pictures in a video surface, and its transport bar is built from
-    // the core widgets.
-    ("remedy-ui-media-playback", "remedy-ui-media-video"),
-    ("remedy-ui-media-playback", "remedy-ui-widgets-core"),
-    // The player shows what plays in the system's media controls (feature `media-session`),
-    // and keeps the screen on while video plays (feature `keep-awake`, the power inhibit).
-    ("remedy-ui-media-playback", "remedy-ui-services-desktop"),
-    // The update banner is a widget.
-    ("remedy-ui-services-update", "remedy-ui-widgets-core"),
-    // Feeds and signatures come through the shared HTTP client (the download keeps its own
-    // reader, for its progress).
-    ("remedy-ui-services-update", "remedy-ui-services-net"),
-    // The spelling menu is built from the core menu widgets.
-    ("remedy-ui-services-spell", "remedy-ui-widgets-core"),
-    // The inspector and preview gallery are built from widgets, and previews render with
-    // the theme pack's palettes and the bundled fonts.
-    ("remedy-ui-devtools", "remedy-ui-widgets-core"),
-    ("remedy-ui-devtools", "remedy-ui-widgets-forms"),
-    ("remedy-ui-devtools", "remedy-ui-themes"),
-    ("remedy-ui-devtools", "remedy-ui-fonts"),
-    ("remedy-ui-devtools", "remedy-ui-fonts-cjk"),
-    // The CJK faces are described the way the other bundled faces are.
-    ("remedy-ui-fonts-cjk", "remedy-ui-fonts"),
-    // Customization edits the theme pack's tokens and restyles with its sheet; its editors
-    // are built from widgets (the color picker and shortcut recorder from the form pack, the
-    // toolbar editor from navigation, whose commands it rebinds); text overrides are a layer
-    // of the localization service's catalogs.
-    ("remedy-ui-customize", "remedy-ui-themes"),
-    ("remedy-ui-customize", "remedy-ui-widgets-core"),
-    ("remedy-ui-customize", "remedy-ui-widgets-forms"),
-    ("remedy-ui-customize", "remedy-ui-widgets-nav"),
-    ("remedy-ui-customize", "remedy-ui-services-i18n"),
-    // People's own screen layouts are the markup pack's, edited in the code editor; a theme's
-    // background image goes through the image pack's loader (and its sandboxed decoder).
-    ("remedy-ui-customize", "remedy-ui-rui"),
-    ("remedy-ui-customize", "remedy-ui-doc-code"),
-    ("remedy-ui-customize", "remedy-ui-media-image"),
-    // Each script engine implements the language-neutral widget interface.
-    ("remedy-ui-script-lua", "remedy-ui-script"),
-    ("remedy-ui-script-lua", "remedy-ui-motion"),
-    ("remedy-ui-script-wasm", "remedy-ui-script"),
-    // Effects take pictures (textures) and blend modes from the display list.
-    ("remedy-ui-effects", "remedy-ui-paint"),
-    // The compositor holds display lists and runs motion curves on its own thread.
-    ("remedy-ui-compositor", "remedy-ui-paint"),
-    ("remedy-ui-compositor", "remedy-ui-motion"),
-    // The GPU renderer shares the CPU renderer's painter, and falls back to it.
-    ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
-    // Painters cache art they draw once as pictures (`rasterize`, `PaintCx::cached`).
-    ("remedy-ui-view", "remedy-ui-render-cpu"),
-    ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
-    ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
-    ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),
-    ("remedy-ui-bridge-android", "remedy-ui-bridge-winit"),
-    // The command line and the MCP server both present the tools' logic.
-    ("cargo-remedy", "remedy-tools"),
-    ("remedy-mcp", "remedy-tools"),
-    ("cargo-remedy", "remedy-templates"),
-    ("remedy-tools", "remedy-templates"),
-    ("cargo-remedy", "remedy-ui-build"),
+/// The parts of the merged crates and their layers: (crate, module, layer). Inside a crate a
+/// module may use modules of lower layers, plus the sideways edges in [`SIDEWAYS`]. They are
+/// the layers the parts had as crates of their own (docs/design/00-principles-and-modularity.md).
+const MODULES: &[(&str, &str, u8)] = &[
+    ("remedy-ui-core", "input", 2),
+    ("remedy-ui-core", "a11y", 3),
+    ("remedy-ui-core", "layout", 2),
+    ("remedy-ui-core", "motion", 3),
+    ("remedy-ui-core", "tree", 2),
+    ("remedy-ui-core", "style", 2),
+    ("remedy-ui-core", "host", 3),
+    ("remedy-ui-core", "reactive", 1),
+    ("remedy-ui-core", "testing", 3),
+    ("remedy-ui-engine", "paint", 3),
+    ("remedy-ui-engine", "view", 4),
+    ("remedy-ui-engine", "compositor", 3),
+    ("remedy-ui-engine", "render_cpu", 4),
+    ("remedy-ui-engine", "render_gpu", 4),
+    ("remedy-ui-engine", "effects", 3),
+    ("remedy-ui-engine", "media_effects", 5),
+    ("remedy-ui-engine", "script", 3),
+    ("remedy-ui-engine", "script_lua", 3),
+    ("remedy-ui-engine", "script_wasm", 3),
+    ("remedy-ui-platform", "bridge_winit", 4),
+    ("remedy-ui-platform", "bridge_windows", 4),
+    ("remedy-ui-platform", "bridge_macos", 4),
+    ("remedy-ui-platform", "bridge_linux", 4),
+    ("remedy-ui-platform", "bridge_android", 4),
+    ("remedy-ui-platform", "bridge_headless", 4),
+    ("remedy-ui-platform", "services_desktop", 5),
+    ("remedy-ui-platform", "services_net", 5),
+    ("remedy-ui-platform", "services_i18n", 5),
+    ("remedy-ui-platform", "services_webstorage", 5),
+    ("remedy-ui-platform", "embed_webview", 5),
+    ("remedy-ui-platform", "embed_gpu", 5),
+    ("remedy-ui-media", "media_image", 5),
+    ("remedy-ui-media", "media_anim", 5),
+    ("remedy-ui-media", "media_video", 5),
+    ("remedy-ui-media", "media_isolated", 5),
+    ("remedy-ui-widgets", "base", 5),
+    ("remedy-ui-widgets", "nav", 5),
+    ("remedy-ui-widgets", "forms", 5),
+    ("remedy-ui-widgets", "data", 5),
+    ("remedy-ui-widgets", "extra", 5),
+    ("remedy-ui-widgets", "stage", 5),
+    ("remedy-ui-widgets", "music", 5),
+    ("remedy-ui-widgets", "board", 5),
+    ("remedy-ui-widgets", "viz", 5),
+    ("remedy-ui-widgets", "themes", 5),
+    ("remedy-ui-widgets", "customize", 5),
+    ("remedy-ui-widgets", "rui", 5),
+    ("remedy-ui-widgets", "doc_rich", 5),
+    ("remedy-ui-widgets", "doc_code", 5),
+    ("remedy-ui-widgets", "doc_pages", 5),
+    ("remedy-ui-widgets", "devtools", 5),
+    ("remedy-ui-widgets", "automation", 5),
+    ("remedy-ui-widgets", "spell", 5),
+    ("remedy-ui-widgets", "update", 5),
+    ("cargo-remedy", "devkit", 1),
+    ("cargo-remedy", "templates", 0),
+    ("cargo-remedy", "mcp", 2),
 ];
 
-/// Crates that may hold unsafe code, each in one `os` or `ffi` module.
+/// Allowed uses between modules of one layer in one crate: (crate, module, the module it uses).
+const SIDEWAYS: &[(&str, &str, &str)] = &[
+    ("cargo-remedy", "devkit", "templates"),
+    ("cargo-remedy", "mcp", "devkit"),
+    ("remedy-ui-engine", "compositor", "paint"),
+    ("remedy-ui-engine", "effects", "paint"),
+    ("remedy-ui-engine", "render_gpu", "render_cpu"),
+    ("remedy-ui-engine", "script_lua", "script"),
+    ("remedy-ui-engine", "script_wasm", "script"),
+    ("remedy-ui-engine", "view", "render_cpu"),
+    ("remedy-ui-media", "media_anim", "media_image"),
+    ("remedy-ui-media", "media_isolated", "media_anim"),
+    ("remedy-ui-media", "media_isolated", "media_image"),
+    ("remedy-ui-platform", "bridge_android", "bridge_winit"),
+    ("remedy-ui-platform", "bridge_linux", "bridge_winit"),
+    ("remedy-ui-platform", "bridge_macos", "bridge_winit"),
+    ("remedy-ui-platform", "bridge_windows", "bridge_winit"),
+    ("remedy-ui-widgets", "automation", "base"),
+    ("remedy-ui-widgets", "automation", "nav"),
+    ("remedy-ui-widgets", "board", "base"),
+    ("remedy-ui-widgets", "board", "data"),
+    ("remedy-ui-widgets", "board", "forms"),
+    ("remedy-ui-widgets", "customize", "base"),
+    ("remedy-ui-widgets", "customize", "doc_code"),
+    ("remedy-ui-widgets", "customize", "forms"),
+    ("remedy-ui-widgets", "customize", "nav"),
+    ("remedy-ui-widgets", "customize", "rui"),
+    ("remedy-ui-widgets", "customize", "themes"),
+    ("remedy-ui-widgets", "data", "base"),
+    ("remedy-ui-widgets", "devtools", "base"),
+    ("remedy-ui-widgets", "devtools", "forms"),
+    ("remedy-ui-widgets", "devtools", "themes"),
+    ("remedy-ui-widgets", "doc_code", "base"),
+    ("remedy-ui-widgets", "doc_pages", "base"),
+    ("remedy-ui-widgets", "doc_rich", "base"),
+    ("remedy-ui-widgets", "doc_rich", "doc_code"),
+    ("remedy-ui-widgets", "extra", "base"),
+    ("remedy-ui-widgets", "extra", "viz"),
+    ("remedy-ui-widgets", "forms", "base"),
+    ("remedy-ui-widgets", "music", "base"),
+    ("remedy-ui-widgets", "music", "viz"),
+    ("remedy-ui-widgets", "nav", "base"),
+    ("remedy-ui-widgets", "rui", "base"),
+    ("remedy-ui-widgets", "spell", "base"),
+    ("remedy-ui-widgets", "stage", "viz"),
+    ("remedy-ui-widgets", "update", "base"),
+    ("remedy-ui-widgets", "viz", "base"),
+];
+
+/// Where unsafe code may be, as folders under `crates/`: whole crates that talk to a platform,
+/// and the modules of merged crates that do. Inside them it sits in one `os` or `ffi` module.
 const UNSAFE_BOUNDARY: &[&str] = &[
-    "remedy-ui-render-gpu",
-    "remedy-ui-bridge-windows",
-    "remedy-ui-bridge-macos",
-    "remedy-ui-bridge-linux",
-    "remedy-ui-bridge-android",
-    "remedy-ui-bridge-web",
-    "remedy-ui-bridge-remedyos",
-    "remedy-ui-bridge-ios",
-    // Reads Authenticode signatures (WinVerifyTrust, CryptQueryObject) to verify updates.
-    "remedy-ui-services-update",
-    // Writes Windows shortcuts (IShellLink) for start-with-the-session entries.
-    "remedy-ui-services-desktop",
-    // Talks to the platform's spell checker (Windows ISpellChecker, macOS NSSpellChecker).
-    "remedy-ui-services-spell",
-    // Starts the sandboxed decoding helper: AppContainer, job objects and sections on
-    // Windows; seccomp-bpf, Landlock, memfds and descriptor passing on Linux; Seatbelt on macOS.
-    "remedy-ui-media-isolated",
-    // Decodes and plays media through the platform (Media Foundation and WASAPI, GStreamer,
-    // AVFoundation and Audio Queues, MediaCodec and AAudio).
-    "remedy-ui-media-playback",
-    // Hosts the platform's web view: WebView2's COM interfaces and child windows on Windows,
-    // GTK and WebKitGTK through dlopen on Linux.
-    "remedy-ui-embed-webview",
+    "remedy-ui-engine/src/render_gpu/",
+    "remedy-ui-engine/examples/render_gpu/",
+    "remedy-ui-engine/tests/render_gpu/",
+    "remedy-ui-platform/src/bridge_windows/",
+    "remedy-ui-platform/examples/bridge_windows/",
+    "remedy-ui-platform/tests/bridge_windows/",
+    "remedy-ui-platform/src/bridge_macos/",
+    "remedy-ui-platform/examples/bridge_macos/",
+    "remedy-ui-platform/tests/bridge_macos/",
+    "remedy-ui-platform/src/bridge_linux/",
+    "remedy-ui-platform/examples/bridge_linux/",
+    "remedy-ui-platform/tests/bridge_linux/",
+    "remedy-ui-platform/src/bridge_android/",
+    "remedy-ui-platform/examples/bridge_android/",
+    "remedy-ui-platform/tests/bridge_android/",
+    "remedy-ui-bridge-web/",
+    "remedy-ui-bridge-remedyos/",
+    "remedy-ui-bridge-ios/",
+    "remedy-ui-widgets/src/update/",
+    "remedy-ui-widgets/examples/update/",
+    "remedy-ui-widgets/tests/update/",
+    "remedy-ui-platform/src/services_desktop/",
+    "remedy-ui-platform/examples/services_desktop/",
+    "remedy-ui-platform/tests/services_desktop/",
+    "remedy-ui-widgets/src/spell/",
+    "remedy-ui-widgets/examples/spell/",
+    "remedy-ui-widgets/tests/spell/",
+    "remedy-ui-media/src/media_isolated/",
+    "remedy-ui-media/examples/media_isolated/",
+    "remedy-ui-media/tests/media_isolated/",
+    "remedy-ui-media-playback/",
+    "remedy-ui-platform/src/embed_webview/",
+    "remedy-ui-platform/examples/embed_webview/",
+    "remedy-ui-platform/tests/embed_webview/",
 ];
 
 fn layer(name: &str) -> Option<u8> {
@@ -372,12 +319,50 @@ fn check_layers(pkgs: &[Package], problems: &mut Vec<String>) {
                 problems.push(format!("{} depends on {d}, which has no layer", p.name));
                 continue;
             };
-            let sideways_ok = SIDEWAYS.contains(&(p.name.as_str(), d.as_str()));
-            if dl > own || (dl == own && !sideways_ok) {
+            if dl >= own {
                 problems.push(format!(
                     "{} (L{own}) must not depend on {d} (L{dl}); see docs/design/00-principles-and-modularity.md",
                     p.name
                 ));
+            }
+        }
+    }
+}
+
+/// The modules of merged crates keep the layers they had as crates: a file under
+/// `src/<module>/` may name `crate::<other>` only when the other module is in a lower layer
+/// or the edge is in [`SIDEWAYS`].
+fn check_modules(pkgs: &[Package], problems: &mut Vec<String>) {
+    for p in pkgs {
+        let own: Vec<(&str, u8)> =
+            MODULES.iter().filter(|(c, ..)| *c == p.name).map(|(_, m, l)| (*m, *l)).collect();
+        let Some(dir) = p.manifest.parent() else { continue };
+        for (module, layer) in &own {
+            let mut files = Vec::new();
+            rust_files(&dir.join("src").join(module), &mut files);
+            for f in files {
+                let text = std::fs::read_to_string(&f).unwrap_or_default();
+                for (i, line) in text.lines().enumerate() {
+                    // Comments may name anything: a link is not a use.
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for rest in line.split("crate::").skip(1) {
+                        let used: String =
+                            rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                        let Some((_, other)) = own.iter().find(|(m, _)| *m == used && m != module) else {
+                            continue;
+                        };
+                        let sideways = SIDEWAYS.contains(&(p.name.as_str(), module, used.as_str()));
+                        if other > layer || (other == layer && !sideways) {
+                            problems.push(format!(
+                                "{}:{}: `{module}` (L{layer}) must not use `{used}` (L{other}); see docs/design/00-principles-and-modularity.md",
+                                f.display(),
+                                i + 1
+                            ));
+                        }
+                    }
+                }
             }
         }
     }
@@ -412,8 +397,9 @@ fn check_unsafe(pkgs: &[Package], problems: &mut Vec<String>) {
         let Some(dir) = p.manifest.parent() else { continue };
         let mut files = Vec::new();
         rust_files(dir, &mut files);
-        let boundary = UNSAFE_BOUNDARY.contains(&p.name.as_str());
         for f in files {
+            let shown = f.to_string_lossy().replace('\\', "/");
+            let boundary = UNSAFE_BOUNDARY.iter().any(|b| shown.contains(&format!("crates/{b}")));
             let text = std::fs::read_to_string(&f).unwrap_or_default();
             let lines: Vec<&str> = text.lines().collect();
             for (i, line) in lines.iter().enumerate() {
@@ -606,6 +592,7 @@ fn main() -> ExitCode {
     };
     let mut problems = Vec::new();
     check_layers(&pkgs, &mut problems);
+    check_modules(&pkgs, &mut problems);
     check_unsafe(&pkgs, &mut problems);
     check_metadata(&pkgs, &mut problems);
     check_docs_index(&mut problems);
@@ -662,30 +649,42 @@ mod tests {
 
     #[test]
     fn upward_dependencies_are_rejected() {
-        let p = problems(&[pkg("remedy-ui-core", &["remedy-ui-tree"])]);
+        let p = problems(&[pkg("remedy-ui-core", &["remedy-ui-engine"])]);
         assert_eq!(p.len(), 1);
         assert!(p.iter().all(|m| m.contains("must not depend")));
-    }
-
-    #[test]
-    fn sideways_needs_an_entry() {
-        assert!(problems(&[pkg("remedy-ui-widgets-nav", &["remedy-ui-widgets-core"])]).is_empty());
-        assert_eq!(problems(&[pkg("remedy-ui-widgets-data", &["remedy-ui-widgets-nav"])]).len(), 1);
+        // Crates of one layer do not build on each other.
+        assert_eq!(problems(&[pkg("remedy-ui-macros", &["remedy-ui-text"])]).len(), 1);
     }
 
     #[test]
     fn downward_and_unknown() {
-        assert!(problems(&[pkg("remedy-ui-tree", &["remedy-ui-reactive", "remedy-ui-core"])]).is_empty());
+        assert!(problems(&[pkg("remedy-ui-widgets", &["remedy-ui-engine", "remedy-ui-core"])]).is_empty());
         let p = problems(&[pkg("remedy-ui-unlisted", &[])]);
         assert!(p.iter().any(|m| m.contains("has no layer")));
     }
 
     #[test]
     fn the_tools_are_checked_too() {
-        assert!(problems(&[pkg("remedy-mcp", &["remedy-tools", "remedy-ui-core"])]).is_empty());
-        assert!(problems(&[pkg("cargo-remedy", &["remedy-tools"])]).is_empty());
-        // Nothing builds on the tools, and the tools do not build on each other unlisted.
-        assert_eq!(problems(&[pkg("remedy-ui", &["remedy-tools"])]).len(), 1);
-        assert_eq!(problems(&[pkg("remedy-tools", &["remedy-mcp"])]).len(), 1);
+        assert!(problems(&[pkg("cargo-remedy", &["remedy-ui", "remedy-ui-build"])]).is_empty());
+        // Nothing builds on the tools.
+        assert_eq!(problems(&[pkg("remedy-ui", &["cargo-remedy"])]).len(), 1);
+    }
+
+    #[test]
+    fn the_module_tables_agree_with_each_other() {
+        for (krate, module, _) in MODULES {
+            assert!(layer(krate).is_some(), "{krate} (of {module}) has a layer");
+        }
+        let layer_of = |krate: &str, module: &str| {
+            MODULES.iter().find(|(c, m, _)| *c == krate && *m == module).map(|(.., l)| *l)
+        };
+        for (krate, module, used) in SIDEWAYS {
+            let (a, b) = (layer_of(krate, module), layer_of(krate, used));
+            assert!(a.is_some() && b.is_some(), "{krate}: {module} and {used} are its modules");
+            assert!(a >= b, "{krate}: {module} uses {used}, which is not above it");
+        }
+        // The widget families build on the core set; nothing is listed the other way round.
+        assert!(SIDEWAYS.contains(&("remedy-ui-widgets", "nav", "base")));
+        assert!(!SIDEWAYS.contains(&("remedy-ui-widgets", "base", "nav")));
     }
 }

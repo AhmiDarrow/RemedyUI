@@ -3,7 +3,7 @@
 //! hair short of the cell's edges).
 
 use remedy_ui_core::{Color, Rect};
-use remedy_ui_paint::{Brush, DisplayList};
+use remedy_ui_engine::paint::{Brush, DisplayList};
 
 /// The four arms of U+2500–U+257F: up, right, down, left; 0 none, 1 light, 2 heavy, 3
 /// double. `None` for characters left to the font (diagonals).

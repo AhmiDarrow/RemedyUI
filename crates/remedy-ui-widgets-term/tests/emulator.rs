@@ -384,7 +384,7 @@ fn hostile_input_stays_bounded() {
 
 #[test]
 fn keys_encode_as_xterm_does() {
-    use remedy_ui_input::{Key, KeyEvent, Modifiers};
+    use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
     let key = |k: Key, m: Modifiers, text: Option<&str>| {
         KeyEvent::press(k).with_modifiers(m).with_text(text.map(str::to_owned))
     };
@@ -458,7 +458,7 @@ fn pastes_pointer_reports_and_focus() {
         v_.mouse_encoding = MouseEncoding::Sgr;
         v_
     };
-    let none = remedy_ui_input::Modifiers::NONE;
+    let none = remedy_ui_core::input::Modifiers::NONE;
     let enc =
         |b, a, m: &Modes| encode_mouse(b, a, 4, 2, none, m).map(|v| String::from_utf8_lossy(&v).into_owned());
     assert_eq!(enc(MouseButton::Left, MouseAction::Press, &sgr).as_deref(), Some("\x1b[<0;5;3M"));

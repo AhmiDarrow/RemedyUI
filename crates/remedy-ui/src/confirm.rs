@@ -4,12 +4,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::Size;
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Align, Justify};
-use remedy_ui_view::Ui;
-use remedy_ui_widgets_core as w;
+use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Align, Justify};
+use remedy_ui_engine::view::Ui;
+use remedy_ui_widgets::base as w;
 
 use crate::{App, Window, WindowSpec};
 
@@ -191,8 +191,8 @@ fn build(ui: &Ui, win: &Window, spec: &ConfirmSpec, slot: &Answer) {
 mod tests {
     use std::cell::Cell;
 
-    use remedy_ui_a11y::Role;
-    use remedy_ui_input::{Key, KeyEvent, Modifiers};
+    use remedy_ui_core::a11y::Role;
+    use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
 
     use super::*;
     use crate::AppConfig;
@@ -278,7 +278,7 @@ mod tests {
         let (mut app, got) = asking(quit());
         app.frames(1);
         let Some(id) = app.host().window_ids().first().copied() else { unreachable!("open") };
-        app.host().send(remedy_ui_host::HostEvent::CloseRequested(id));
+        app.host().send(remedy_ui_core::host::HostEvent::CloseRequested(id));
         app.frames(2);
         assert_eq!(got.get(), Some(false), "closed from the title bar");
     }

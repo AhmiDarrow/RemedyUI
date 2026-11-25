@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use remedy_tools::Workspace;
-use remedy_tools::testing::{BudgetInput, TestInput, budget_check, run_tests};
+use cargo_remedy::devkit::Workspace;
+use cargo_remedy::devkit::testing::{BudgetInput, TestInput, budget_check, run_tests};
 
 use super::{Args, err};
 
@@ -24,7 +24,7 @@ pub fn test(a: &Args) -> Result<(), String> {
 pub fn budgets(a: &Args) -> Result<(), String> {
     let root = match a.get("--remedy-root") {
         Some(r) => PathBuf::from(r),
-        None => remedy_tools::built_from_checkout()
+        None => cargo_remedy::devkit::built_from_checkout()
             .or_else(|| std::env::current_dir().ok())
             .ok_or("name the RemedyUI checkout with --remedy-root")?,
     };

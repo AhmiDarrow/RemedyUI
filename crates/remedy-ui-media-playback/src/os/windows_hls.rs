@@ -442,8 +442,8 @@ unsafe impl Send for MftElementary {}
 impl MftElementary {
     /// On the GPU when a renderer takes pictures there, as [`MfDecoder`] does.
     pub(crate) fn new() -> Result<MftElementary, MediaError> {
-        let gpu = match remedy_ui_paint::gpu_video_adapter() {
-            Some(remedy_ui_paint::GpuAdapter::Luid(l)) => Gpu::new(l).map_err(|e| copy_path(&e)).ok(),
+        let gpu = match remedy_ui_engine::paint::gpu_video_adapter() {
+            Some(remedy_ui_engine::paint::GpuAdapter::Luid(l)) => Gpu::new(l).map_err(|e| copy_path(&e)).ok(),
             _ => None,
         };
         Self::with_gpu(gpu)
@@ -474,7 +474,8 @@ impl Elementary for MftElementary {
         com();
         let mut old = self.video.take();
         // The renderer on another adapter now: a device there, and a decoder on it.
-        if let Some(remedy_ui_paint::GpuAdapter::Luid(l)) = remedy_ui_paint::gpu_video_adapter()
+        if let Some(remedy_ui_engine::paint::GpuAdapter::Luid(l)) =
+            remedy_ui_engine::paint::gpu_video_adapter()
             && self.adapter != Some(l)
         {
             old = None;

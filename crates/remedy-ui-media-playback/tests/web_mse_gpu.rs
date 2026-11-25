@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
+use remedy_ui_engine::paint::GpuAdapter;
 use remedy_ui_media_playback::{MediaSource, PlaybackState, Player, PlayerOptions, WebBackend};
-use remedy_ui_paint::GpuAdapter;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -156,7 +156,7 @@ async fn the_gpu_renderer_uploads_the_element_itself() {
         wait_ms(10).await;
     }
     assert_eq!(renderer(), Some(RendererKind::Gpu), "the window draws on the GPU");
-    assert_eq!(remedy_ui_paint::gpu_video_adapter(), Some(GpuAdapter::Browser));
+    assert_eq!(remedy_ui_engine::paint::gpu_video_adapter(), Some(GpuAdapter::Browser));
     let canvas: web_sys::HtmlCanvasElement = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.query_selector("canvas[data-raw-handle]").ok().flatten())

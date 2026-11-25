@@ -52,8 +52,8 @@
 //!   show on every platform; others where the platform's decoder gives them. Bitmap
 //!   subtitles (PGS, VobSub, DVB) are pictures, not text, and are not shown.
 //!
-//! Pictures go to a [`video_surface`](remedy_ui_media_video::video_surface)'s
-//! [`VideoSink`](remedy_ui_media_video::VideoSink) as NV12 (converted on the GPU). Sound goes
+//! Pictures go to a [`video_surface`](remedy_ui_media::media_video::video_surface)'s
+//! [`VideoSink`](remedy_ui_media::media_video::VideoSink) as NV12 (converted on the GPU). Sound goes
 //! to the default output, and its clock (how much has been heard) decides when each picture
 //! shows, so sound and picture stay together however the machine is loaded. Without sound,
 //! the monotonic clock does.
@@ -67,8 +67,9 @@
 
 /// The player's own words (control names, tooltips, messages over the picture) in every
 /// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `media-playback`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-playback");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `media-playback`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("media-playback");
 
 mod awake;
 mod capture;
@@ -124,7 +125,7 @@ pub use player::{
     set_pip_window,
 };
 #[cfg(feature = "media-session")]
-pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
+pub use remedy_ui_platform::services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{
     Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,

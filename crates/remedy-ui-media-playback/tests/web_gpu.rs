@@ -14,11 +14,11 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
+use remedy_ui_engine::paint::{GpuAdapter, GpuTexture};
 use remedy_ui_media_playback::{
     Decoder, MediaHost, MediaSource, Picture, PixelFormat, PlaybackState, Player, PlayerOptions, Sample,
     WebBackend, platform_host_with,
 };
-use remedy_ui_paint::{GpuAdapter, GpuTexture};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -238,7 +238,7 @@ async fn frames_stay_on_the_gpu_from_the_decoder_to_the_screen() {
 /// The decoder alone, as a page with a GPU renderer has it: pictures stay frames on the GPU.
 async fn decoded_frames_are_handed_over_without_a_copy() {
     spy_on_frames();
-    remedy_ui_paint::set_gpu_video_adapter(Some(GpuAdapter::Browser));
+    remedy_ui_engine::paint::set_gpu_video_adapter(Some(GpuAdapter::Browser));
     let host = host();
     let mut dec = host.open(&MediaSource::url(blob_url(CLIP))).must("opening the clip");
     let mut ready = false;
@@ -285,7 +285,7 @@ async fn decoded_frames_are_handed_over_without_a_copy() {
     let closed = frame_count("close") - closes;
     web_sys::console::log_1(&format!("pictures {shown}, frames closed {closed}").into());
     assert!(closed >= shown, "{closed} frames closed for {shown} pictures kept");
-    remedy_ui_paint::set_gpu_video_adapter(None);
+    remedy_ui_engine::paint::set_gpu_video_adapter(None);
 }
 
 fn renderer(app: &Rc<RefCell<Option<App>>>) -> Option<RendererKind> {
@@ -352,7 +352,7 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
         .must("a canvas");
     let kind = context(&canvas);
     assert!(
-        remedy_ui_paint::gpu_video_adapter() == Some(GpuAdapter::Browser),
+        remedy_ui_engine::paint::gpu_video_adapter() == Some(GpuAdapter::Browser),
         "the {kind} renderer takes pictures on the GPU"
     );
     let p = slot.borrow().clone().must("the player");

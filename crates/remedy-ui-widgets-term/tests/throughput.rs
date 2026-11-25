@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::Size;
+use remedy_ui_engine::view::{Request, Ui};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{Request, Ui};
 use remedy_ui_widgets_term::*;
 
 const TOTAL: usize = 100 << 20;
@@ -46,12 +46,12 @@ fn payload() -> Vec<u8> {
 }
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 /// The parse rate for kinds of output, to see where time goes.
@@ -106,7 +106,7 @@ fn a_hundred_megabytes_keep_the_ui_responsive() {
     ui.root().child(ui.el("col").column().height(900.0).fill_width().child(term.element()));
     let size = Size::new(1400.0, 900.0);
     let frame = |ui: &Ui| {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let _ = ui.frame(size, 1.0);
         for r in ui.take_requests() {
             if let Request::ScrollTo { scroller, offset } = r {

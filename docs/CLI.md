@@ -1,6 +1,6 @@
 # cargo remedy
 
-`cargo remedy` is RemedyUI's command line. It creates, runs and packages apps. It also offers every developer tool that `remedy-mcp` gives AI agents ([MCP.md](MCP.md)): one logic, the `remedy-tools` crate, behind both.
+`cargo remedy` is RemedyUI's command line. It creates, runs and packages apps. It also offers every developer tool that `remedy-mcp` gives AI agents ([MCP.md](MCP.md)): one logic, the `cargo-remedy::devkit` crate, behind both.
 
 ```sh
 cargo install --path crates/cargo-remedy

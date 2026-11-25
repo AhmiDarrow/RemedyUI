@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use remedy_ui_host::{DialogId, DialogStarted, FileDialog, HostEvent, Unsupported};
+use remedy_ui_core::host::{DialogId, DialogStarted, FileDialog, HostEvent, Unsupported};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -112,7 +112,7 @@ pub(crate) fn file_dialog(d: &Driver, dialog: &FileDialog) -> Result<DialogStart
 
 /// Reads files dropped on a window, then reports the drop.
 pub(crate) fn dropped(
-    window: remedy_ui_host::WindowId,
+    window: remedy_ui_core::host::WindowId,
     position: Option<remedy_ui_core::Point>,
     list: Vec<web_sys::File>,
     text: Option<String>,
@@ -120,8 +120,8 @@ pub(crate) fn dropped(
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         let files = read_files(list, false).await;
-        let data = remedy_ui_host::DragData { files, text, uris };
-        post(HostEvent::Drag(window, remedy_ui_host::DragEvent::Drop { position, data }));
+        let data = remedy_ui_core::host::DragData { files, text, uris };
+        post(HostEvent::Drag(window, remedy_ui_core::host::DragEvent::Drop { position, data }));
     });
 }
 

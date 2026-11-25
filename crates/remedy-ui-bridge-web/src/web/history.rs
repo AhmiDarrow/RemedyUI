@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 
 use js_sys::{Array, Reflect};
-use remedy_ui_host::HostEvent;
+use remedy_ui_core::host::HostEvent;
 use wasm_bindgen::{JsCast, JsValue};
 
 use super::dom::Listener;

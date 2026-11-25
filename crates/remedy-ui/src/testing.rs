@@ -26,11 +26,11 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use remedy_ui_a11y::{Action, ReaderNode, Role};
-use remedy_ui_bridge_headless::HeadlessHost;
-use remedy_ui_host::{HostEvent, WindowId};
-use remedy_ui_input::{Key, KeyEvent};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_core::a11y::{Action, ReaderNode, Role};
+use remedy_ui_core::host::{HostEvent, WindowId};
+use remedy_ui_core::input::{Key, KeyEvent};
+use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 
 use crate::{App, AppConfig, GeometryStore, Runner, Window, WindowSpec};
 
@@ -227,15 +227,15 @@ fn released(event: &KeyEvent) -> KeyEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remedy_ui_a11y::Semantics;
-    use remedy_ui_reactive::Signal;
-    use remedy_ui_widgets_core as w;
+    use remedy_ui_core::a11y::Semantics;
+    use remedy_ui_core::reactive::Signal;
+    use remedy_ui_widgets::base as w;
 
     #[test]
     fn find_type_and_press_like_a_person() {
         let saved = Signal::new(String::new());
         let mut app = TestApp::window(move |ui, _| {
-            let field = ui.text_field("text_input", remedy_ui_view::FieldKind::Single).label("Name");
+            let field = ui.text_field("text_input", remedy_ui_engine::view::FieldKind::Single).label("Name");
             let f2 = field.clone();
             let save = w::button(ui, "Save", move || saved.set(f2.value()));
             ui.root().child(field.el()).child(save);
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_share_button_hands_its_recipe_to_the_sheet_and_falls_back_when_refused() {
-        use remedy_ui_host::{ShareFile, ShareOptions, ShareOutcome, Unsupported};
+        use remedy_ui_core::host::{ShareFile, ShareOptions, ShareOutcome, Unsupported};
         let status = Signal::new(String::new());
         let mut app = TestApp::new(AppConfig::new("Share"), move |app: &App| {
             let app2 = app.clone();
