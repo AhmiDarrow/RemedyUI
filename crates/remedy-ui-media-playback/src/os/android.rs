@@ -432,7 +432,11 @@ impl MediaHost for AndroidHost {
     }
 
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
-        Ok(Box::new(AAudioIn::open(aaudio()?, format)?))
+        Ok(Box::new(AAudioIn::open(aaudio()?, format, true)?))
+    }
+
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(AAudioIn::open(aaudio()?, format, raw)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -1320,36 +1324,57 @@ struct AAudioIn {
 unsafe impl Send for AAudioIn {}
 
 impl AAudioIn {
-    fn open(aa: &'static AAudio, format: AudioFormat) -> Result<AAudioIn, MediaError> {
+    fn open(aa: &'static AAudio, format: AudioFormat, raw: bool) -> Result<AAudioIn, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
         // SAFETY: building, opening and starting a stream; the builder is deleted after, and
         // a stream that fails to start is closed.
         unsafe {
-            let mut builder: Ptr = std::ptr::null_mut();
-            let r = (aa.create_stream_builder)(&mut builder);
-            if r != AAUDIO_OK {
-                return Err(aa.error("no stream builder", r));
-            }
-            (aa.builder_set_direction)(builder, AAUDIO_DIRECTION_INPUT);
-            (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
-            (aa.builder_set_channel_count)(builder, i32::from(format.channels));
-            (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
-            (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-            if let Some(preset) = aa.builder_set_input_preset {
-                preset(builder, AAUDIO_INPUT_PRESET_UNPROCESSED);
-            }
-            let mut stream: Ptr = std::ptr::null_mut();
-            let r = (aa.builder_open_stream)(builder, &mut stream);
-            (aa.builder_delete)(builder);
-            if r != AAUDIO_OK || stream.is_null() {
-                // Without RECORD_AUDIO the open is refused.
-                return Err(MediaError::Denied(format!(
-                    "the microphone would not open ({}); the app needs the microphone permission",
-                    aa.error("AAudio", r)
-                )));
-            }
+            // Raw sound is the UNPROCESSED preset (Android 9 on). A device that has no such
+            // path refuses the open: it is asked again with its own preset.
+            let try_open = |preset: Option<i32>| -> Result<Ptr, i32> {
+                let mut builder: Ptr = std::ptr::null_mut();
+                let r = (aa.create_stream_builder)(&mut builder);
+                if r != AAUDIO_OK {
+                    return Err(r);
+                }
+                (aa.builder_set_direction)(builder, AAUDIO_DIRECTION_INPUT);
+                (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
+                (aa.builder_set_channel_count)(builder, i32::from(format.channels));
+                (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
+                (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+                if let (Some(set), Some(preset)) = (aa.builder_set_input_preset, preset) {
+                    set(builder, preset);
+                }
+                let mut stream: Ptr = std::ptr::null_mut();
+                let r = (aa.builder_open_stream)(builder, &mut stream);
+                (aa.builder_delete)(builder);
+                if r != AAUDIO_OK || stream.is_null() { Err(r) } else { Ok(stream) }
+            };
+            let wants_preset = raw && aa.builder_set_input_preset.is_some();
+            let first = try_open(wants_preset.then_some(AAUDIO_INPUT_PRESET_UNPROCESSED));
+            let stream = match (first, wants_preset) {
+                (Ok(stream), _) => stream,
+                (Err(with_preset), true) => match try_open(None) {
+                    Ok(stream) => stream,
+                    // Refused both ways, so not for the preset. Without RECORD_AUDIO every
+                    // open is refused, which is the usual reason; the code says which.
+                    Err(r) => {
+                        return Err(MediaError::Denied(format!(
+                            "the microphone would not open ({}; with the unprocessed preset: {});                              the usual cause is that the app has not been given the microphone permission",
+                            aa.error("AAudio", r),
+                            aa.error("AAudio", with_preset)
+                        )));
+                    }
+                },
+                (Err(r), false) => {
+                    return Err(MediaError::Denied(format!(
+                        "the microphone would not open ({}); the app needs the microphone permission",
+                        aa.error("AAudio", r)
+                    )));
+                }
+            };
             // AAudio converts to the asked-for rate on most devices; where it gives the
             // device's own instead, the microphone converts (see `capture`).
             let rate = (aa.stream_get_sample_rate)(stream);

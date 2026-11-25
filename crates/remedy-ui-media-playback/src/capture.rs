@@ -23,9 +23,20 @@ pub struct MicrophoneOptions {
     /// The sample rate and channels the app wants; the platform converts from the device's
     /// own. 48 kHz mono by default: what pitch detection, levels and speech need.
     pub format: AudioFormat,
+    /// Sound as the microphone hears it, with the system's voice processing off (automatic
+    /// gain, noise suppression, echo cancellation): what pitch detection, tuners and
+    /// recording need, and the default. `false` leaves the processing a voice call wants.
+    /// A device that has no raw mode gives what it has.
+    pub raw: bool,
 }
 
 impl MicrophoneOptions {
+    /// Sets `raw`: sound as the microphone hears it, or with the system's voice processing.
+    pub fn raw(mut self, value: bool) -> Self {
+        self.raw = value;
+        self
+    }
+
     /// Sets `format`: the sample rate and channels the app wants.
     pub fn format(mut self, value: AudioFormat) -> Self {
         self.format = value;
@@ -35,7 +46,7 @@ impl MicrophoneOptions {
 
 impl Default for MicrophoneOptions {
     fn default() -> Self {
-        MicrophoneOptions { format: AudioFormat::new(48_000, 1) }
+        MicrophoneOptions { format: AudioFormat::new(48_000, 1), raw: true }
     }
 }
 
@@ -134,6 +145,7 @@ impl Drop for Inner {
 struct Capture {
     host: Arc<dyn MediaHost>,
     format: AudioFormat,
+    raw: bool,
     input: Option<Box<dyn AudioInput>>,
     on_sound: OnSound,
     /// Converts a device's own format to the asked-for one, where the platform did not.
@@ -178,7 +190,7 @@ impl Capture {
             return Next::Idle;
         }
         if self.input.is_none() {
-            match self.host.audio_input(self.format) {
+            match self.host.audio_input_with(self.format, self.raw) {
                 Ok(i) => {
                     let got = i.format();
                     if got.channels == 0 || got.sample_rate == 0 {
@@ -298,6 +310,7 @@ impl Microphone {
         static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = IDS.fetch_add(1, Ordering::Relaxed);
         let format = options.format;
+        let raw = options.raw;
         let shared = Arc::new(Shared::default());
         let waker = remedy_ui_reactive::waker();
         let started = match (host, waker) {
@@ -312,6 +325,7 @@ impl Microphone {
                     move |_| Capture {
                         host,
                         format,
+                        raw,
                         input: None,
                         on_sound,
                         convert: None,

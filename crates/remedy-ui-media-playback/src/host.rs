@@ -405,7 +405,14 @@ pub trait MediaHost: Send + Sync {
     /// settings), asking for samples in `format`. A platform that cannot convert from the
     /// device's own rate and channels gives those instead, as [`AudioInput::format`] reports;
     /// [`Microphone`](crate::Microphone) converts them. It is capturing when this returns.
+    /// `raw` asks for sound without the system's voice processing (automatic gain, noise
+    /// suppression, echo cancellation), where the device has such a mode.
     /// Hosts without one say [`MediaError::Unsupported`].
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        let _ = raw;
+        self.audio_input(format)
+    }
+    /// Opens the default sound input as [`MediaHost::audio_input_with`] does, raw.
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
         let _ = format;
         Err(MediaError::Unsupported(format!("{} has no sound input", self.name())))
