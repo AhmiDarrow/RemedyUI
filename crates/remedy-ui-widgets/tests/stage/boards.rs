@@ -196,7 +196,7 @@ fn a_flap_holds_a_whole_character_as_a_reader_sees_it() {
     let want = ["e\u{301}", "\u{1F1E9}\u{1F1EA}", "x", "\u{a0}", "\u{a0}"];
     assert_eq!(flaps, want, "three characters, padded to five");
     let names: Vec<String> = ui.reader_view().iter().filter_map(|n| n.name.clone()).collect();
-    assert!(names.iter().any(|n| *n == text), "{names:?}");
+    assert!(names.iter().any(|n| n.as_str() == text), "{names:?}");
 }
 
 #[test]

@@ -148,7 +148,8 @@ fn reactions_with(
                 if focused {
                     item.1.focus();
                 }
-                kept.insert(at.min(kept.len()), item);
+                let to = at.min(kept.len());
+                kept.insert(to, item);
             }
             // The same emoji listed twice had a button each.
             let extra = now.len().min(kept.len());

@@ -190,7 +190,9 @@ pub fn code_view(ui: &Ui, label: impl Into<String>, source: Signal<String>, opti
     });
     let el = ui.el("code_view").column().fill_width().grow(1.0).child(list);
     // Colored once per source: a fold toggle only picks the lines to show again.
-    let parsed: Signal<Rc<(Vec<RichText>, Vec<Option<Range<usize>>>)>> = Signal::new(Rc::default());
+    /// A source's colored lines and, per line, the lines it folds.
+    type Parsed = (Vec<RichText>, Vec<Option<Range<usize>>>);
+    let parsed: Signal<Rc<Parsed>> = Signal::new(Rc::default());
     el.bind(move || {
         let src = source.get();
         let c = colored(&src, &opts.language, &ui2);

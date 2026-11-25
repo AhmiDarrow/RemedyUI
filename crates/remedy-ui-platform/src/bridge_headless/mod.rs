@@ -307,7 +307,10 @@ impl HeadlessHost {
         const MAX_SIDE: f32 = 1_048_576.0;
         const MAX_PIXELS: u32 = 1 << 28;
         let scale = w.scale;
-        let side = |logical: f32| (logical * scale).round().max(1.0).min(MAX_SIDE) as u32;
+        let side = |logical: f32| {
+            let px = (logical * scale).round();
+            if px.is_nan() { 1 } else { px.clamp(1.0, MAX_SIDE) as u32 }
+        };
         w.options.size = size;
         w.width = side(size.width);
         w.height = side(size.height).min(MAX_PIXELS / w.width).max(1);
