@@ -202,7 +202,7 @@ mod unix {
         // Read as it arrives: the length is the sender's word, and nothing is set aside for it.
         let len = u64::from(u32::from_le_bytes(len));
         let mut payload = Vec::new();
-        if s.by_ref().take(len).read_to_end(&mut payload).ok()? as u64 != len {
+        if std::io::Read::take(&mut *s, len).read_to_end(&mut payload).ok()? as u64 != len {
             return None;
         }
         Some((decode(&payload), Some(flags & FLAG_EXIT != 0)))
