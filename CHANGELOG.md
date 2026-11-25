@@ -14,6 +14,33 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **The engine is 15 crates, down from 68.** Apps that depend on `remedy-ui` change nothing:
+  its features and `remedy_ui::…` paths are the same. The crates behind it were merged, each
+  old crate becoming a module behind a feature of the same name:
+  `remedy-ui-core` (input, a11y, layout, motion, tree, style, host, reactive, testing),
+  `remedy-ui-engine` (paint, view, compositor, render_cpu, render_gpu, effects,
+  media_effects, script, script_lua, script_wasm), `remedy-ui-platform` (the `bridge_*`
+  modules for Windows, macOS, Linux, Android, winit and headless, `services_desktop`,
+  `services_net`, `services_i18n`, `services_webstorage`, `embed_webview`, `embed_gpu`),
+  `remedy-ui-media` (media_image, media_anim, media_video, media_isolated) and
+  `remedy-ui-widgets` (base, nav, forms, data, extra, stage, music, board, viz, themes,
+  customize, rui, doc_rich, doc_code, doc_pages, devtools, automation, spell, update).
+  `remedy-ui-macros`, `remedy-ui-text`, `remedy-ui-bridge-web`, `remedy-ui-widgets-term`,
+  `remedy-ui-media-playback`, `remedy-ui-fonts`, `remedy-ui-fonts-cjk` and `remedy-ui-build`
+  are as they were. An app that names an old crate directly runs `cargo remedy migrate`,
+  which rewrites `remedy_ui_viz::bars` to `remedy_ui_widgets::viz::bars` and the like, and
+  changes its `Cargo.toml` by hand to the new crate with the module's feature
+  (`remedy-ui-widgets = { features = ["viz"] }`).
+
+- **The tools are one crate.** `remedy-tools`, `remedy-templates` and `remedy-mcp` are parts
+  of `cargo-remedy` (`cargo_remedy::devkit`, `templates` and `mcp`). `cargo install
+  cargo-remedy` builds the command as before; the MCP server is still the `remedy-mcp`
+  binary, built with `cargo install cargo-remedy --bin remedy-mcp --features mcp-full` (or
+  `mcp` with the `mcp-*` tool groups wanted, without the default features).
+
+- **Catalogs sit under their names.** A crate's translations are `i18n/<catalog>/<locale>.ftl`
+  (`engine_strings!("viz")` reads `i18n/viz/`), so one crate can hold several.
+
 - **Touch**: a finger dragged over a view that scrolls itself (a page view, a text area)
   now scrolls it, as the wheel does, and a second finger brings the first with it, so a
   pinch starts. A file dialog filter of `*` matches files without an extension on Linux

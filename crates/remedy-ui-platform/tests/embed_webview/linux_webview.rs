@@ -1,6 +1,6 @@
 //! The web view scenario on Linux, with WebKitGTK under X11. One test per process. It needs
 //! an X11 display (or XWayland) and WebKitGTK 4.1 or 4.0, so it runs only when asked:
-//! `cargo test -p remedy-ui-embed-webview --test linux_webview -- --ignored`.
+//! `cargo test -p remedy-ui-platform --features embed-webview --test linux_webview -- --ignored`.
 #![cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 
 mod scenario;

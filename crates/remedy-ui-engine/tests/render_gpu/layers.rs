@@ -49,7 +49,7 @@ fn tree(n: u64, merged: bool, frame: u64) -> LayerTree {
 }
 
 #[test]
-#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test layers -- --ignored --nocapture"]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-engine --features render-gpu --test layers -- --ignored --nocapture"]
 fn sibling_layers_cost_against_merging_them() {
     const FRAMES: u32 = 20;
     for n in [50u64, 400, 1000] {

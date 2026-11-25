@@ -198,7 +198,7 @@ impl MenuItem {
 
     /// Shows `text` at the entry's end, the shortcut that does the same from anywhere
     /// ("Ctrl+O"). The menu only shows it; the shortcut itself is the app's (or its
-    /// [`Commands`](https://docs.rs/remedy-ui-widgets-nav)'), so a menu made from commands
+    /// [`Commands`](https://docs.rs/remedy-ui-widgets::nav)'), so a menu made from commands
     /// shows their chords with [`MenuItem::chords`].
     pub fn shortcut(mut self, text: impl IntoProp<String>) -> Self {
         self.shortcut = Some(Shortcut::Text(text.into_prop()));

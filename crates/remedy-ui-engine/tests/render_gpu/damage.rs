@@ -241,7 +241,7 @@ fn filtered_groups_of_layers_draw_from_damage_like_a_full_frame() {
 }
 
 #[test]
-#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test damage -- --ignored --nocapture"]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-engine --features render-gpu --test damage -- --ignored --nocapture"]
 fn damage_only_compositing_costs_less_than_full_frames() {
     // A 4K frame: compositing alone is timed (present, then wait for the GPU), with no read
     // back, which at this size costs more than either composite and would hide the gain.
@@ -310,7 +310,7 @@ fn damage_only_compositing_costs_less_than_full_frames() {
 }
 
 #[test]
-#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test damage -- --ignored --nocapture"]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-engine --features render-gpu --test damage -- --ignored --nocapture"]
 fn a_hidpi_4k_first_frame() {
     // A 1920x1080 window at scale 2: 3840x2160 device pixels in 512-pixel tiles.
     let (w, h, scale) = (3840u32, 2160u32, 2.0f32);

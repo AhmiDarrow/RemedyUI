@@ -215,7 +215,9 @@ unsafe impl Send for Shared {}
 fn read_back(why: &str) {
     static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        eprintln!("remedy-ui-render-gpu: a video picture in DMA-BUFs is copied through CPU memory: {why}");
+        eprintln!(
+            "remedy-ui-engine::render_gpu: a video picture in DMA-BUFs is copied through CPU memory: {why}"
+        );
     }
 }
 

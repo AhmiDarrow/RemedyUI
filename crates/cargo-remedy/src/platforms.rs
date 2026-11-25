@@ -369,7 +369,7 @@ pub fn android_manifest(
             android:exported="false"
             android:grantUriPermissions="true" />
         <!-- Decodes images in processes of their own with no permissions (isolated decoding,
-             remedy-ui-media-isolated); unused unless the app enables it. -->
+             remedy-ui-media::media_isolated); unused unless the app enables it. -->
         <service android:name="dev.remedyui.android.Decoder"
             android:isolatedProcess="true"
             android:exported="false" />

@@ -1,4 +1,4 @@
-//! The tool groups: thin adapters from MCP calls to `remedy-tools`.
+//! The tool groups: thin adapters from MCP calls to `cargo-remedy::devkit`.
 
 use crate::devkit::Group;
 

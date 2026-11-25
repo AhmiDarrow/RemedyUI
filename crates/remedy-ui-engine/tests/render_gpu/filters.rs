@@ -718,7 +718,7 @@ fn hostile_colour_matrices_are_bounded_on_both_renderers() {
 }
 
 #[test]
-#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test filters -- --ignored --nocapture"]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-engine --features render-gpu --test render_gpu_filters -- --ignored --nocapture"]
 fn colour_matrix_cost() {
     // A 512 x 512 tile of cards, drawn plain, with one matrix over a quarter of it, and with
     // one over all of it: what a matrix group adds on each renderer.

@@ -8,8 +8,8 @@
 //!   and runs the handlers its buttons name ([`ScriptWidget::act`]), keeping its own state
 //!   between calls.
 //! - [`ScriptEngine`]: a language that loads widgets from a [`Package`]. Engines are crates
-//!   of their own (`remedy-ui-script-lua` for widgets people write by hand in RemedyLua,
-//!   `remedy-ui-script-wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
+//!   of their own (`remedy-ui-engine::script_lua` for widgets people write by hand in RemedyLua,
+//!   `remedy-ui-engine::script_wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
 //!   app or a board enables; a package names its [`Language`].
 //! - The element-description protocol ([`Node`], read from JSON by [`describe`], or by
 //!   [`describe_with`] for apps that offer elements of their own): what a
@@ -62,11 +62,11 @@ pub use serde_json;
 pub struct Language(Cow<'static, str>);
 
 impl Language {
-    /// RemedyLua: widgets people write by hand (`remedy-ui-script-lua`). The id is `lua`;
+    /// RemedyLua: widgets people write by hand (`remedy-ui-engine::script_lua`). The id is `lua`;
     /// `.rlua` is the same language with the typed dialect selected by the source.
     pub const LUA: Language = Language(Cow::Borrowed("lua"));
     /// WebAssembly: widgets compiled from Rust or any language that targets it
-    /// (`remedy-ui-script-wasm`).
+    /// (`remedy-ui-engine::script_wasm`).
     pub const WASM: Language = Language(Cow::Borrowed("wasm"));
 
     /// The language named `id`.

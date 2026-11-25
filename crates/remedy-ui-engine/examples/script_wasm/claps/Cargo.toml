@@ -4,7 +4,7 @@
 #   cargo build --manifest-path crates/remedy-ui-engine/examples/script_wasm/claps/Cargo.toml \
 #       --target wasm32-unknown-unknown --release --target-dir target/claps-widget
 #   cp target/claps-widget/wasm32-unknown-unknown/release/remedy_claps_widget.wasm \
-#       crates/remedy-ui-script-wasm/examples/claps.wasm
+#       crates/remedy-ui-engine/examples/script_wasm/claps.wasm
 #
 # (needs `rustup target add wasm32-unknown-unknown`). The engine's tests load the checked-in
 # claps.wasm, and rebuild it to check it still matches when the target is installed.

@@ -326,7 +326,7 @@ impl FontCollection {
     /// A `load` that cannot have the faces yet (a browser page fetching them over the
     /// network) returns none and starts getting them; the collection asks again for the next
     /// text that needs them. Once they are there, shape the text again (`Ui::fonts_changed`
-    /// in `remedy-ui-view`) so what was waiting picks them up.
+    /// in `remedy-ui-engine::view`) so what was waiting picks them up.
     pub fn add_on_demand<'a>(
         &mut self,
         needed: fn(char) -> bool,

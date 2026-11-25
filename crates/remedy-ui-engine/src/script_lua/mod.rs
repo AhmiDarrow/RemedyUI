@@ -702,7 +702,7 @@ impl LuaWidget {
     /// Compiles and runs `source` (its setup) with `limits` and `grants`, and reads its
     /// manifest: the table the chunk returns (`name`, `settings`, and optionally `render`).
     pub fn load(source: &str, limits: Limits, grants: &Grants) -> Result<LuaWidget, ScriptError> {
-        RATE.calibrate_once("remedy-ui-script-lua calibration", measure);
+        RATE.calibrate_once("remedy-ui-engine::script_lua calibration", measure);
         let libs = Libs::BASE | Libs::STRING | Libs::TABLE | Libs::MATH | Libs::UTF8 | Libs::COROUTINE;
         let libs = if grants.print { libs | Libs::PRINT } else { libs };
         // A seed from the source: hashing (and so `pairs` order and fuel) is the same every

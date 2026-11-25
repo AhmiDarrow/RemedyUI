@@ -180,7 +180,8 @@ fn docs_markup_and_tool_listing_over_stdio() {
     let hits = mcp.call("docs_search", json!({"query": "agents consent token undo"}));
     let t = ok(&hits, "docs_search");
     assert!(
-        t.contains("docs/design/11-accessibility-and-automation.md") || t.contains("remedy-ui-automation"),
+        t.contains("docs/design/11-accessibility-and-automation.md")
+            || t.contains("remedy-ui-widgets::automation"),
         "{t}"
     );
     let structured = hits.structured_content.clone().must("structured hits");

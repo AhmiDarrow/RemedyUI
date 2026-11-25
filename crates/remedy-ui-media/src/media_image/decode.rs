@@ -24,7 +24,7 @@ pub enum DecodeError {
     /// The file could not be read.
     Io(String),
     /// Its decoder was stopped: decoding in a sandboxed helper
-    /// (`remedy-ui-media-isolated`), it crashed, ran far longer than an image this size takes,
+    /// (`remedy-ui-media::media_isolated`), it crashed, ran far longer than an image this size takes,
     /// or used more memory than the image needs. The reason says which.
     Stopped(String),
     /// It could not be fetched from its address ([`Source::Url`](crate::media_image::Source::Url)): no
@@ -101,7 +101,7 @@ pub fn is_scalable(bytes: &[u8]) -> bool {
     format_of(bytes).is_some_and(|f| f.scalable())
 }
 
-/// Decoding done somewhere other than this process: `remedy-ui-media-isolated` decodes in a
+/// Decoding done somewhere other than this process: `remedy-ui-media::media_isolated` decodes in a
 /// sandboxed helper. Once one is set with [`set_router`], the image loader ([`load`],
 /// [`probe`], [`image()`]) and [`decode_for_box`] read sizes and decode through it; [`decode`]
 /// and [`dimensions`] always decode here (they are what a router runs on the other side).

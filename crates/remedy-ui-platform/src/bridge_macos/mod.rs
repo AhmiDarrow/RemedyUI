@@ -1,6 +1,6 @@
 //! RemedyUI's macOS bridge.
 //!
-//! The shared winit core (`remedy-ui-bridge-winit`) provides windows, input, frames, input
+//! The shared winit core (`remedy-ui-platform::bridge_winit`) provides windows, input, frames, input
 //! methods (`NSTextInputClient` through winit), CPU presents and Metal surface handles. This
 //! crate adds the general pasteboard (sensitive copies marked concealed and transient, so
 //! clipboard managers skip them), window sharing protection (`NSWindowSharingNone`), and

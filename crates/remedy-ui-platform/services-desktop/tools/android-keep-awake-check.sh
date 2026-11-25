@@ -17,7 +17,7 @@ set -euo pipefail
 
 crate="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$crate/../.." && pwd)"
-bridge="$root/crates/remedy-ui-bridge-android"
+bridge="$root/crates/remedy-ui-platform/bridge-android"
 sdk="${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"
 ndk="${ANDROID_NDK_HOME:-$sdk/ndk/$(ls "$sdk/ndk" | sort -V | tail -n 1)}"
 target="${TARGET:-x86_64-linux-android}"
@@ -44,7 +44,7 @@ upper=$(echo "$target" | tr 'a-z-' 'A-Z_')
 lower=$(echo "$target" | tr '-' '_')
 export "CARGO_TARGET_${upper}_LINKER=$clang" "CC_${lower}=$clang" "AR_${lower}=$(exe "$bin/llvm-ar")"
 
-(cd "$root" && cargo build -p remedy-ui-services-desktop --example android-keep-awake-check --target "$target" --profile "$profile")
+(cd "$root" && cargo build -p remedy-ui-platform --features services-desktop --example android-keep-awake-check --target "$target" --profile "$profile")
 dir="$profile"
 [ "$profile" = dev ] && dir=debug
 

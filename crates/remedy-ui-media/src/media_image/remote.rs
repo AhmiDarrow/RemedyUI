@@ -17,7 +17,7 @@ use remedy_ui_core::reactive::Cancel;
 
 use crate::media_image::decode::DecodeError;
 
-/// Fetches the bytes at an address. The engine has its own (`remedy-ui-services-net`:
+/// Fetches the bytes at an address. The engine has its own (`remedy-ui-platform::services_net`:
 /// natively HTTPS through ureq and rustls with the platform's certificates, in a page the
 /// browser's `fetch`); an app sets another with [`set_fetcher`] (its own HTTP client, with
 /// its cookies or auth headers).
@@ -623,7 +623,7 @@ fn land(url: &str, generation: u64, got: Got) {
 
 // ---------- the engine's own fetcher ----------
 
-/// The engine's HTTP client (`remedy-ui-services-net`): natively ureq with rustls, refusing
+/// The engine's HTTP client (`remedy-ui-platform::services_net`): natively ureq with rustls, refusing
 /// plain `http` beyond the loopback interface; in a page the browser's `fetch`.
 struct Own;
 

@@ -424,7 +424,7 @@ impl WasmWidget {
         if !module.starts_with(b"\0asm") {
             return Err(invalid("a WebAssembly widget is a module (it starts with \\0asm), and this is not"));
         }
-        RATE.calibrate_once("remedy-ui-script-wasm calibration", measure);
+        RATE.calibrate_once("remedy-ui-engine::script_wasm calibration", measure);
         let engine = engine(&limits);
         let module = Module::new(&engine, module).map_err(invalid)?;
         for import in module.imports() {

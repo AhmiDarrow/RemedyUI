@@ -1,5 +1,5 @@
 //! Where animations are decoded. By default here, on the image workers; an [`Opener`] set
-//! with [`set_opener`] decodes them elsewhere (`remedy-ui-media-isolated` decodes in a
+//! with [`set_opener`] decodes them elsewhere (`remedy-ui-media::media_isolated` decodes in a
 //! sandboxed helper). Either way a stream gets a [`FrameSource`]: frames composited at the size
 //! shown, with their delays, read in order and started again for the next loop. The stream's
 //! memory policy, shared playheads and pausing are the same wherever frames come from.

@@ -1,7 +1,7 @@
 //! Renders every built-in effect on the CPU into PNG files, at a few moments, to look at.
 //!
 //! ```text
-//! cargo run --release -p remedy-ui-effects --example render_library -- <out dir> [width height]
+//! cargo run --release -p remedy-ui-engine --features effects --example render_library -- <out dir> [width height]
 //! ```
 
 use std::sync::Arc;

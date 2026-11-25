@@ -1,4 +1,4 @@
-// Keeps the app's process running while keepalive requests (remedy-ui-services-net's
+// Keeps the app's process running while keepalive requests (remedy-ui-platform::services_net's
 // `Request::keepalive`, an app's last saves) finish after it leaves the screen.
 //
 // A started service lifts the process out of Android's cached state, so it is not frozen

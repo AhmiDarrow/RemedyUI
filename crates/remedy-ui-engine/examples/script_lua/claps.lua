@@ -1,6 +1,6 @@
 -- Claps: a widget people write by hand. It counts claps toward a goal and greets whoever
 -- is looking. `this` is the widget's own state. The same widget, compiled from Rust to
--- WebAssembly, is crates/remedy-ui-script-wasm/examples/claps. A widget that keeps its
+-- WebAssembly, is crates/remedy-ui-engine/script-wasm/examples/claps. A widget that keeps its
 -- elements and follows signals is examples/kept.lua.
 
 function clap()
