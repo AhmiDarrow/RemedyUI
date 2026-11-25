@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+    AUDCLNT_STREAMOPTIONS_RAW, AudioCategory_Other, AudioClientProperties, IAudioClient2,
     AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioCaptureClient, IAudioClient, IAudioClock,
     IAudioRenderClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
     WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
@@ -189,7 +190,11 @@ impl MediaHost for WindowsHost {
     }
 
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
-        Ok(Box::new(WasapiInput::open(format)?))
+        Ok(Box::new(WasapiInput::open(format, true)?))
+    }
+
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(WasapiInput::open(format, raw)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -897,7 +902,7 @@ fn input_error(e: windows::core::Error) -> MediaError {
 }
 
 impl WasapiInput {
-    fn open(format: AudioFormat) -> Result<WasapiInput, MediaError> {
+    fn open(format: AudioFormat, raw: bool) -> Result<WasapiInput, MediaError> {
         com();
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
@@ -911,6 +916,20 @@ impl WasapiInput {
                 .GetDefaultAudioEndpoint(eCapture, eConsole)
                 .map_err(|e| MediaError::NotFound(format!("no microphone: {}", e.message())))?;
             let client: IAudioClient = device.Activate(CLSCTX_ALL, None).map_err(input_error)?;
+            if raw {
+                // The raw stream skips the driver's own effects (automatic gain, noise
+                // suppression, echo cancellation), which bend a held note. A driver with no
+                // raw mode refuses, and the stream is then its usual one.
+                if let Ok(client2) = client.cast::<IAudioClient2>() {
+                    let properties = AudioClientProperties {
+                        cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
+                        bIsOffload: false.into(),
+                        eCategory: AudioCategory_Other,
+                        Options: AUDCLNT_STREAMOPTIONS_RAW,
+                    };
+                    let _ = client2.SetClientProperties(&properties);
+                }
+            }
             let mut period = 0i64;
             client.GetDevicePeriod(Some(&mut period), None).map_err(input_error)?;
             client

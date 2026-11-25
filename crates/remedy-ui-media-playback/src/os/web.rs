@@ -1180,7 +1180,11 @@ impl MediaHost for WebHost {
     }
 
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
-        Ok(Box::new(WebMicrophone::open(format)?))
+        Ok(Box::new(WebMicrophone::open(format, true)?))
+    }
+
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(WebMicrophone::open(format, raw)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -1309,7 +1313,7 @@ struct WebMicrophone {
 unsafe impl Send for WebMicrophone {}
 
 impl WebMicrophone {
-    fn open(format: AudioFormat) -> Result<WebMicrophone, MediaError> {
+    fn open(format: AudioFormat, raw: bool) -> Result<WebMicrophone, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
@@ -1323,7 +1327,7 @@ impl WebMicrophone {
         let shared: Rc<RefCell<MicShared>> = Rc::default();
         let s = shared.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            if let Err(e) = start_microphone(devices, format, s.clone()).await {
+            if let Err(e) = start_microphone(devices, format, raw, s.clone()).await {
                 let mut m = s.borrow_mut();
                 m.error = Some(e);
                 m.release();
@@ -1346,13 +1350,14 @@ fn media_error(e: &JsValue) -> MediaError {
 async fn start_microphone(
     devices: JsValue,
     format: AudioFormat,
+    raw: bool,
     shared: Rc<RefCell<MicShared>>,
 ) -> Result<(), MediaError> {
     // Sound as the microphone hears it: the voice-call processing would bend a sung note.
     let audio = obj(&[
-        ("echoCancellation", JsValue::FALSE),
-        ("noiseSuppression", JsValue::FALSE),
-        ("autoGainControl", JsValue::FALSE),
+        ("echoCancellation", JsValue::from(!raw)),
+        ("noiseSuppression", JsValue::from(!raw)),
+        ("autoGainControl", JsValue::from(!raw)),
         ("channelCount", JsValue::from(u32::from(format.channels))),
     ]);
     let constraints = obj(&[("audio", audio.into()), ("video", JsValue::FALSE)]);
