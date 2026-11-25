@@ -145,7 +145,8 @@ impl Drop for Inner {
 struct Capture {
     host: Arc<dyn MediaHost>,
     format: AudioFormat,
-    raw: bool,
+    /// Ask the device for sound without voice processing.
+    unprocessed: bool,
     input: Option<Box<dyn AudioInput>>,
     on_sound: OnSound,
     /// Converts a device's own format to the asked-for one, where the platform did not.
@@ -190,7 +191,7 @@ impl Capture {
             return Next::Idle;
         }
         if self.input.is_none() {
-            match self.host.audio_input_with(self.format, self.raw) {
+            match self.host.audio_input_with(self.format, self.unprocessed) {
                 Ok(i) => {
                     let got = i.format();
                     if got.channels == 0 || got.sample_rate == 0 {
@@ -310,7 +311,7 @@ impl Microphone {
         static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = IDS.fetch_add(1, Ordering::Relaxed);
         let format = options.format;
-        let raw = options.raw;
+        let unprocessed = options.raw;
         let shared = Arc::new(Shared::default());
         let waker = remedy_ui_reactive::waker();
         let started = match (host, waker) {
@@ -325,7 +326,7 @@ impl Microphone {
                     move |_| Capture {
                         host,
                         format,
-                        raw,
+                        unprocessed,
                         input: None,
                         on_sound,
                         convert: None,

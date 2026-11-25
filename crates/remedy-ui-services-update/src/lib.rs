@@ -795,7 +795,7 @@ pub fn update_banner_with(
 
 #[cfg(test)]
 mod json_feed_tests {
-    use super::{UpdateError, json_release_on, tauri_platform_keys_for};
+    use super::*;
 
     fn tauri_doc() -> serde_json::Value {
         serde_json::json!({
