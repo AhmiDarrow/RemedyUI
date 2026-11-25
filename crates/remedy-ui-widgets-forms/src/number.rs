@@ -134,21 +134,29 @@ impl Problem {
 }
 
 /// Why typed text was not accepted, for the field's error line.
-fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal, Problem> {
+fn problem(
+    text: &str,
+    sym: &NumberSymbols,
+    o: &NumberOptions,
+    (min, max): (Option<Decimal>, Option<Decimal>),
+) -> Result<Decimal, Problem> {
     let v = sym.parse(text).map_err(Problem::Text)?;
     let v = v.round(o.precision);
-    if let Some(m) = o.min
+    if let Some(m) = min
         && v < m
     {
         return Err(Problem::Low(m));
     }
-    if let Some(m) = o.max
+    if let Some(m) = max
         && v > m
     {
         return Err(Problem::High(m));
     }
     Ok(v)
 }
+
+/// The smallest and largest allowed values now.
+type Bounds = std::rc::Rc<dyn Fn() -> (Option<Decimal>, Option<Decimal>)>;
 
 /// A number field. Typing shows an error until the text is a number in range; the value
 /// signal only ever holds valid, rounded numbers. Up and Down step (Shift: ×10), Page Up and
@@ -158,11 +166,30 @@ fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal
 /// fraction digits exactly and shows `5` and `12.25`, not `5.0000000000`.
 #[track_caller]
 pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, options: NumberOptions) -> El {
+    let (min, max) = (options.min, options.max);
+    number_input_within(ui, label, value, options, move || (min, max))
+}
+
+/// [`number_input`] whose limits can change while it is shown: `bounds` gives the smallest
+/// and largest allowed values (either may be `None`) and is read again whenever a signal it
+/// reads changes, so a field's range can follow another field or the data it edits (a
+/// "to page" that cannot pass the page count, an end that cannot come before its start).
+/// `options.min` and `options.max` are not used. When the range tightens past the value,
+/// the value moves to the nearest limit.
+#[track_caller]
+pub fn number_input_within(
+    ui: &Ui,
+    label: impl Into<String>,
+    value: Signal<Decimal>,
+    options: NumberOptions,
+    bounds: impl Fn() -> (Option<Decimal>, Option<Decimal>) + 'static,
+) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let o = std::rc::Rc::new(options);
+    let bounds: Bounds = std::rc::Rc::new(bounds);
     // Whole numbers from zero up need neither a separator nor a sign: the plain digit pad.
-    let whole = o.precision == 0 && o.min.is_some_and(|m| m >= Decimal::ZERO);
+    let whole = o.precision == 0 && untrack(|| bounds()).0.is_some_and(|m| m >= Decimal::ZERO);
     let purpose = if whole { InputPurpose::Digits } else { InputPurpose::Decimal };
     let field = ui.text_field("text_input", FieldKind::Single).purpose(purpose).label(label.clone());
     let error = Signal::new(None::<Problem>);
@@ -178,10 +205,10 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         }
     };
     let field = {
-        let (f, u, o) = (field.clone(), ui.clone(), o.clone());
+        let (f, u, o, b) = (field.clone(), ui.clone(), o.clone(), bounds.clone());
         field.on_change(move || {
             let sym = NumberSymbols::for_locale(&untrack(|| u.locale()));
-            match problem(&f.value(), &sym, &o) {
+            match problem(&f.value(), &sym, &o, untrack(|| b())) {
                 Ok(v) => {
                     value.set_if_changed(v);
                     error.set_if_changed(None);
@@ -196,6 +223,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
     let e2 = el.clone();
     let s3 = show.clone();
     let (o2, o3, u2, l2) = (o.clone(), o.clone(), ui.clone(), label.clone());
+    let (b2, b3) = (bounds.clone(), bounds.clone());
     let el = el
         .on_focus_change(move |focused| {
             if !focused {
@@ -207,18 +235,19 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
                 return false;
             }
             let times = |n: i64| o2.step.checked_mul(Decimal::from_int(n)).unwrap_or(o2.step);
+            let (min, max) = untrack(|| b2());
             let by = match e.key {
                 Key::ArrowUp => times(if e.modifiers.shift { 10 } else { 1 }),
                 Key::ArrowDown => times(if e.modifiers.shift { -10 } else { -1 }),
                 Key::PageUp => times(10),
                 Key::PageDown => times(-10),
-                Key::Home if o2.min.is_some() && e.modifiers.ctrl => {
-                    value.set(o2.min.unwrap_or_default());
+                Key::Home if min.is_some() && e.modifiers.ctrl => {
+                    value.set(min.unwrap_or_default());
                     show();
                     return true;
                 }
-                Key::End if o2.max.is_some() && e.modifiers.ctrl => {
-                    value.set(o2.max.unwrap_or_default());
+                Key::End if max.is_some() && e.modifiers.ctrl => {
+                    value.set(max.unwrap_or_default());
                     show();
                     return true;
                 }
@@ -226,13 +255,20 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
             };
             let cur = value.get_untracked().unwrap_or_default();
             if let Some(next) = cur.checked_add(by) {
-                value.set(next.round(o2.precision).clamp_to(o2.min, o2.max));
+                value.set(next.round(o2.precision).clamp_to(min, max));
             }
             show();
             true
         })
         .bind(move || {
+            let (min, max) = b3();
             let v = value.get();
+            // The range tightened past the value: it moves to the nearest limit.
+            let held = v.clamp_to(min, max);
+            if held != v {
+                untrack(|| value.set(held));
+            }
+            let v = held;
             let bad = error.get().map(|p| p.message(&u2, &o3));
             let sym = NumberSymbols::for_locale(&u2.locale());
             let text = o3.format(&sym, v);
@@ -249,8 +285,8 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
                 .value(spoken)
                 .numeric(
                     v.to_f64(),
-                    o3.min.map_or(f64::MIN, Decimal::to_f64),
-                    o3.max.map_or(f64::MAX, Decimal::to_f64),
+                    min.map_or(f64::MIN, Decimal::to_f64),
+                    max.map_or(f64::MAX, Decimal::to_f64),
                 )
                 .invalid(bad.is_some())
                 .action(Action::Increment)
@@ -288,6 +324,17 @@ mod tests {
 
     fn d(s: &str) -> Decimal {
         Decimal::parse(s).unwrap_or_else(|e| unreachable!("{s}: {e}"))
+    }
+
+    #[test]
+    fn typed_text_is_held_to_the_limits_given_at_that_moment() {
+        let o = NumberOptions::default();
+        let sym = NumberSymbols::for_locale("en");
+        // No limits, then limits that arrive later (a page count that became known).
+        assert_eq!(problem("12", &sym, &o, (None, None)), Ok(d("12")));
+        assert_eq!(problem("12", &sym, &o, (Some(d("1")), Some(d("9")))), Err(Problem::High(d("9"))));
+        assert_eq!(problem("0", &sym, &o, (Some(d("1")), Some(d("9")))), Err(Problem::Low(d("1"))));
+        assert_eq!(problem("9", &sym, &o, (Some(d("1")), Some(d("9")))), Ok(d("9")));
     }
 
     fn shown(locale: &str, o: &NumberOptions, v: &str) -> String {
