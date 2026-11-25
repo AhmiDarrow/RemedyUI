@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(m.sounding(), 2);
         let mut out = vec![0.0f32; 48_000 * 2];
         m.render(&mut out, 2);
-        assert!(out.chunks_exact(2).all(|f| f.first() == f.get(1)), "the same in both channels");
+        assert!(out.as_chunks::<2>().0.iter().all(|[l, r]| l == r), "the same in both channels");
         assert!(out.iter().take(960 * 2).any(|s| s.abs() > 0.05));
         assert_eq!(m.sounding(), 0, "both are over within the second");
         m.set_polyphony(1);
