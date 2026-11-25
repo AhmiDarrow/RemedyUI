@@ -34,9 +34,12 @@ impl std::fmt::Debug for AudioFeed {
     }
 }
 
+/// The app's callback: fills interleaved samples that start at a frame position.
+type Fill = Box<dyn FnMut(&mut [f32], u64) + Send>;
+
 struct State {
     out: Option<Box<dyn AudioOutput>>,
-    fill: Box<dyn FnMut(&mut [f32], u64) + Send>,
+    fill: Fill,
     block: Vec<f32>,
     tick: Duration,
 }

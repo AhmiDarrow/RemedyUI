@@ -185,8 +185,8 @@ mod tests {
         // Stereo keeps its channels apart.
         let stereo: Vec<f32> = (0..2_000).flat_map(|_| [0.5f32, -0.5]).collect();
         let out = resample(&stereo, 2, 48_000, 24_000);
-        assert!(out.chunks_exact(2).all(|f| f.first().is_some_and(|l| (l - 0.5).abs() < 1e-4)));
-        assert!(out.chunks_exact(2).all(|f| f.get(1).is_some_and(|r| (r + 0.5).abs() < 1e-4)));
+        assert!(out.as_chunks::<2>().0.iter().all(|[l, _]| (l - 0.5).abs() < 1e-4));
+        assert!(out.as_chunks::<2>().0.iter().all(|[_, r]| (r + 0.5).abs() < 1e-4));
         assert_eq!(resample(&[1.0, 2.0], 1, 8_000, 8_000), vec![1.0, 2.0]);
     }
 }
