@@ -24,7 +24,7 @@ use remedy_ui_media_image::{
 };
 use remedy_ui_media_isolated::{Layer, enable, isolation, stats};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 // ---------- the hostile format ----------
 

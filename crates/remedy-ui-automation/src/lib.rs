@@ -25,9 +25,9 @@
 
 /// The agent prompts' own words (asking for access, the indicator, the undo history's names
 /// for what agents did) in every language the engine ships, from `i18n/*.ftl`. Apps reword
-/// them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the name
+/// them, or add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the name
 /// `automation`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("automation");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("automation");
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -38,7 +38,7 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_core::a11y::{Action, Role};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::Commands;
 use serde::{Deserialize, Serialize};
@@ -329,7 +329,7 @@ impl Agents {
     /// on Deny it gets `None`. Returns the prompt's layer (it removes itself when answered).
     ///
     /// ```
-    /// # fn ask(ui: &remedy_ui_view::Ui) {
+    /// # fn ask(ui: &remedy_ui_engine::view::Ui) {
     /// use remedy_ui_automation::{Agents, Scope};
     ///
     /// let agents = Agents::new(ui, None);

@@ -18,10 +18,10 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::trace::phases;
 use remedy_ui_core::{Color, Insets, Point, Rect, Size};
 use remedy_ui_core::layout::Position;
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 use crate::recorder::{FrameFeed, FrameSample, Recorder};
@@ -76,7 +76,7 @@ struct Inner {
     follow_display: Cell<bool>,
     seen: Cell<u64>,
     /// What the newest app frame did.
-    work: RefCell<remedy_ui_view::FrameStats>,
+    work: RefCell<remedy_ui_engine::view::FrameStats>,
     /// Where the newest app frame repainted, in window coordinates.
     damage: RefCell<Vec<Rect>>,
     show_damage: Cell<bool>,
@@ -135,7 +135,7 @@ impl PerfOverlay {
             }),
             follow_display: Cell::new(budget.is_none()),
             seen: Cell::new(0),
-            work: RefCell::new(remedy_ui_view::FrameStats::default()),
+            work: RefCell::new(remedy_ui_engine::view::FrameStats::default()),
             damage: RefCell::new(Vec::new()),
             show_damage: Cell::new(false),
             damage_el: RefCell::new(None),
@@ -206,7 +206,7 @@ impl PerfOverlay {
     }
 
     /// What the newest frame of the app did.
-    pub fn work(&self) -> remedy_ui_view::FrameStats {
+    pub fn work(&self) -> remedy_ui_engine::view::FrameStats {
         self.0.work.borrow().clone()
     }
 
@@ -460,7 +460,7 @@ impl PerfOverlay {
             legend = legend.child(
                 w::row(ui)
                     .gap(unit / 2.0)
-                    .align(remedy_ui_view::Align::Center)
+                    .align(remedy_ui_engine::view::Align::Center)
                     .child(chip)
                     .child(text(p, DIM)),
             );

@@ -11,7 +11,7 @@ use remedy_ui_core::{Size, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 use remedy_ui_widgets_data::*;
 
@@ -31,7 +31,7 @@ const ACTIONS: [(Icon, &str); 5] = [
 
 /// A decoded poster: a small gradient of its own, new each time its tile is built (as a
 /// poster decoded on arrival would be).
-fn poster_image(i: u32) -> remedy_ui_paint::Image {
+fn poster_image(i: u32) -> remedy_ui_engine::paint::Image {
     let (w, h) = (40u32, 60u32);
     let hue = (i * 47 % 255) as u8;
     let mut px = Vec::with_capacity((w * h * 4) as usize);
@@ -39,7 +39,7 @@ fn poster_image(i: u32) -> remedy_ui_paint::Image {
         let shade = (y * 160 / h) as u8 + 60;
         px.extend_from_slice(&[hue, shade, 255 - hue, 255].repeat(w as usize));
     }
-    remedy_ui_paint::Image::new(w, h, Arc::from(px))
+    remedy_ui_engine::paint::Image::new(w, h, Arc::from(px))
 }
 
 /// A poster card: its art, its title, and Play, Details, Watchlist, Bookmark and Info.
@@ -107,7 +107,7 @@ fn frame_at(ui: &Ui, width: f32) {
     for _ in 0..3 {
         let _ = ui.frame(Size::new(width, 800.0), 1.0);
         for r in ui.take_requests() {
-            if let remedy_ui_view::Request::ScrollTo { scroller, offset } = r {
+            if let remedy_ui_engine::view::Request::ScrollTo { scroller, offset } = r {
                 ui.set_scroll_offset(scroller, offset);
             }
         }

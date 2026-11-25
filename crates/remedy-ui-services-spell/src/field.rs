@@ -15,7 +15,7 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_core::Point;
-use remedy_ui_view::{Decoration, El, FieldKind, TextField, Ui};
+use remedy_ui_engine::view::{Decoration, El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core::{MenuItem, context_menu_at};
 
 use crate::{PendingCheck, SpellChecker, SpellError};

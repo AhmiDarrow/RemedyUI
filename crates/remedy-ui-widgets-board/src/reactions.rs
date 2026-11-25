@@ -3,7 +3,7 @@
 
 use remedy_ui_core::a11y::{Action as A11yAction, Role, Semantics};
 use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 pub use crate::labels::ReactionLabels;

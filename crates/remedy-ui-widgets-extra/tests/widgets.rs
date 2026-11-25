@@ -8,7 +8,7 @@ use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_core::{Color, Point};
 use remedy_ui_core::input::{Key, Modifiers};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_extra::{
     Ecc, QrCode, QrOptions, RatingOptions, Swatch, SwatchOptions, color_swatch_grid, qr_code, rating,
 };
@@ -527,7 +527,7 @@ fn the_swatch_grid_mirrors_in_a_right_to_left_window() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_widgets_extra::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_widgets_extra::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

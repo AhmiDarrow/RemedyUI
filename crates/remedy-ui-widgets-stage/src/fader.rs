@@ -7,9 +7,9 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::PointerPhase;
 use remedy_ui_core::layout::Align;
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::{MeterOptions, Orientation, level_meter};
 
 use crate::common::{number_text, snap};
@@ -211,7 +211,7 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
         let half_across = (if vertical { sz.width } else { sz.height }) * 0.42;
         let cap_rect = rect(at - cap / 2.0, at + cap / 2.0, mid - half_across, mid + half_across);
         let radius = CornerRadii::all(cx.theme.radii.small.min(cap / 3.0));
-        cx.list.push(remedy_ui_paint::Item::Shadow {
+        cx.list.push(remedy_ui_engine::paint::Item::Shadow {
             rect: cap_rect,
             radii: radius,
             offset: Vec2::new(0.0, u * 0.5),

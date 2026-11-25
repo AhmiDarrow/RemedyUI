@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::rc::{Rc, Weak};
 
 use remedy_ui_core::reactive::debug::{self, NodeInfo, NodeKey, Tracing};
-use remedy_ui_view::{DirtyRecord, ElementId, Ui};
+use remedy_ui_engine::view::{DirtyRecord, ElementId, Ui};
 
 /// Something downstream of a signal, and the element it belongs to when it is a binding or
 /// painter of the inspected window.

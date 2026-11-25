@@ -5,7 +5,7 @@
 //!
 //! ```no_run
 //! use remedy_ui_embed_gpu::{Gpu, GpuContent, PrepareError, Target, gpu_view, wgpu};
-//! # fn build(ui: &remedy_ui_view::Ui) {
+//! # fn build(ui: &remedy_ui_engine::view::Ui) {
 //! struct Clear;
 //! impl GpuContent for Clear {
 //!     fn prepare(&mut self, _gpu: &Gpu<'_>) -> Result<(), PrepareError> {
@@ -56,12 +56,12 @@ use remedy_ui_core::time::Instant;
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect};
 use remedy_ui_core::input::{KeyEvent, PointerEvent};
-use remedy_ui_paint::{ExternalTexture, Image, Item, Sampling};
+use remedy_ui_engine::paint::{ExternalTexture, Image, Item, Sampling};
 use remedy_ui_core::reactive::Signal;
 /// The wgpu RemedyUI renders with: app content uses these types, at this version.
-pub use remedy_ui_render_gpu::wgpu;
-use remedy_ui_render_gpu::{FORMAT, GpuContext, LadderOptions};
-use remedy_ui_view::{El, ElementId, Ui, WeakUi};
+pub use remedy_ui_engine::render_gpu::wgpu;
+use remedy_ui_engine::render_gpu::{FORMAT, GpuContext, LadderOptions};
+use remedy_ui_engine::view::{El, ElementId, Ui, WeakUi};
 
 /// The device and queue the app renders with: RemedyUI's own, shared with its windows.
 #[derive(Clone, Copy, Debug)]

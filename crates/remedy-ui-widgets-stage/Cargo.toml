@@ -13,16 +13,14 @@ categories.workspace = true
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 remedy-ui-viz = { path = "../remedy-ui-viz", version = "1.0.0-rc.1" }
 
 [dev-dependencies]
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "render-cpu"] }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
-remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 
 [lints]

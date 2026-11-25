@@ -13,7 +13,7 @@ use remedy_ui_core::Point;
 use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_extra::{CarouselOptions, Step, StepperLabels, carousel, stepper_flow};

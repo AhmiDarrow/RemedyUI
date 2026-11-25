@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use remedy_ui_core::Color;
 use remedy_ui_core::style::{Density, Theme};
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use serde_json::{Map, Value, json};
 
 use crate::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_in, tr_now};
@@ -1068,7 +1068,7 @@ impl Customizations {
     /// Styles every attached window with `theme`, when it does not already have it.
     pub(crate) fn apply_theme_to_windows(&self, theme: &Theme) {
         let windows: Vec<Ui> =
-            self.0.windows.borrow().iter().filter_map(remedy_ui_view::WeakUi::upgrade).collect();
+            self.0.windows.borrow().iter().filter_map(remedy_ui_engine::view::WeakUi::upgrade).collect();
         for ui in windows {
             // Fonts first, so the families the theme names are there when it applies.
             self.apply_assets(&ui);

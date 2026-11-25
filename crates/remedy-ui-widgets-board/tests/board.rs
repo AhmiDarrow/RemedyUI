@@ -5,7 +5,7 @@
 
 #![cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 
-#[path = "../../remedy-ui-script-wasm/tests/hostile/mod.rs"]
+#[path = "../../remedy-ui-engine/tests/script_wasm/hostile/mod.rs"]
 mod hostile;
 
 use std::rc::Rc;
@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_script_lua::LuaEngine;
-use remedy_ui_script_wasm::WasmEngine;
+use remedy_ui_engine::script_lua::LuaEngine;
+use remedy_ui_engine::script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_widgets_board::*;
 
 fn ui() -> Ui {
@@ -104,8 +104,8 @@ fn audit(ui: &Ui) -> Vec<String> {
 /// compiled from Rust to WebAssembly.
 fn claps() -> [Package; 2] {
     [
-        Package::lua(include_str!("../../remedy-ui-script-lua/examples/claps.lua")),
-        Package::wasm(include_bytes!("../../remedy-ui-script-wasm/examples/claps.wasm")),
+        Package::lua(include_str!("../../remedy-ui-engine/examples/script_lua/claps.lua")),
+        Package::wasm(include_bytes!("../../remedy-ui-engine/examples/script_wasm/claps.wasm")),
     ]
 }
 
@@ -341,7 +341,7 @@ fn a_handler_that_stops_is_reported_and_the_widget_starts_again() {
     assert!(stopped.iter().any(|t| t.contains("too many steps")), "{stopped:?}");
     let failures = ui.failures();
     assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures.iter().all(|f| f.phase == remedy_ui_view::FailurePhase::Handler), "{failures:?}");
+    assert!(failures.iter().all(|f| f.phase == remedy_ui_engine::view::FailurePhase::Handler), "{failures:?}");
     click(&ui, &named(&ui, "Start again"));
     assert!(has_text(&ui, "ready"), "the widget runs again");
     assert!(texts_like(&ui, "This widget stopped").is_empty());
@@ -634,7 +634,7 @@ fn fixed_rows_one_widget_areas_and_a_panel_apart() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
@@ -663,7 +663,7 @@ fn localized_words_keep_every_placeholder() {
     // In English the catalog says what the defaults say.
     assert_eq!(words(&BoardLabels::localized("en")), en_words);
     // Every locale keeps the placeholders too.
-    for l in remedy_ui_view::strings::LOCALES {
+    for l in remedy_ui_engine::view::strings::LOCALES {
         for (e, w) in en_words.iter().zip(&words(&BoardLabels::localized(l))) {
             assert_eq!(placeholders(e), placeholders(w), "{l}: {e:?} became {w:?}");
         }

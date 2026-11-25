@@ -7,11 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use remedy_ui_core::reactive::{Scope, Signal, untrack};
-use remedy_ui_script::{
+use remedy_ui_engine::script::{
     Engines, Language, Limits, Node, Package, ScriptError, ScriptWidget, SettingKind, SettingSpec, TextStyle,
 };
 
-use remedy_ui_view::{El, ElementId, FailurePhase, Retry, Ui, catch_errors};
+use remedy_ui_engine::view::{El, ElementId, FailurePhase, Retry, Ui, catch_errors};
 use remedy_ui_widgets_core as w;
 use serde_json::{Map, Value};
 
@@ -526,7 +526,7 @@ pub struct ScriptHooks {
     /// Shows a picture from its source. `None`: pictures show their description as text.
     pub picture: Option<PictureFn>,
     /// Builds the app's own elements. `None`: they build nothing (a script cannot describe
-    /// them unless the app offers them, see [`remedy_ui_script::describe_with`]).
+    /// them unless the app offers them, see [`remedy_ui_engine::script::describe_with`]).
     pub element: Option<ElementFn>,
     /// Where the script's stops go (it failed to render, or a handler failed).
     pub stopped: Rc<dyn Fn(FailurePhase, ScriptError)>,

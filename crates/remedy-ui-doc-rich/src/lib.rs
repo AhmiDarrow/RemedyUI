@@ -15,13 +15,13 @@ pub use find::{FindState, find_bar};
 pub use format::{MENTION_SCHEME, MarkdownFormat, RichFormat};
 pub use markdown::{OpenLink, heading_id, headings, markdown, plain_text, scroll_to_heading};
 
-use remedy_ui_view::Ui;
-use remedy_ui_view::strings::StrArg;
+use remedy_ui_engine::view::Ui;
+use remedy_ui_engine::view::strings::StrArg;
 
 /// The pack's own words (toolbar names, the find bar, screen reader names, keyboard hints)
 /// in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a
-/// language, with [`remedy_ui_view::strings::add_messages`] under the name `doc-rich`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("doc-rich");
+/// language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `doc-rich`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("doc-rich");
 
 /// Message `id` of this pack in the window's locale, kept current as the locale changes
 /// when read inside a property closure.

@@ -3,10 +3,10 @@
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
-use remedy_ui_paint::{Brush, Stop};
+use remedy_ui_engine::paint::{Brush, Stop};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{Align, El, FieldKind, Ui};
+use remedy_ui_engine::view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
 use remedy_ui_services_i18n::{Decimal, NumberSymbols};
@@ -365,7 +365,7 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             let ratio = value.get().with_alpha(1.0).contrast(bg);
             let args =
                 [("ratio", number(&u1, ratio, 1).into()), ("grade", contrast_grade_label(&u1, ratio).into())];
-            remedy_ui_view::RichText::plain(crate::STRINGS.format(&u1, "color-contrast", &args))
+            remedy_ui_engine::view::RichText::plain(crate::STRINGS.format(&u1, "color-contrast", &args))
         });
         info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);

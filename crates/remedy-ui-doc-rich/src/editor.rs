@@ -10,7 +10,7 @@ use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::style::States;
 use remedy_ui_text::{Block, Mark, RichEditor};
-use remedy_ui_view::{El, FieldKind, TextField, Ui};
+use remedy_ui_engine::view::{El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 /// Someone (or something) people can mention.

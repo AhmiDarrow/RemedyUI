@@ -7,9 +7,9 @@ use std::time::Duration;
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Point, Rect, Vec2};
 use remedy_ui_core::input::{Key, KeyEvent, PointerPhase, WheelEvent};
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, PaintCx, TextPaint, Ui};
+use remedy_ui_engine::view::{El, PaintCx, TextPaint, Ui};
 use remedy_ui_viz::{Clock, Moved, smooth};
 
 use crate::common::{Motion, number_text, snap};

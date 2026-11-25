@@ -2,7 +2,7 @@
 
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_core::layout::Align;
-use remedy_ui_view::{El, FieldKind, IntoProp, TextField, Ui};
+use remedy_ui_engine::view::{El, FieldKind, IntoProp, TextField, Ui};
 
 use crate::menus::{MenuItem, context_menu};
 
@@ -26,7 +26,7 @@ pub fn search(ui: &Ui, label: impl Into<String>, on_change: impl Fn(String) + 's
     let label = label.into();
     let field = ui
         .text_field("text_input", FieldKind::Single)
-        .purpose(remedy_ui_view::InputPurpose::Search)
+        .purpose(remedy_ui_engine::view::InputPurpose::Search)
         .label(label.clone())
         .placeholder(label);
     let _ = field.el().variant("bare");
@@ -90,7 +90,7 @@ pub fn field(ui: &Ui, label: impl IntoProp<String>, control: El) -> El {
         .column()
         .gap(gap)
         .fill_width()
-        .child(ui.el("field").text(label.into_prop().map(remedy_ui_view::RichText::plain)))
+        .child(ui.el("field").text(label.into_prop().map(remedy_ui_engine::view::RichText::plain)))
         .child(control)
 }
 

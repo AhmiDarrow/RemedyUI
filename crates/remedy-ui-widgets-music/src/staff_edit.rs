@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 use crate::glyphs::{Clef, NoteValue};
 use crate::note_staff::{NoteStaffOptions, StaffCursor, StaffEvent, StaffMeasure, key_alter};

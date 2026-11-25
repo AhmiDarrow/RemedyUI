@@ -13,7 +13,7 @@ use fluent_bundle::types::FluentNumber;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use intl_memoizer::{IntlLangMemoizer, Memoizable};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use unic_langid::LanguageIdentifier;
 
 use crate::decimal::Decimal;

@@ -4,12 +4,12 @@
 use std::time::Duration;
 
 use remedy_ui_bridge_headless::HeadlessHost;
-use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
 use remedy_ui_core::host::{App, Host, HostEvent, ImeEvent, Pixels, TextInputState, WindowId, WindowOptions};
 use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_paint::{Brush, DisplayList};
-use remedy_ui_render_cpu::{CpuCompositor, Frame};
+use remedy_ui_engine::paint::{Brush, DisplayList};
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 
 fn stripes(h: f32) -> DisplayList {
     let mut l = DisplayList::new();

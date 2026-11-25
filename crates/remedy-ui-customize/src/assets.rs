@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use remedy_ui_media_image::{Fit, Source};
 use remedy_ui_core::style::Theme;
-use remedy_ui_view::{El, Ui, WeakUi};
+use remedy_ui_engine::view::{El, Ui, WeakUi};
 use serde_json::{Map, Value, json};
 
 use crate::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_now};

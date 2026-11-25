@@ -7,10 +7,10 @@ use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Length};
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, RichText, TextPaint, Ui};
+use remedy_ui_engine::view::{El, RichText, TextPaint, Ui};
 use remedy_ui_widgets_core as w;
 
 /// One step of a [`stepper_flow`].

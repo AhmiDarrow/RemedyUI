@@ -4,9 +4,9 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::Align;
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
     let v = v.clamp(min, max);
@@ -133,14 +133,14 @@ pub fn reveal_on_hover(group: El, target: &El, width: f32) -> El {
             let _ = t
                 .clone()
                 .layout(move |l| l.width = remedy_ui_core::layout::Length::Px(if shown { width } else { 0.0 }));
-            let to = remedy_ui_view::motion::Target::Opacity(if shown { 1.0 } else { 0.0 });
+            let to = remedy_ui_engine::view::motion::Target::Opacity(if shown { 1.0 } else { 0.0 });
             match ui.reduced_motion() {
                 true => t.set_animated(to),
                 false => t.animate(
                     to,
-                    remedy_ui_view::motion::Motion::Tween {
+                    remedy_ui_engine::view::motion::Motion::Tween {
                         duration: quick,
-                        easing: remedy_ui_view::motion::Easing::EASE_IN_OUT,
+                        easing: remedy_ui_engine::view::motion::Easing::EASE_IN_OUT,
                     },
                 ),
             }
@@ -178,7 +178,7 @@ pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, 
     row.bind(move || {
         let v = value.get();
         let text = if step.fract() == 0.0 { format!("{v:.0}") } else { format!("{v}") };
-        let _ = shown.clone().text(remedy_ui_view::RichText::plain(text.clone()));
+        let _ = shown.clone().text(remedy_ui_engine::view::RichText::plain(text.clone()));
         let _ = minus.clone().disabled(v <= min);
         let _ = plus.clone().disabled(v >= max);
         let _ = r2

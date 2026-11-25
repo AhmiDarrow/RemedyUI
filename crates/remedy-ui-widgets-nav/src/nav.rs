@@ -7,7 +7,7 @@ use remedy_ui_core::Insets;
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::{States, StylePatch};
-use remedy_ui_view::{Align, El, Ui};
+use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
 
 /// One tab.
@@ -92,7 +92,7 @@ pub fn tabs(
                     .row()
                     .align(Align::Center)
                     .gap(unit)
-                    .child(u.el("tab_label").text(remedy_ui_view::RichText::plain(t.title.clone())).nowrap())
+                    .child(u.el("tab_label").text(remedy_ui_engine::view::RichText::plain(t.title.clone())).nowrap())
                     .on_click({
                         let id = id.clone();
                         move || selected.set(Some(id.clone()))
@@ -195,7 +195,7 @@ pub fn nav_item_dyn(
 pub fn nav_item(
     ui: &Ui,
     icon: Icon,
-    label: impl remedy_ui_view::IntoProp<String>,
+    label: impl remedy_ui_engine::view::IntoProp<String>,
     active: impl Fn() -> bool + 'static,
     badge: Option<Signal<u32>>,
     on_press: impl Fn() + 'static,
@@ -209,7 +209,7 @@ pub fn nav_item(
         .gap(unit * 2.0)
         .padding(Insets::symmetric(unit * 1.5, unit * 2.5))
         .child(w::icon(ui, icon, ui.theme().type_scale.body + 4.0))
-        .child(ui.el("nav_label").text(l1.map(remedy_ui_view::RichText::plain)).nowrap().grow(1.0))
+        .child(ui.el("nav_label").text(l1.map(remedy_ui_engine::view::RichText::plain)).nowrap().grow(1.0))
         .on_click(on_press);
     let item = match badge {
         Some(count) => {
@@ -217,7 +217,7 @@ pub fn nav_item(
             let b2 = b.clone();
             item.child(b.bind(move || {
                 let n = count.get();
-                let _ = b2.clone().hidden(n == 0).text(remedy_ui_view::RichText::plain(if n > 99 {
+                let _ = b2.clone().hidden(n == 0).text(remedy_ui_engine::view::RichText::plain(if n > 99 {
                     "99+".to_owned()
                 } else {
                     n.to_string()
@@ -371,7 +371,7 @@ pub fn breadcrumbs(
                         let more =
                             w::menu_button(&u, crate::tr_fn(&u, "breadcrumbs-more"), items).variant("quiet");
                         if let Some(l) = more.child_elements().into_iter().next() {
-                            let _ = l.text(remedy_ui_view::RichText::plain("…".to_owned()));
+                            let _ = l.text(remedy_ui_engine::view::RichText::plain("…".to_owned()));
                         }
                         w::tooltip(&more, crate::tr_fn(&u, "breadcrumbs-more"));
                         let _ = b2.clone().child(sep(&u)).child(more);

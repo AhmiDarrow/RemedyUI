@@ -10,7 +10,7 @@ use common::*;
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Axis, Display, Length};
 use remedy_ui_media_anim::{Fit, Source, animated, cached, resident_frames, trim_memory};
-use remedy_ui_view::El;
+use remedy_ui_engine::view::El;
 
 fn src(bytes: Vec<u8>) -> Source {
     Source::Bytes(Arc::from(bytes))
@@ -561,7 +561,7 @@ fn trimming_memory_lets_go_of_idle_frames_and_they_come_back_when_played() {
     s.ui.set_scroll_offset(list.id(), remedy_ui_core::Vec2::new(0.0, 0.0));
     s.wait("paused", |s| s.timers.is_empty());
     // The system saying memory is short trims, as the runner passes it on.
-    remedy_ui_view::device::memory_pressure(remedy_ui_view::device::MemoryPressure::Moderate);
+    remedy_ui_engine::view::device::memory_pressure(remedy_ui_engine::view::device::MemoryPressure::Moderate);
     assert_eq!(resident_frames(), 1, "only the poster stays");
     trim_memory();
     assert_eq!(resident_frames(), 1);
@@ -575,6 +575,6 @@ fn trimming_memory_lets_go_of_idle_frames_and_they_come_back_when_played() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_media_anim::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_media_anim::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }

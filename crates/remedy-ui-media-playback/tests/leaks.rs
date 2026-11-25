@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 static TURN: Mutex<()> = Mutex::new(());
 
@@ -396,7 +396,7 @@ fn gpu_renderer() {
     watch_d3d_devices();
     #[cfg(windows)]
     {
-        use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+        use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
         static MADE: std::sync::Once = std::sync::Once::new();
         MADE.call_once(|| match GpuContext::shared(&LadderOptions::default()) {
             Ok(ctx) => std::mem::forget(GpuRenderer::new(ctx, None)),

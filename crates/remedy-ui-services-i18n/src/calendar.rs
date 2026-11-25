@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 /// A day of the week.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

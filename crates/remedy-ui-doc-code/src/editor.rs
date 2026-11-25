@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_text::RichText;
-use remedy_ui_view::{CodeColors, El, FieldKind, TextField, Ui};
+use remedy_ui_engine::view::{CodeColors, El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core as w;
 
 use crate::highlight::{Highlighter, Kind};

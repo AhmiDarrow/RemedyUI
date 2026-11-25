@@ -6,7 +6,7 @@
 //! the app what changed.
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
-use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Image, Item, Path, Sampling, Stroke, StrokeCap, StrokeJoin};
 
 /// What an annotation is.
 #[derive(Clone, Debug, PartialEq)]
@@ -433,7 +433,7 @@ fn round_stroke(width: f32) -> Stroke {
 
 /// Records `a` in page points (a text box's frame; the view lays out and draws its words);
 /// `selected` draws its selection outline in `accent`.
-pub(crate) fn paint(list: &mut remedy_ui_paint::DisplayList, a: &Annotation, selected: bool, accent: Color) {
+pub(crate) fn paint(list: &mut remedy_ui_engine::paint::DisplayList, a: &Annotation, selected: bool, accent: Color) {
     let color = a.color;
     match &a.kind {
         AnnotationKind::Highlight { quads } => {

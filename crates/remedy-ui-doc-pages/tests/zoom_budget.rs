@@ -7,12 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_doc_pages::*;
 use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions};
+use remedy_ui_engine::render_cpu::CpuCompositor;
+use remedy_ui_engine::render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions};
 
 mod common;
 use common::*;
@@ -43,7 +43,7 @@ impl Times {
 
 enum Renderer {
     Cpu(Box<CpuCompositor>),
-    Gpu(Box<GpuCompositor>, remedy_ui_render_gpu::wgpu::Texture),
+    Gpu(Box<GpuCompositor>, remedy_ui_engine::render_gpu::wgpu::Texture),
 }
 
 struct Scene {

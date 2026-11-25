@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use remedy_ui_compositor::Layer;
+use remedy_ui_engine::compositor::Layer;
 use remedy_ui_core::Size;
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_media_playback::*;
-use remedy_ui_paint::{Item, VideoFrame};
+use remedy_ui_engine::paint::{Item, VideoFrame};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 const SIZE: Size = Size { width: 480.0, height: 320.0 };
 
@@ -57,7 +57,7 @@ fn platform() -> Option<Arc<dyn MediaHost>> {
 fn hue(
     width: u32,
     height: u32,
-    planes: &[remedy_ui_paint::Plane; 3],
+    planes: &[remedy_ui_engine::paint::Plane; 3],
     data: &[u8],
     format: PixelFormat,
 ) -> char {
@@ -310,10 +310,10 @@ impl Screen {
         }
         for r in self.ui.take_requests() {
             match r {
-                remedy_ui_view::Request::Timer { id, delay } => {
+                remedy_ui_engine::view::Request::Timer { id, delay } => {
                     self.timers.push((id, Instant::now() + delay))
                 }
-                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                remedy_ui_engine::view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
                 _ => {}
             }
         }
@@ -813,7 +813,7 @@ fn a_device_that_stops_playing_hands_the_clock_to_the_wall() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_media_playback::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_media_playback::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
@@ -906,7 +906,7 @@ fn the_seek_bar_shows_what_has_arrived_and_what_is_decoded_ahead() {
     // color over the line (the played part, 0 to 4 s, is the accent).
     fn fills(layer: &Layer, out: &mut Vec<(remedy_ui_core::Rect, remedy_ui_core::Color)>) {
         for item in layer.content.items() {
-            if let Item::FillRect { rect, brush: remedy_ui_paint::Brush::Solid(c), .. } = item {
+            if let Item::FillRect { rect, brush: remedy_ui_engine::paint::Brush::Solid(c), .. } = item {
                 out.push((*rect, *c));
             }
         }

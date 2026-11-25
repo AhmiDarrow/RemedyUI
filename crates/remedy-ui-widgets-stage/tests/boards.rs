@@ -9,7 +9,7 @@ use std::rc::Rc;
 use common::*;
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, RichText, Ui};
+use remedy_ui_engine::view::{El, RichText, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_stage::{
     Board, DisplayOptions, Marquee, NewestAt, Timeline, TimelineOptions, display_text, timeline,

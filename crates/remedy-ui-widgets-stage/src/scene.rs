@@ -6,9 +6,9 @@ use std::rc::Rc;
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_core::input::PointerPhase;
-use remedy_ui_paint::{Affine, Image, Item, Sampling};
+use remedy_ui_engine::paint::{Affine, Image, Item, Sampling};
 use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_view::{El, IntoProp, PaintCx, Prop, Ui};
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, Prop, Ui};
 
 use crate::common::{Place, Slot, layer};
 
@@ -324,15 +324,15 @@ impl std::fmt::Debug for Scene {
 ///
 /// ```
 /// use remedy_ui_widgets_stage::{Anchor, Layer, SceneOptions, scene};
-/// # fn demo(ui: &remedy_ui_view::Ui, door: remedy_ui_view::El) {
+/// # fn demo(ui: &remedy_ui_engine::view::Ui, door: remedy_ui_engine::view::El) {
 /// let stage = scene(ui, "Harbor", remedy_ui_core::Size::new(1280.0, 720.0), SceneOptions::default())
 ///     .layer(Layer::paint(|cx| {
 ///         let sky = cx.theme.colors.panel;
-///         cx.list.fill_rect(remedy_ui_core::Rect::new(0.0, 0.0, 1280.0, 400.0), remedy_ui_paint::Brush::Solid(sky));
+///         cx.list.fill_rect(remedy_ui_core::Rect::new(0.0, 0.0, 1280.0, 400.0), remedy_ui_engine::paint::Brush::Solid(sky));
 ///     }))
 ///     .anchor("pier", Anchor::point(640.0, 560.0))
 ///     .place("pier", door);
-/// let el: remedy_ui_view::El = stage.into();
+/// let el: remedy_ui_engine::view::El = stage.into();
 /// # let _ = el;
 /// # }
 /// ```

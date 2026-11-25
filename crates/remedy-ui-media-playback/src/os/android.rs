@@ -3,7 +3,7 @@
 //! (`libmediandk.so`, API 21, and `libaaudio.so`, API 26) are opened at run time, so an app
 //! still starts on a device without them and gets `Unsupported` with the reason.
 //!
-//! When a GPU renderer takes pictures on the GPU ([`remedy_ui_paint::gpu_video_adapter`]), the
+//! When a GPU renderer takes pictures on the GPU ([`remedy_ui_engine::paint::gpu_video_adapter`]), the
 //! video decoder renders into an `AImageReader` (opaque format, sampled by the GPU, API 26)
 //! instead, and each picture is the reader's image: its `AHardwareBuffer` goes to the renderer
 //! as it is, never through CPU memory.
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use libloading::Library;
 
-use remedy_ui_paint::{CpuPixels, GpuPicture, GpuTexture};
+use remedy_ui_engine::paint::{CpuPixels, GpuPicture, GpuTexture};
 
 use crate::host::{
     AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
@@ -659,7 +659,7 @@ impl NdkDecoder {
                     let (w, h) = (ndk.int(f, c"width").unwrap_or(0), ndk.int(f, c"height").unwrap_or(0));
                     // On the GPU when a renderer takes pictures there, else copied.
                     let mut codec = None;
-                    if remedy_ui_paint::gpu_video_adapter().is_some() {
+                    if remedy_ui_engine::paint::gpu_video_adapter().is_some() {
                         match Reader::new(ndk, w, h) {
                             Ok((reader, window)) => {
                                 codec = d.decoder(&mime, f, window);
@@ -1067,7 +1067,7 @@ fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
         data: Arc::from(data),
         gpu: None,
     };
-    let check = remedy_ui_paint::VideoFrame {
+    let check = remedy_ui_engine::paint::VideoFrame {
         stream: 0,
         id: 0,
         width: p.width,

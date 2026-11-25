@@ -11,7 +11,7 @@ use remedy_ui_core::Size;
 use remedy_ui_devtools::*;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 /// Unwraps what a test needs, failing it with `why`.
@@ -158,7 +158,7 @@ fn a_frame_reports_what_it_redid() {
     let (text, row, _) = chat(&ui);
     frame(&ui);
     frame(&ui);
-    assert_eq!(ui.last_frame_stats(), remedy_ui_view::FrameStats::default(), "an idle frame does nothing");
+    assert_eq!(ui.last_frame_stats(), remedy_ui_engine::view::FrameStats::default(), "an idle frame does nothing");
     text.set("changed".into());
     frame(&ui);
     let stats = ui.last_frame_stats();
@@ -509,7 +509,7 @@ fn the_inspector_panel_has_every_page() {
     // A boundary whose content fails the first time it builds.
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     let (a2, t2) = (attempts.clone(), target.clone());
-    let boundary = remedy_ui_view::catch_errors(
+    let boundary = remedy_ui_engine::view::catch_errors(
         &target,
         {
             let t3 = target.clone();

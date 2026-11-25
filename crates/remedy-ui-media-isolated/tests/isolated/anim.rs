@@ -10,8 +10,8 @@ use remedy_ui_core::Size;
 use remedy_ui_media_anim::route::{self, Animation, FrameSource, Loops, Opened, open_here, opener};
 use remedy_ui_media_image::{DecodeError, Fit, Source, fitted_scalable};
 use remedy_ui_media_isolated::stats;
-use remedy_ui_paint::Image;
-use remedy_ui_view::Request;
+use remedy_ui_engine::paint::Image;
+use remedy_ui_engine::view::Request;
 
 use super::{semantics, ui};
 
@@ -252,7 +252,7 @@ pub(crate) fn a_hostile_animation_shows_its_error_state_while_a_good_one_plays()
     ui.root().child(ui.el("row").row().child(bad.clone()).child(good.clone()));
 
     let mut timers: Vec<u64> = Vec::new();
-    let pump = |ui: &remedy_ui_view::Ui, timers: &mut Vec<u64>| {
+    let pump = |ui: &remedy_ui_engine::view::Ui, timers: &mut Vec<u64>| {
         let _ = remedy_ui_core::reactive::run_posted();
         let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
         for r in ui.take_requests() {

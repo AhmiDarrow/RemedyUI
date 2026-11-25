@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use remedy_ui_render_gpu::GpuContext;
+use remedy_ui_engine::render_gpu::GpuContext;
 
 #[test]
 fn a_lost_device_is_replaced_and_the_content_prepared_again() {

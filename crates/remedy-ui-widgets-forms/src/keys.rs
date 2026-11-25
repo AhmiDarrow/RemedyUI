@@ -4,7 +4,7 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 fn is_modifier(k: &Key) -> bool {
@@ -57,7 +57,7 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
                 (None, true) => crate::tr(&u2, "keys-prompt"),
                 (None, false) => crate::tr(&u2, "keys-none"),
             };
-            let _ = text.clone().text(remedy_ui_view::RichText::plain(shown.clone()));
+            let _ = text.clone().text(remedy_ui_engine::view::RichText::plain(shown.clone()));
             e3.state(States::SELECTED, rec);
             let _ = e3.clone().semantics(
                 Semantics::new(Role::TextInput)

@@ -6,13 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::Role;
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_doc_pages::*;
 use remedy_ui_core::input::{
     Buttons, Key, Modifiers, PinchEvent, PinchPhase, PointerKind, PointerPhase, ScrollPhysics,
 };
-use remedy_ui_render_cpu::{CpuCompositor, Frame};
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 
 mod common;
 use common::*;
@@ -230,7 +230,7 @@ fn the_cache_is_sized_from_the_screen_and_lets_go_under_pressure() {
     assert!(s.cache_budget >= 3 * 800 * 600 * 4, "at least three screens: {s:?}");
     assert!(s.cached_bytes <= s.cache_budget.max(1));
     let before = s.cached_tiles;
-    remedy_ui_view::device::memory_pressure(remedy_ui_view::device::MemoryPressure::Moderate);
+    remedy_ui_engine::view::device::memory_pressure(remedy_ui_engine::view::device::MemoryPressure::Moderate);
     let s = w.view.stats();
     assert!(s.cached_tiles < before, "tiles off screen are freed: {before} → {}", s.cached_tiles);
     w.frame();
@@ -365,7 +365,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
             let _ = ui.frame(WINDOW, 1.0);
             // Scroll requests are applied the way the runner applies them.
             for r in ui.take_requests() {
-                if let remedy_ui_view::Request::ScrollTo { scroller, offset } = r {
+                if let remedy_ui_engine::view::Request::ScrollTo { scroller, offset } = r {
                     ui.set_scroll_offset(scroller, offset);
                 }
             }
@@ -373,7 +373,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
         }
     };
     frame(30);
-    let rows = |rail: &remedy_ui_view::El| -> Vec<remedy_ui_view::El> {
+    let rows = |rail: &remedy_ui_engine::view::El| -> Vec<remedy_ui_engine::view::El> {
         let list = rail.child_elements().into_iter().next();
         list.and_then(|l| l.child_elements().get(1).map(|c| c.child_elements())).unwrap_or_default()
     };

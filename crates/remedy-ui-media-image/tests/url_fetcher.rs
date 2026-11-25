@@ -12,7 +12,7 @@ use remedy_ui_core::Size;
 use remedy_ui_media_image::*;
 use remedy_ui_core::reactive::Cancel;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 type Asked = Arc<Mutex<Vec<(FetchRequest, Cancel, Option<FetchDone>)>>>;
 

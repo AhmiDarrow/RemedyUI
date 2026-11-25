@@ -6,7 +6,7 @@ use remedy_ui_core::Insets;
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::{Align, Justify, Length};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 /// Which side of the row the docked pane sits on, in the container's start/end
 /// direction (start is left in left-to-right text).

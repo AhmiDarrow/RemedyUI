@@ -7,10 +7,10 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::layout::Align;
-use remedy_ui_paint::{Brush, Item, Path};
+use remedy_ui_engine::paint::{Brush, Item, Path};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::ensure_contrast;
-use remedy_ui_view::{El, IntoProp, PaintCx, Prop, RichText, TextPaint, Ui};
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, Prop, RichText, TextPaint, Ui};
 
 /// What a [`big_button`] or [`big_toggle`] looks like.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -281,7 +281,7 @@ fn round(cx: &mut PaintCx<'_>, pressed: bool, lit: bool, text: &str) {
     });
     cx.list.push(Item::StrokePath {
         path: Path::circle(c, r - 0.5),
-        stroke: remedy_ui_paint::Stroke::new(cx.theme.stroke.max(1.0)),
+        stroke: remedy_ui_engine::paint::Stroke::new(cx.theme.stroke.max(1.0)),
         brush: Brush::Solid(d.line),
     });
     let cap_r = r * 0.78;

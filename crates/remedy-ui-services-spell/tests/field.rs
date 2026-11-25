@@ -9,7 +9,7 @@ use remedy_ui_services_spell::{
     MenuLabels, SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions,
 };
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{FieldKind, Request, TextField, Ui};
+use remedy_ui_engine::view::{FieldKind, Request, TextField, Ui};
 use remedy_ui_widgets_core::MenuItem;
 
 const EN_AFF: &str = "SET UTF-8\n";
@@ -246,7 +246,7 @@ fn the_menu_speaks_the_window_language_unless_the_app_gave_its_words() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_services_spell::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_services_spell::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

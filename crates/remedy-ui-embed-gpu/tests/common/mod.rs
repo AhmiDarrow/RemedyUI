@@ -6,14 +6,14 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Color, Size};
 use remedy_ui_embed_gpu::*;
 use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_render_cpu::{CpuCompositor, Frame};
-use remedy_ui_render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions, wgpu};
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
+use remedy_ui_engine::render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions, wgpu};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 const SHADER: &str = r"
 struct U { angle: f32, a: f32, b: f32, c: f32 };

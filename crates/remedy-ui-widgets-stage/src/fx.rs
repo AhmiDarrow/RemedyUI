@@ -25,7 +25,7 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
-use remedy_ui_paint::{Blend, Brush, DisplayList, Image, Item, Path, Sampling, Stop};
+use remedy_ui_engine::paint::{Blend, Brush, DisplayList, Image, Item, Path, Sampling, Stop};
 
 /// A well-mixed 32-bit hash of `x` (PCG output permutation).
 pub fn hash(x: u32) -> u32 {

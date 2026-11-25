@@ -13,7 +13,7 @@ use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_services_i18n::{Catalog, MessageEntry, Messages};
 use remedy_ui_core::style::Theme;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_nav::Commands;
 
 /// Unwraps what a test needs, failing it with `why`.
@@ -1078,7 +1078,7 @@ fn backgrounds_and_fonts_are_chosen_exported_and_reset() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

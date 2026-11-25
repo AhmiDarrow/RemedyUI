@@ -20,12 +20,11 @@ unicode-width = { version = "=0.2.3", default-features = false }
 # OSC 52 clipboard payloads.
 base64 = { version = "=0.23.1", default-features = false, features = ["alloc"] }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 
 [dev-dependencies]
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor"] }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1", features = ["system-fonts"] }

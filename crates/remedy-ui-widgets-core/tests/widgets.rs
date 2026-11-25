@@ -4,13 +4,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_render_cpu::{CpuCompositor, Frame};
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_widgets_core as w;
 
 struct T {
@@ -377,7 +377,7 @@ fn a_tooltip_in_the_corner_stays_inside_the_window() {
     let mut t = T::new();
     // A gear at the top right, its tooltip long: it must slide back, not run off the edge.
     let b = w::icon_button(&t.ui, w::Icon::Settings, "Settings and preferences for this window", || {});
-    t.ui.root().child(w::row(&t.ui).fill_width().justify(remedy_ui_view::Justify::End).child(b.clone()));
+    t.ui.root().child(w::row(&t.ui).fill_width().justify(remedy_ui_engine::view::Justify::End).child(b.clone()));
     t.frame();
     let c = b.bounds().unwrap_or_default().center();
     t.ui.pointer(&ptr(PointerPhase::Move, c, Buttons::default()));
@@ -395,11 +395,11 @@ fn a_tooltip_in_the_corner_stays_inside_the_window() {
             stack.extend(e.child_elements());
         }
     }
-    let tip = tips.first().and_then(remedy_ui_view::El::bounds).unwrap_or_default();
+    let tip = tips.first().and_then(remedy_ui_engine::view::El::bounds).unwrap_or_default();
     assert!(tip.width() > 50.0, "the tooltip shows: {tip:?}");
     assert!(tip.min.x >= 0.0 && tip.max.x <= 400.0 && tip.max.y <= 300.0, "inside the window: {tip:?}");
     assert!(
-        tips.first().and_then(remedy_ui_view::El::info).is_some_and(|i| i.style.opacity > 0.99),
+        tips.first().and_then(remedy_ui_engine::view::El::info).is_some_and(|i| i.style.opacity > 0.99),
         "and visible once placed"
     );
     // The window narrows while it shows: placed again inside it.
@@ -407,10 +407,10 @@ fn a_tooltip_in_the_corner_stays_inside_the_window() {
         let _ = t.ui.frame(remedy_ui_core::Size::new(260.0, 300.0), 1.0);
         let _ = t.ui.take_requests();
     }
-    let tip = tips.first().and_then(remedy_ui_view::El::bounds).unwrap_or_default();
+    let tip = tips.first().and_then(remedy_ui_engine::view::El::bounds).unwrap_or_default();
     assert!(tip.max.x <= 260.0, "still inside a narrower window: {tip:?}");
     // Its button goes (a panel rebuilt): so does the tooltip.
-    let tip_id = tips.first().map(remedy_ui_view::El::id);
+    let tip_id = tips.first().map(remedy_ui_engine::view::El::id);
     t.ui.root().clear();
     t.frame();
     assert!(tip_id.is_some_and(|id| !t.ui.tree().contains(id)), "the tooltip went with its button");
@@ -912,13 +912,13 @@ fn list_rows_tell_screen_readers_their_name_place_and_selection() {
 }
 
 fn transitions() -> w::ListTransitions {
-    let tween = remedy_ui_view::motion::Motion::Tween {
+    let tween = remedy_ui_engine::view::motion::Motion::Tween {
         duration: Duration::from_millis(100),
-        easing: remedy_ui_view::motion::Easing::Linear,
+        easing: remedy_ui_engine::view::motion::Easing::Linear,
     };
     w::ListTransitions::new()
-        .enter(remedy_ui_view::Transition::fade(tween))
-        .exit(remedy_ui_view::Transition::fade(tween))
+        .enter(remedy_ui_engine::view::Transition::fade(tween))
+        .exit(remedy_ui_engine::view::Transition::fade(tween))
         .moves(tween)
 }
 
@@ -1129,7 +1129,7 @@ fn value_widgets_mirror_right_to_left() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&w::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&w::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

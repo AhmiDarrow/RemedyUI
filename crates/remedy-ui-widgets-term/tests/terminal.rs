@@ -10,9 +10,9 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Point, Size, Vec2};
 use remedy_ui_core::host::ImeEvent;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
-use remedy_ui_paint::Item;
+use remedy_ui_engine::paint::Item;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_widgets_term::*;
 
 fn ui() -> Ui {
@@ -38,7 +38,7 @@ fn find(el: &El, widget: &str) -> Vec<El> {
     out
 }
 
-fn collect(layer: &remedy_ui_compositor::Layer, out: &mut Vec<Item>) {
+fn collect(layer: &remedy_ui_engine::compositor::Layer, out: &mut Vec<Item>) {
     out.extend(layer.content.items().iter().cloned());
     for c in &layer.children {
         collect(c, out);
@@ -223,7 +223,7 @@ fn output_shows_in_theme_colors_on_rows_built_only_near_the_view() {
         items
             .iter()
             .filter(
-                |i| matches!(i, Item::FillRect { brush: remedy_ui_paint::Brush::Solid(b), .. } if *b == c),
+                |i| matches!(i, Item::FillRect { brush: remedy_ui_engine::paint::Brush::Solid(b), .. } if *b == c),
             )
             .count()
     };
@@ -488,7 +488,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
     assert_eq!(TerminalOptions::localized("ja").label, "ターミナル");
 }
@@ -724,7 +724,7 @@ fn memory_pressure_empties_the_scrollback() {
     }
     h.feed(&lines);
     assert!(h.term.with_emulator(Emulator::history_len) > 400);
-    remedy_ui_view::device::memory_pressure(remedy_ui_view::device::MemoryPressure::Critical);
+    remedy_ui_engine::view::device::memory_pressure(remedy_ui_engine::view::device::MemoryPressure::Critical);
     h.frame();
     assert_eq!(h.term.with_emulator(Emulator::history_len), 0);
     assert!(h.term.with_emulator(Emulator::screen_text).contains("line 499"));

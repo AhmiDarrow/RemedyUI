@@ -567,7 +567,7 @@ impl CompactOptions {
 /// `language_name_in("en", "ger")` "German". Codes are BCP 47 or ISO 639-2 (`ger`, `fre`,
 /// `chi`, as media files tag tracks). Names begin with a capital, as a menu or a list shows
 /// them. The `language-<code>` messages come first: the engine's in `i18n/*.ftl`, and any an
-/// app adds with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. With the
+/// app adds with [`remedy_ui_engine::view::strings::add_messages`] under `services-i18n`. With the
 /// `language-names` feature (on in `remedy-ui`), every language CLDR names is named in every
 /// locale CLDR has (in a browser page, by the browser's `Intl.DisplayNames`, from its own
 /// CLDR data); without it, only the engine's shipped languages, `pt-BR` and `zh-Hans`.
@@ -699,6 +699,6 @@ fn cldr_name(_: &str, _: &str) -> Option<String> {
 }
 
 /// [`language_name_in`] the window's language (tracked: it follows the locale).
-pub fn language_name(ui: &remedy_ui_view::Ui, code: &str) -> String {
+pub fn language_name(ui: &remedy_ui_engine::view::Ui, code: &str) -> String {
     language_name_in(&ui.locale(), code)
 }

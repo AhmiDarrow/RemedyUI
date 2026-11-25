@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 use std::time::Duration;
 
 use remedy_ui_media_image::{DecodeError, Srgb, finish_rgba, fitted_scalable};
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 use crate::formats::{self, Frames};
 

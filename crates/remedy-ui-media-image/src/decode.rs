@@ -4,7 +4,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage, imageops};
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 /// Why an image could not be decoded.
 #[derive(Clone, Debug, PartialEq, Eq)]

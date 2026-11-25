@@ -7,9 +7,9 @@ use std::time::Duration;
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect, Size};
 use remedy_ui_core::layout::Length;
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::untrack;
-use remedy_ui_view::{El, IntoProp, PaintCx, RichText, Ui};
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, RichText, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
 use crate::common::Motion;

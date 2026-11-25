@@ -40,13 +40,13 @@ pub use staff_edit::{StaffEdit, StaffEditHandler, StaffEditing};
 pub use tab::*;
 pub use tab_edit::{TabEdit, TabEditHandler, TabEditing};
 
-use remedy_ui_view::strings::StrArg;
+use remedy_ui_engine::view::strings::StrArg;
 
 /// The pack's own words (what screen readers hear about notes, chords, strings and frets,
 /// and the undo history's names for edits) in every language the engine ships, from
 /// `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-music`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-music");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-music`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-music");
 
 /// Message `id` with placeholder values in `locale` (not tracked: widgets pass
 /// `ui.locale()`, which is). What this pack says is read by screen readers or names an undo

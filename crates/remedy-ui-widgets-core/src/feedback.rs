@@ -5,9 +5,9 @@ use std::time::Duration;
 use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_core::layout::{Align, Length, Position};
-use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, Ui};
 
 /// How long one turn of an engine-drawn indeterminate animation takes.
 const LOOP: Duration = Duration::from_millis(825);
@@ -84,7 +84,7 @@ pub fn spinner(ui: &Ui, label: impl IntoProp<String>) -> El {
             }
             let stroke =
                 Stroke { width: 2.0, cap: StrokeCap::Round, join: StrokeJoin::Round, dashes: Vec::new() };
-            cx.list.push(remedy_ui_paint::Item::StrokePath {
+            cx.list.push(remedy_ui_engine::paint::Item::StrokePath {
                 path,
                 stroke,
                 brush: Brush::Solid(cx.style.foreground),
@@ -118,7 +118,7 @@ pub fn lamp(ui: &Ui, label: impl IntoProp<String>, on: Signal<bool>) -> El {
 /// A small count or tag.
 #[track_caller]
 pub fn badge(ui: &Ui, text: impl IntoProp<String>) -> El {
-    ui.el("badge").text(text.into_prop().map(remedy_ui_view::RichText::plain)).nowrap()
+    ui.el("badge").text(text.into_prop().map(remedy_ui_engine::view::RichText::plain)).nowrap()
 }
 
 /// A short message at the bottom of the window that goes away by itself after `duration`

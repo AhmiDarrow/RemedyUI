@@ -4,12 +4,12 @@
 
 use std::time::{Duration, Instant};
 
-use remedy_ui_compositor::{Layer, LayerTree};
+use remedy_ui_engine::compositor::{Layer, LayerTree};
 use remedy_ui_core::Size;
 use remedy_ui_core::input::{Key, KeyEvent};
-use remedy_ui_paint::{Image, Item};
+use remedy_ui_engine::paint::{Image, Item};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 
 #[path = "../../src/testing.rs"]
 pub mod testing;

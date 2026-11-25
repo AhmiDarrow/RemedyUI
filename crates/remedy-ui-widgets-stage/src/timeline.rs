@@ -9,7 +9,7 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Rect, Size};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::{Clock, Moved, smooth};
 
 use crate::common::{Motion, Place, Slot, layer};
@@ -319,7 +319,7 @@ pub fn timeline<T: Clone + 'static>(
     });
     let s = state.clone();
     // The glide follows data, so it settles even while ambient motion is off.
-    let (el, motion) = Motion::attach_kind(el, options.clock, remedy_ui_view::TickKind::Live, move |dt| {
+    let (el, motion) = Motion::attach_kind(el, options.clock, remedy_ui_engine::view::TickKind::Live, move |dt| {
         let (from, to) = (s.shown_head.get(), s.head.get());
         // A glide in screen pixels, so it settles the same at any scale.
         let px = smooth(

@@ -15,7 +15,7 @@ use remedy_ui_core::a11y::Action;
 use remedy_ui_core::Point;
 use remedy_ui_core::input::{Key, Modifiers};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_widgets_music::staff_edit as se;
 use remedy_ui_widgets_music::tab_edit as te;
 use remedy_ui_widgets_music::*;

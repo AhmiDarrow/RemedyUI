@@ -4,8 +4,8 @@
 
 use std::collections::BTreeMap;
 
-use remedy_ui_effects::ir::{ParamType, StageKind};
-use remedy_ui_effects::{
+use remedy_ui_engine::effects::ir::{ParamType, StageKind};
+use remedy_ui_engine::effects::{
     CompileError, CpuEffect, Effect, FrameInput, Instance, LIBRARY, Limits, Picture, Value,
 };
 use serde::{Deserialize, Serialize};
@@ -241,7 +241,7 @@ fn source(input: &EffectInput, ws: &Workspace) -> Result<String> {
             let path = ws.resolve(p)?;
             std::fs::read_to_string(&path).map_err(|e| ToolError::new(format!("{}: {e}", path.display())))
         }
-        (None, None, Some(n)) => remedy_ui_effects::library_source(n).map(str::to_owned).ok_or_else(|| {
+        (None, None, Some(n)) => remedy_ui_engine::effects::library_source(n).map(str::to_owned).ok_or_else(|| {
             let names: Vec<&str> = LIBRARY.iter().map(|(n, _)| *n).collect();
             ToolError::new(format!("no built-in effect `{n}`; they are {}", names.join(", ")))
         }),
@@ -500,7 +500,7 @@ fn stretch(pic: &Picture, w: u32, h: u32) -> Picture {
 }
 
 /// A test picture for texture parameters: a checkerboard tinted by gradients, and a disc.
-fn test_picture() -> remedy_ui_paint::Image {
+fn test_picture() -> remedy_ui_engine::paint::Image {
     let (w, h) = (256u32, 160u32);
     let mut px = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
@@ -515,7 +515,7 @@ fn test_picture() -> remedy_ui_paint::Image {
             });
         }
     }
-    remedy_ui_paint::Image::new(w, h, px.into())
+    remedy_ui_engine::paint::Image::new(w, h, px.into())
 }
 
 /// The built-in effects, with what each is and costs.
@@ -528,7 +528,7 @@ pub fn library() -> Vec<LibraryEffect> {
                 .find_map(|l| l.trim().strip_prefix("//").map(str::trim))
                 .unwrap_or_default()
                 .to_owned();
-            let effect = remedy_ui_effects::library(name);
+            let effect = remedy_ui_engine::effects::library(name);
             LibraryEffect {
                 name: (*name).to_owned(),
                 summary,

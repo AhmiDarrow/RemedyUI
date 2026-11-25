@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn the_controls_follow_a_remote_player_and_press_the_device() {
         let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-        let ui = remedy_ui_view::Ui::new(
+        let ui = remedy_ui_engine::view::Ui::new(
             theme.clone(),
             remedy_ui_themes::sheet(&theme),
             remedy_ui_text::FontCollection::new(),

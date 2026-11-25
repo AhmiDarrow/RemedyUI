@@ -38,7 +38,7 @@ pub(crate) fn default_budget(total: u64) -> u64 {
 /// The most decoded frames one of `live` animations may keep when a frame costs `frame_bytes`.
 pub(crate) fn resident_frames(frame_bytes: usize, live: usize) -> usize {
     let budget = match BUDGET.load(Ordering::Relaxed) {
-        0 => remedy_ui_view::device::total_memory().map_or(0, default_budget),
+        0 => remedy_ui_engine::view::device::total_memory().map_or(0, default_budget),
         set => set,
     };
     match budget {

@@ -14,16 +14,13 @@ categories.workspace = true
 [dependencies]
 png = { version = "=0.18.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
 remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1" }
 # Previews render every language: the script fallback faces too.
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["scripts"] }
 remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
-remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
 remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "1.0.0-rc.1" }
 serde = { version = "=1.0.229", features = ["derive"] }

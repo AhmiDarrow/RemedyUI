@@ -27,8 +27,8 @@
 
 /// The animation view's own words (its play button's names) in every language the engine
 /// ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `media-anim`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-anim");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `media-anim`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("media-anim");
 
 #[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 mod canvas;
@@ -47,10 +47,10 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Point, Rect};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Position};
 use remedy_ui_media_image::{ImageState, Loader, image_with};
-use remedy_ui_paint::{Brush, Item, Path};
+use remedy_ui_engine::paint::{Brush, Item, Path};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 pub use policy::set_memory_budget;
 pub use remedy_ui_media_image::{Fit, Source};
@@ -88,7 +88,7 @@ pub fn animated(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit) -> El
         static LISTENING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
     if !LISTENING.with(|l| l.replace(true)) {
-        remedy_ui_view::device::on_memory_pressure(|_| trim_memory());
+        remedy_ui_engine::view::device::on_memory_pressure(|_| trim_memory());
     }
     let alt = alt.into();
     let ctl = Rc::new(Control::new(ui));

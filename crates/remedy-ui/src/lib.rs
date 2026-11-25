@@ -53,8 +53,8 @@ struct ReadmeDoctests;
 
 /// The runner's own words (what the place of content popped out to its own window says) in
 /// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
-/// with [`remedy_ui_view::strings::add_messages`] under the name `remedy-ui`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("remedy-ui");
+/// with [`remedy_ui_engine::view::strings::add_messages`] under the name `remedy-ui`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("remedy-ui");
 
 #[cfg(feature = "widgets")]
 pub use confirm::ConfirmSpec;
@@ -106,8 +106,8 @@ pub use remedy_ui_embed_gpu as gpu_embed;
 /// effects as elements ([`effects::effect_view`]) drawn by the GPU kernel or the CPU renderer.
 #[cfg(feature = "effects")]
 pub mod effects {
-    pub use remedy_ui_effects::*;
-    pub use remedy_ui_media_effects::*;
+    pub use remedy_ui_engine::effects::*;
+    pub use remedy_ui_engine::media_effects::*;
 
     /// What the `effect` markup element takes ([`register_markup`]): `name`, a built-in effect
     /// ([`LIBRARY`]); and, optionally, `param`, one of its parameters, driven live by `value`,
@@ -191,13 +191,13 @@ pub use remedy_ui_media_playback as playback;
 pub use remedy_ui_media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
 /// (`El::paint`), canvases and page sources.
-pub use remedy_ui_paint as paint;
+pub use remedy_ui_engine::paint as paint;
 /// The GPU renderer's own bounds (feature `gpu`): errors kept, the health file, how long it
 /// waits for swapchains, presents and video ([`gpu::set_gpu_limits`]). What both renderers
 /// draw is bounded by [`paint::set_paint_limits`].
 #[cfg(feature = "gpu")]
 pub mod gpu {
-    pub use remedy_ui_render_gpu::{
+    pub use remedy_ui_engine::render_gpu::{
         GpuLimits, MAX_HEALTH_ENTRIES, MAX_HEALTH_LINE, MAX_KEPT_ERRORS, MAX_VIDEO_IMPORTS, SWAPCHAIN_WAIT,
         VIDEO_FENCE_WAIT, gpu_limits, health::PRESENT_HANG, set_gpu_limits,
     };
@@ -206,8 +206,8 @@ pub mod gpu {
 /// spring or an easing curve on the frame clock (`El::animate`), interruptibly and instantly
 /// under reduced motion; `Transition`s for content that appears and leaves.
 pub mod motion {
-    pub use remedy_ui_view::Transition;
-    pub use remedy_ui_view::motion::*;
+    pub use remedy_ui_engine::view::Transition;
+    pub use remedy_ui_engine::view::motion::*;
 }
 pub use remedy_ui_core::reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
@@ -216,13 +216,13 @@ pub use remedy_ui_rui as markup;
 /// Scripted widgets, independent of any language: the widget interface, the element protocol,
 /// limits and the engine registry.
 #[cfg(feature = "board")]
-pub use remedy_ui_script as script;
+pub use remedy_ui_engine::script as script;
 /// Scripted widgets in RemedyLua.
 #[cfg(feature = "script-lua")]
-pub use remedy_ui_script_lua as script_lua;
+pub use remedy_ui_engine::script_lua as script_lua;
 /// Scripted widgets in WebAssembly.
 #[cfg(feature = "script-wasm")]
-pub use remedy_ui_script_wasm as script_wasm;
+pub use remedy_ui_engine::script_wasm as script_wasm;
 /// Desktop services: starting with the session, URL schemes, jump lists and recent files,
 /// power (battery, sleep and resume, keeping awake), showing files in the file manager, and
 /// the user's usual folders. Notifications, badges and the tray are on [`App`].
@@ -246,13 +246,13 @@ pub use remedy_ui_core::style as style;
 pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]
 pub use remedy_ui_themes as themes;
-pub use remedy_ui_view as view;
+pub use remedy_ui_engine::view as view;
 /// Content that comes and goes, fails or loads, where apps build screens: [`show`] (content
 /// shown while a condition holds), [`catch_errors`] (an error boundary that takes a builder
 /// closure for its content, so a retry builds it again) and [`suspense`] (a placeholder
 /// while resources load), with what they return and hand to callbacks.
-pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
-pub use remedy_ui_view::{
+pub use remedy_ui_engine::view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
+pub use remedy_ui_engine::view::{
     El, EnterKey, FieldKind, InputPurpose, PaintCx, PointerCaps, TextField, Ui, WindowDirection,
 };
 #[cfg(feature = "viz")]

@@ -14,11 +14,11 @@ use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_core::host::ImeEvent;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase, WheelEvent};
 use remedy_ui_core::layout::Length;
-use remedy_ui_paint::{Brush, DisplayList, GlyphRun, Item, Path, Stroke};
+use remedy_ui_engine::paint::{Brush, DisplayList, GlyphRun, Item, Path, Stroke};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::Theme;
 use remedy_ui_text::{Antialias, Hinting, ParagraphOptions, RichText, RunFont, TextStyle};
-use remedy_ui_view::{El, PaintCx, TextInput, Ui};
+use remedy_ui_engine::view::{El, PaintCx, TextInput, Ui};
 
 use crate::boxdraw;
 use crate::cell::{Attrs, Cell, Line, Underline};
@@ -208,7 +208,7 @@ struct Shaped {
 struct GlyphCache {
     map: HashMap<(Box<str>, u8), Rc<Shaped>>,
     limit: usize,
-    pictures: HashMap<u64, remedy_ui_paint::Image>,
+    pictures: HashMap<u64, remedy_ui_engine::paint::Image>,
 }
 
 /// How the terminal is drawn: cell metrics and colors.
@@ -485,7 +485,7 @@ pub fn terminal(ui: &Ui, options: TerminalOptions) -> Terminal {
     // Short of memory: the scrollback gives back what it can. The listener holds the
     // terminal weakly, so a closed terminal is not kept alive by it.
     let weak = Rc::downgrade(&t.0);
-    remedy_ui_view::device::on_memory_pressure(move |level| {
+    remedy_ui_engine::view::device::on_memory_pressure(move |level| {
         if let Some(inner) = weak.upgrade() {
             inner.shared.ui_lock().relieve(level);
             Terminal(inner).sync();
@@ -2090,7 +2090,7 @@ fn paint_row(cx: &mut PaintCx<'_>, v: &RowView, look: &mut Look, cache: &mut Gly
             let image = cache
                 .pictures
                 .entry(pic.id)
-                .or_insert_with(|| remedy_ui_paint::Image::new(pic.width, pic.height, pic.rgba.clone()))
+                .or_insert_with(|| remedy_ui_engine::paint::Image::new(pic.width, pic.height, pic.rgba.clone()))
                 .clone();
             let (pw, ph) = (piece.cell_px.0.max(1) as f32, piece.cell_px.1.max(1) as f32);
             let (w, h) = (pic.width as f32 * cw / pw, pic.height as f32 * lh / ph);
@@ -2100,7 +2100,7 @@ fn paint_row(cx: &mut PaintCx<'_>, v: &RowView, look: &mut Look, cache: &mut Gly
                 image,
                 rect: Rect::new(x, y, x + w, y + h),
                 radii: CornerRadii::ZERO,
-                sampling: remedy_ui_paint::Sampling::Nearest,
+                sampling: remedy_ui_engine::paint::Sampling::Nearest,
             });
         }
         cx.list.pop_clip();

@@ -8,7 +8,7 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
 
@@ -349,7 +349,7 @@ fn property_grids_group_and_filter() {
 
 #[test]
 fn files_from_other_apps_drop_into_folders_and_items_drag_out_as_files() {
-    use remedy_ui_view::{DragData, DragEvent, DropEffect, Request};
+    use remedy_ui_engine::view::{DragData, DragEvent, DropEffect, Request};
     let t = tree(true);
     /// Files dropped, and the folder they went into.
     type Imports = Vec<(Vec<std::path::PathBuf>, String)>;

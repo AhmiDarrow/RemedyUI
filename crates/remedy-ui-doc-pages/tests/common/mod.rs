@@ -12,10 +12,10 @@ use remedy_ui_doc_pages::*;
 use remedy_ui_core::input::{
     Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
-use remedy_ui_paint::{Affine, Brush, DisplayList, Image, Item, Path, Stroke};
-use remedy_ui_render_cpu::CpuRenderer;
+use remedy_ui_engine::paint::{Affine, Brush, DisplayList, Image, Item, Path, Stroke};
+use remedy_ui_engine::render_cpu::CpuRenderer;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 
 /// US Letter, in points.
 pub const LETTER: Size = Size { width: 612.0, height: 792.0 };
@@ -156,7 +156,7 @@ pub struct Win {
     pub scale: f32,
     timers: Vec<(Instant, u64)>,
     pub copied: Vec<String>,
-    pub last: Option<remedy_ui_compositor::LayerTree>,
+    pub last: Option<remedy_ui_engine::compositor::LayerTree>,
 }
 
 impl Win {
@@ -179,7 +179,7 @@ impl Win {
     }
 
     /// One frame, returning the layers it committed (none when nothing changed).
-    pub fn frame_layers(&mut self) -> Option<remedy_ui_compositor::LayerTree> {
+    pub fn frame_layers(&mut self) -> Option<remedy_ui_engine::compositor::LayerTree> {
         let _ = remedy_ui_core::reactive::run_posted();
         let now = Instant::now();
         let due: Vec<u64> = self.timers.iter().filter(|(t, _)| *t <= now).map(|(_, id)| *id).collect();

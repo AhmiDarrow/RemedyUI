@@ -7,7 +7,7 @@
 use remedy_ui_core::Insets;
 use remedy_ui_devtools::{GoldenError, Preview, check_golden};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_forms::{CalendarSymbols, Date, Decimal, NumberSymbols};
 

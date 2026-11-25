@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use remedy_ui_core::host::WindowHandles;
 use remedy_ui_core::host::raw_window_handle::RawWindowHandle;
-use remedy_ui_view::{Placement, WeakUi};
+use remedy_ui_engine::view::{Placement, WeakUi};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CallDevToolsProtocolMethodCompletedHandler,

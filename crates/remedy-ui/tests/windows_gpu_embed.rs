@@ -17,7 +17,7 @@ use remedy_ui_bridge_windows::WindowsHooks;
 use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
-use remedy_ui_render_gpu::GpuContext;
+use remedy_ui_engine::render_gpu::GpuContext;
 
 /// Clears to a color that cycles with the frame number, and remembers which device it was
 /// given.

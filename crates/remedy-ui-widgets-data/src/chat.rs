@@ -14,7 +14,7 @@ use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{AUTO, JumpAlign, Length, Position, VirtualList};
 use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 /// Builds one message.
@@ -340,7 +340,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             crate::tr(&u, "chat-jump-latest")
         };
         if let Some(l) = b2.child_elements().into_iter().next() {
-            let _ = l.text(remedy_ui_view::RichText::plain(text.clone()));
+            let _ = l.text(remedy_ui_engine::view::RichText::plain(text.clone()));
         }
         // What a screen reader says matches what the button shows.
         let spoken =

@@ -20,14 +20,13 @@ webp = ["dep:image-webp"]
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 gif = { version = "=0.14.2", default-features = false, features = ["std"], optional = true }
 png = { version = "=0.18.1", optional = true }
 image-webp = { version = "=0.2.4", optional = true }
 
 [dev-dependencies]
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor"] }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }

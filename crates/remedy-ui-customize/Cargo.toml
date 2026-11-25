@@ -19,7 +19,7 @@ remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1" }
 remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["view"] }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
 remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "1.0.0-rc.1" }
 remedy-ui-widgets-nav = { path = "../remedy-ui-widgets-nav", version = "1.0.0-rc.1" }

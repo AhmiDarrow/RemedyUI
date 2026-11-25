@@ -5,7 +5,7 @@ use std::time::Duration;
 use remedy_ui_core::reactive::{Effect, Signal};
 use remedy_ui_services_i18n::{Arg, Messages, Problem};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 const EN: &str = r#"
 app-title = Hearth

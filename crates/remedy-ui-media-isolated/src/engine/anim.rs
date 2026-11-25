@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use remedy_ui_media_anim::route::{Animation, FrameSource, Loops, Opened, Opener, open_here};
 use remedy_ui_media_image::{DecodeError, fitted_scalable};
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 use super::{
     Engine, Fail, Helper, per_byte, per_output_pixel, per_source_pixel, shm_with, startup_error, units,

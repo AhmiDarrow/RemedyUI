@@ -7,7 +7,7 @@ use std::rc::Rc;
 use remedy_ui_core::a11y::{Live, Role, Semantics};
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Rejection};
 
 /// Where a form's submission stands.
@@ -273,7 +273,7 @@ pub fn submit_button(
         let busy = f2.state() == SubmitState::Submitting;
         let shown = if busy { crate::tr(&u, "form-saving") } else { label.clone() };
         if let Some(t) = &text {
-            let _ = t.clone().text(remedy_ui_view::RichText::plain(shown.clone()));
+            let _ = t.clone().text(remedy_ui_engine::view::RichText::plain(shown.clone()));
         }
         let _ = b2
             .clone()
@@ -301,7 +301,7 @@ pub fn form_status(ui: &Ui, form: &Form) -> El {
                 (if f.is_dirty() { crate::tr(&u, "form-unsaved") } else { String::new() }, "muted")
             }
         };
-        let _ = l2.clone().variant(variant).text(remedy_ui_view::RichText::plain(text.clone()));
+        let _ = l2.clone().variant(variant).text(remedy_ui_engine::view::RichText::plain(text.clone()));
         let _ = l2.clone().semantics(Semantics::new(Role::Status).label(text).live(Live::Polite));
     })
 }

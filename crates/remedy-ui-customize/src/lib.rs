@@ -3,7 +3,7 @@
 //!
 //! ```no_run
 //! # use remedy_ui_customize::Customizations;
-//! # fn setup(ui: &remedy_ui_view::Ui, commands: &remedy_ui_widgets_nav::Commands) {
+//! # fn setup(ui: &remedy_ui_engine::view::Ui, commands: &remedy_ui_widgets_nav::Commands) {
 //! let custom = Customizations::new("/path/to/the/app/config");
 //! custom.enable_theme(ui.theme());
 //! custom.enable_shortcuts(commands);
@@ -58,7 +58,7 @@ use std::rc::Rc;
 use remedy_ui_core::host::FileDialog;
 use remedy_ui_core::input::Clash;
 use remedy_ui_core::reactive::{Scope, Signal};
-use remedy_ui_view::{Ui, WeakUi};
+use remedy_ui_engine::view::{Ui, WeakUi};
 
 pub use page::{layouts_editor, notices_view, settings_page, text_editor, toolbars_editor};
 pub use shortcut_editor::shortcut_editor;
@@ -68,12 +68,12 @@ pub use theme::{
 };
 pub use theme_editor::theme_editor;
 
-use remedy_ui_view::strings::StrArg;
+use remedy_ui_engine::view::strings::StrArg;
 
 /// The Customize page's own words (headings, buttons, notices, undo history names, design
 /// token names) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or
-/// add a language, with [`remedy_ui_view::strings::add_messages`] under the name `customize`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("customize");
+/// add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `customize`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("customize");
 
 /// Message `id` in the window's locale (tracked: inside a property closure it follows the
 /// locale).

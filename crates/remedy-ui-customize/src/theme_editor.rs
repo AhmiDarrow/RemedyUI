@@ -12,7 +12,7 @@ use remedy_ui_core::host::FileDialog;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_services_i18n::Decimal;
 use remedy_ui_core::style::{Density, StylePatch};
-use remedy_ui_view::{Align, El, FieldKind, TextField, Ui};
+use remedy_ui_engine::view::{Align, El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_forms::{NumberOptions, color_picker, number_input};
 

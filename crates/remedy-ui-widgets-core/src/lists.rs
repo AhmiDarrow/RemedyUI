@@ -16,8 +16,8 @@ use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Length, VirtualList};
 use remedy_ui_core::reactive::{Scope, Signal, SignalVec, VecDiff, VecReader, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::motion::Motion;
-use remedy_ui_view::{El, Transition, Ui};
+use remedy_ui_engine::view::motion::Motion;
+use remedy_ui_engine::view::{El, Transition, Ui};
 
 /// Where a list's items come from: a signal holding a vector, or a [`SignalVec`] whose
 /// changes arrive as operations.
@@ -234,7 +234,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Keyed<T, K> {
         self.place(index);
         if let (Some(t), false, Some((_, row))) = (&self.transitions.enter, self.first, self.rows.get(index))
         {
-            remedy_ui_view::play_enter(row, t);
+            remedy_ui_engine::view::play_enter(row, t);
         }
     }
 
@@ -243,7 +243,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Keyed<T, K> {
         match &self.transitions.exit {
             Some(t) => {
                 let el = row.el.clone();
-                remedy_ui_view::play_exit(&el, t, move || row.remove());
+                remedy_ui_engine::view::play_exit(&el, t, move || row.remove());
             }
             None => row.remove(),
         }
@@ -283,7 +283,7 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Keyed<T, K> {
         if let (Some(t), false) = (&self.transitions.enter, self.first) {
             for i in fresh {
                 if let Some((_, row)) = self.rows.get(i) {
-                    remedy_ui_view::play_enter(row, t);
+                    remedy_ui_engine::view::play_enter(row, t);
                 }
             }
         }

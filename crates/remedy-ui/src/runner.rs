@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_compositor::{Compositor, LayerId};
+use remedy_ui_engine::compositor::{Compositor, LayerId};
 use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
 use remedy_ui_core::host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
@@ -16,11 +16,11 @@ use remedy_ui_core::host::{
 use remedy_ui_core::input::{
     Buttons, GestureSettings, PointerEvent, PointerKind, PointerPhase, ScrollPhysics, VelocityTracker,
 };
-use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, FontFile};
 use remedy_ui_core::tree::ElementId;
-use remedy_ui_view::{Request, Ui};
+use remedy_ui_engine::view::{Request, Ui};
 
 use crate::geometry::{GeometryStore, data_dir};
 
@@ -756,7 +756,7 @@ enum Cmd {
     ClearSecret,
     Theme(Box<Theme>),
     Locale(Option<String>),
-    Direction(remedy_ui_view::WindowDirection),
+    Direction(remedy_ui_engine::view::WindowDirection),
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
@@ -777,7 +777,7 @@ enum Cmd {
 /// Builds a style sheet for a theme.
 type SheetBuilder = Rc<dyn Fn(&Theme) -> StyleSheet>;
 /// What a [`Window::snapshot`] calls with its picture.
-type SnapshotDone = Box<dyn FnOnce(Option<remedy_ui_paint::Image>)>;
+type SnapshotDone = Box<dyn FnOnce(Option<remedy_ui_engine::paint::Image>)>;
 /// Input handed to a live window ([`Window::send_key`], [`Window::send_pointer`]), made into
 /// the host's event once the window's host id is known.
 type Injected = Box<dyn FnOnce(WindowId) -> HostEvent>;
@@ -803,7 +803,7 @@ struct Shared {
     /// The app reduces motion whatever the system says ([`App::set_reduce_motion`]).
     reduce_motion: bool,
     /// Every window's ambient-motion budget ([`App::set_ambient_policy`]); `None`: the default.
-    ambient: Option<remedy_ui_view::AmbientPolicy>,
+    ambient: Option<remedy_ui_engine::view::AmbientPolicy>,
     /// A tray icon is shown now: one was asked for and the platform took it.
     /// (Made when first asked for.)
     tray_up: Option<remedy_ui_core::reactive::Signal<bool>>,
@@ -1098,10 +1098,10 @@ impl App {
     }
 
     /// Lays every window (and windows opened later) out the way `direction` says: from each
-    /// window's locale ([`WindowDirection::Locale`](remedy_ui_view::WindowDirection), the
+    /// window's locale ([`WindowDirection::Locale`](remedy_ui_engine::view::WindowDirection), the
     /// default), or always left to right or right to left, for an app setting that lets
     /// people choose. A window can still choose its own with [`Ui::set_direction`].
-    pub fn set_direction(&self, direction: remedy_ui_view::WindowDirection) {
+    pub fn set_direction(&self, direction: remedy_ui_engine::view::WindowDirection) {
         self.push(Cmd::Direction(direction));
     }
 
@@ -1346,7 +1346,7 @@ impl App {
     /// window may have: full, light or off, frames a second with focus and in the
     /// background, and on battery. Windows minimized, hidden or covered never draw it, and
     /// reduced motion stops it unless the policy says otherwise. See
-    /// [`AmbientPolicy`](remedy_ui_view::AmbientPolicy).
+    /// [`AmbientPolicy`](remedy_ui_engine::view::AmbientPolicy).
     ///
     /// ```no_run
     /// # fn setup(app: &remedy_ui::App) {
@@ -1356,7 +1356,7 @@ impl App {
     /// app.set_ambient_policy(p);
     /// # }
     /// ```
-    pub fn set_ambient_policy(&self, policy: remedy_ui_view::AmbientPolicy) {
+    pub fn set_ambient_policy(&self, policy: remedy_ui_engine::view::AmbientPolicy) {
         let uis: Vec<Ui> = {
             let mut s = self.0.borrow_mut();
             s.ambient = Some(policy);
@@ -1368,7 +1368,7 @@ impl App {
     }
 
     /// The ambient-motion budget windows follow.
-    pub fn ambient_policy(&self) -> remedy_ui_view::AmbientPolicy {
+    pub fn ambient_policy(&self) -> remedy_ui_engine::view::AmbientPolicy {
         self.0.borrow().ambient.unwrap_or_default()
     }
 
@@ -2053,7 +2053,7 @@ impl Window {
     /// window the CPU draws draws its frame once more. `None` when the window is closed or the
     /// frame could not be drawn. A hidden window draws no frames, so its picture comes once it
     /// is shown.
-    pub fn snapshot(&self, done: impl FnOnce(Option<remedy_ui_paint::Image>) + 'static) {
+    pub fn snapshot(&self, done: impl FnOnce(Option<remedy_ui_engine::paint::Image>) + 'static) {
         let Some(ui) = self.ui() else {
             done(None);
             return;
@@ -2238,7 +2238,7 @@ type ShareDone = Box<dyn FnOnce(remedy_ui_core::host::ShareOutcome)>;
 enum Present {
     Cpu(Box<CpuCompositor>),
     #[cfg(feature = "gpu")]
-    Gpu(Box<remedy_ui_render_gpu::GpuSurface>),
+    Gpu(Box<remedy_ui_engine::render_gpu::GpuSurface>),
 }
 
 struct Win {
@@ -2261,7 +2261,7 @@ struct Win {
     /// Scrolls asked for before their container had a layer (content built this frame, such
     /// as a page a router brings back), applied once it has one.
     pending_scrolls: Vec<(ElementId, Vec2, ScrollKind)>,
-    cover: Option<remedy_ui_view::El>,
+    cover: Option<remedy_ui_engine::view::El>,
     /// The window's content zoom (1 = as designed): everything is drawn this much larger,
     /// and input positions are mapped back.
     zoom: f32,
@@ -2273,7 +2273,7 @@ struct Win {
     /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
     cursor_hidden: bool,
     /// The pointer shape the host was last told ([`Ui::cursor`]).
-    cursor: remedy_ui_view::Cursor,
+    cursor: remedy_ui_engine::view::Cursor,
     /// Middle-button autoscroll in progress ([`Autoscroll`]).
     autoscroll: Option<Autoscroll>,
 }
@@ -2473,7 +2473,7 @@ pub struct Runner {
     /// The app's own locale, in place of the system's.
     locale: Option<String>,
     /// Where every window's layout direction comes from ([`App::set_direction`]).
-    direction: remedy_ui_view::WindowDirection,
+    direction: remedy_ui_engine::view::WindowDirection,
     idle: Option<(crate::secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
@@ -2492,7 +2492,7 @@ pub struct Runner {
     secret: Option<(crate::secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
-    gpu: Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
+    gpu: Option<Option<remedy_ui_engine::render_gpu::GpuCompositor>>,
     /// The GPU device is being made without blocking (in a browser); windows draw on the CPU
     /// until the host's waker says it is ready.
     #[cfg(feature = "gpu")]
@@ -2517,7 +2517,7 @@ enum ScrollKind {
 }
 
 impl ScrollKind {
-    fn apply(self, c: &mut Compositor, layer: remedy_ui_compositor::LayerId, offset: Vec2) -> bool {
+    fn apply(self, c: &mut Compositor, layer: remedy_ui_engine::compositor::LayerId, offset: Vec2) -> bool {
         match self {
             ScrollKind::To => c.scroll_to_snapped(layer, offset),
             ScrollKind::Exact => c.set_scroll_offset(layer, offset),
@@ -2532,7 +2532,7 @@ impl Runner {
         // The engine's own messages write numbers the locale's way (Arabic-Indic digits in
         // Arabic, a comma for decimals in German), from the same data the app's do.
         #[cfg(feature = "i18n")]
-        remedy_ui_view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
+        remedy_ui_engine::view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
             let max = places.map_or(remedy_ui_services_i18n::MAX_SCALE, |p| p.min(28) as u8);
             let d = remedy_ui_services_i18n::Decimal::from_f64(value, max)?;
             Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
@@ -2554,7 +2554,7 @@ impl Runner {
         // backend that hung is skipped from the next start.
         #[cfg(feature = "gpu")]
         if let Some(d) = &dir {
-            remedy_ui_render_gpu::health::remember_in(d.join("gpu"));
+            remedy_ui_engine::render_gpu::health::remember_in(d.join("gpu"));
         }
         let geometry =
             dir.map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
@@ -2609,7 +2609,7 @@ impl Runner {
             save_timer: None,
             settings: SystemSettings::default(),
             locale: None,
-            direction: remedy_ui_view::WindowDirection::Locale,
+            direction: remedy_ui_engine::view::WindowDirection::Locale,
             idle: None,
             activity_reported: None,
             idle_timer: None,
@@ -2746,7 +2746,7 @@ impl Runner {
                         held: None,
                         pan: None,
                         cursor_hidden: false,
-                        cursor: remedy_ui_view::Cursor::Default,
+                        cursor: remedy_ui_engine::view::Cursor::Default,
                         autoscroll: None,
                         host: id,
                         ui: ui.clone(),
@@ -3343,12 +3343,12 @@ impl Runner {
     /// CPU choose their renderer again.
     #[cfg(feature = "gpu")]
     fn gpu_resolved(&mut self, host: &mut dyn Host) {
-        let ladder = remedy_ui_render_gpu::LadderOptions::default();
-        match remedy_ui_render_gpu::GpuContext::shared(&ladder) {
-            Err(remedy_ui_render_gpu::GpuError::Pending) => return,
+        let ladder = remedy_ui_engine::render_gpu::LadderOptions::default();
+        match remedy_ui_engine::render_gpu::GpuContext::shared(&ladder) {
+            Err(remedy_ui_engine::render_gpu::GpuError::Pending) => return,
             Ok(ctx) => {
-                let renderer = remedy_ui_render_gpu::GpuRenderer::new(ctx, None);
-                self.gpu = Some(Some(remedy_ui_render_gpu::GpuCompositor::new(renderer, ladder)));
+                let renderer = remedy_ui_engine::render_gpu::GpuRenderer::new(ctx, None);
+                self.gpu = Some(Some(remedy_ui_engine::render_gpu::GpuCompositor::new(renderer, ladder)));
             }
             // It could not be made: the CPU renderer from now on.
             Err(_) => self.gpu = Some(None),
@@ -3450,7 +3450,7 @@ impl Runner {
         if let Some(l) = f.layers {
             comp.commit(l);
         }
-        comp.set_ambient(w.ui.tick_interval(remedy_ui_view::TickKind::Ambient));
+        comp.set_ambient(w.ui.tick_interval(remedy_ui_engine::view::TickKind::Ambient));
         w.scrollers = f.scrollers;
         if !w.pending_scrolls.is_empty() {
             let tree = w.ui.tree();
@@ -3493,7 +3493,7 @@ impl Runner {
                 CpuCompositor::new()
                     .present(&plan, pw, ph, background)
                     .ok()
-                    .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels)))
+                    .map(|f| remedy_ui_engine::paint::Image::new(f.width, f.height, Arc::from(f.pixels)))
             });
             // Answered at once: the callbacks reach the app only through its handles, never
             // this frame's state, and a later early return must not lose them.
@@ -3631,7 +3631,7 @@ impl Runner {
                         }
                         let started = remedy_ui_core::time::Instant::now();
                         match gpu.present_to_surface(&plan, surface, background) {
-                            Ok(remedy_ui_render_gpu::Presented::Retry) => again = true,
+                            Ok(remedy_ui_engine::render_gpu::Presented::Retry) => again = true,
                             Ok(_) => {
                                 // The GPU's whole present time (recording, submitting, waiting
                                 // for the swapchain) bounds what its rastering cost.
@@ -3673,7 +3673,7 @@ impl Runner {
                 (Some(Some(gpu)), Some(Present::Gpu(surface))) => gpu
                     .read_surface(surface)
                     .and_then(Result::ok)
-                    .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels))),
+                    .map(|f| remedy_ui_engine::paint::Image::new(f.width, f.height, Arc::from(f.pixels))),
                 _ => None,
             };
             #[cfg(not(feature = "gpu"))]
@@ -3696,9 +3696,9 @@ impl Runner {
 }
 
 /// AccessKit's action as the engine's, for the actions elements offer.
-fn action(a: remedy_ui_core::host::accesskit::Action) -> Option<remedy_ui_view::A11yAction> {
+fn action(a: remedy_ui_core::host::accesskit::Action) -> Option<remedy_ui_engine::view::A11yAction> {
     use remedy_ui_core::host::accesskit::Action as K;
-    use remedy_ui_view::A11yAction as A;
+    use remedy_ui_engine::view::A11yAction as A;
     Some(match a {
         K::Click => A::Click,
         K::Focus => A::Focus,
@@ -3718,26 +3718,26 @@ fn action(a: remedy_ui_core::host::accesskit::Action) -> Option<remedy_ui_view::
 /// failed ([`Runner::gpu_resolved`] then moves the waiting windows).
 #[cfg(feature = "gpu")]
 fn gpu_device<'a>(
-    slot: &'a mut Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
+    slot: &'a mut Option<Option<remedy_ui_engine::render_gpu::GpuCompositor>>,
     waiting: &mut bool,
     host: &mut dyn Host,
     window: WindowId,
-) -> Option<&'a remedy_ui_render_gpu::GpuCompositor> {
+) -> Option<&'a remedy_ui_engine::render_gpu::GpuCompositor> {
     if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
         if slot.is_none() {
-            let ladder = remedy_ui_render_gpu::LadderOptions::default();
-            match remedy_ui_render_gpu::GpuContext::shared(&ladder) {
+            let ladder = remedy_ui_engine::render_gpu::LadderOptions::default();
+            match remedy_ui_engine::render_gpu::GpuContext::shared(&ladder) {
                 Ok(ctx) => {
                     *waiting = false;
-                    let renderer = remedy_ui_render_gpu::GpuRenderer::new(ctx, None);
-                    *slot = Some(Some(remedy_ui_render_gpu::GpuCompositor::new(renderer, ladder)));
+                    let renderer = remedy_ui_engine::render_gpu::GpuRenderer::new(ctx, None);
+                    *slot = Some(Some(remedy_ui_engine::render_gpu::GpuCompositor::new(renderer, ladder)));
                 }
-                Err(remedy_ui_render_gpu::GpuError::Pending) => *waiting = true,
+                Err(remedy_ui_engine::render_gpu::GpuError::Pending) => *waiting = true,
                 Err(_) if !*waiting => match host.window_handles(window) {
                     Ok(handles) => {
                         *waiting = true;
                         let wake = host.waker();
-                        remedy_ui_render_gpu::GpuContext::prepare_shared(&ladder, handles, move |_| wake());
+                        remedy_ui_engine::render_gpu::GpuContext::prepare_shared(&ladder, handles, move |_| wake());
                     }
                     Err(_) => *slot = Some(None),
                 },
@@ -3755,11 +3755,11 @@ fn gpu_device<'a>(
 }
 
 #[cfg(feature = "gpu")]
-fn new_gpu() -> Option<remedy_ui_render_gpu::GpuCompositor> {
-    let ladder = remedy_ui_render_gpu::LadderOptions::default();
+fn new_gpu() -> Option<remedy_ui_engine::render_gpu::GpuCompositor> {
+    let ladder = remedy_ui_engine::render_gpu::LadderOptions::default();
     // The process's shared device: GPU content the app embeds renders on the same one.
-    let ctx = remedy_ui_render_gpu::GpuContext::shared(&ladder).ok()?;
-    Some(remedy_ui_render_gpu::GpuCompositor::new(remedy_ui_render_gpu::GpuRenderer::new(ctx, None), ladder))
+    let ctx = remedy_ui_engine::render_gpu::GpuContext::shared(&ladder).ok()?;
+    Some(remedy_ui_engine::render_gpu::GpuCompositor::new(remedy_ui_engine::render_gpu::GpuRenderer::new(ctx, None), ladder))
 }
 
 impl remedy_ui_core::host::App for Runner {
@@ -3808,7 +3808,7 @@ impl remedy_ui_core::host::App for Runner {
             HostEvent::Resumed => {
                 self.suspended = false;
                 self.returned();
-                remedy_ui_view::device::set_total_memory(host.total_memory());
+                remedy_ui_engine::view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
                     #[cfg(all(
                         feature = "playback",
@@ -4293,7 +4293,7 @@ impl remedy_ui_core::host::App for Runner {
                 {
                     gpu.trim_memory();
                 }
-                remedy_ui_view::device::memory_pressure(level);
+                remedy_ui_engine::view::device::memory_pressure(level);
             }
             _ => {}
         }

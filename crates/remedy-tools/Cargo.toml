@@ -19,7 +19,7 @@ full = ["docs", "markup", "effects", "scaffold", "preview", "testing", "live", "
 docs = ["dep:flate2", "dep:serde", "dep:serde_json"]
 ## Check `.rui` markup and compile it to Rust.
 markup = ["dep:remedy-ui-rui", "dep:serde"]
-effects = ["dep:remedy-ui-effects", "dep:remedy-ui-paint", "dep:png", "dep:serde"]
+effects = ["remedy-ui-engine/effects", "remedy-ui-engine/paint", "dep:png", "dep:serde"]
 ## Create apps from the app templates (`remedy-templates`, shared with `cargo remedy new`).
 scaffold = ["dep:remedy-templates", "dep:serde", "dep:serde_json"]
 ## Render an app's previews headlessly (PNG and accessibility tree) and audit them.
@@ -37,8 +37,7 @@ schema = ["dep:schemars"]
 flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"], optional = true }
 remedy-templates = { path = "../remedy-templates", version = "1.0.0-rc.1", optional = true }
 png = { version = "=0.18.1", optional = true }
-remedy-ui-effects = { path = "../remedy-ui-effects", version = "1.0.0-rc.1", optional = true }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["effects", "paint"], optional = true }
 remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1", default-features = false, optional = true }
 schemars = { version = "=1.2.3", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }

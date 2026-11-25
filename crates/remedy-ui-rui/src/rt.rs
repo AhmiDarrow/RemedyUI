@@ -10,8 +10,8 @@ use remedy_ui_core::layout::{Align, Justify};
 pub use remedy_ui_core::reactive as reactive;
 use remedy_ui_core::reactive::Signal;
 pub use remedy_ui_core::style as style;
-pub use remedy_ui_view as view;
-use remedy_ui_view::{El, TextField, Ui};
+pub use remedy_ui_engine::view as view;
+use remedy_ui_engine::view::{El, TextField, Ui};
 pub use remedy_ui_widgets_core as w;
 
 /// A space: a step of the theme's spacing scale, or pixels.
@@ -134,7 +134,7 @@ pub fn live_text(el: El, text: Signal<String>) -> El {
     el.bind(move || {
         let now = text.get();
         let named = e.info().and_then(|i| i.semantics).filter(|s| s.name().is_some());
-        let e = e.clone().text(remedy_ui_view::RichText::plain(now.clone()));
+        let e = e.clone().text(remedy_ui_engine::view::RichText::plain(now.clone()));
         if let Some(s) = named {
             let _ = e.semantics(s.label(now));
         }

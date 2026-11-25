@@ -8,9 +8,9 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Rect, Size};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::{Length, Position};
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_view::{El, IntoProp, Ui};
+use remedy_ui_engine::view::{El, IntoProp, Ui};
 
 use crate::drive::{Clock, Moved, Smoothing, Ticker};
 use crate::peak::PeakHold;

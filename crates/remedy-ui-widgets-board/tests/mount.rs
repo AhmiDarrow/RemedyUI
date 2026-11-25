@@ -9,11 +9,11 @@ use std::rc::Rc;
 
 use remedy_ui_core::Size;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_script::{
+use remedy_ui_engine::script::{
     Action, Language, Limits, Node, ScriptError, ScriptWidget, SettingSpec, describe_with, serde_json,
 };
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, FailurePhase, Ui};
+use remedy_ui_engine::view::{El, FailurePhase, Ui};
 use remedy_ui_widgets_board::*;
 use serde_json::{Map, Value, json};
 
@@ -49,7 +49,7 @@ fn texts(ui: &Ui) -> Vec<String> {
 struct Fixed {
     tree: Rc<RefCell<Value>>,
     got: Rc<RefCell<Vec<(Value, Value)>>>,
-    last: Option<remedy_ui_script::Described>,
+    last: Option<remedy_ui_engine::script::Described>,
 }
 
 impl ScriptWidget for Fixed {

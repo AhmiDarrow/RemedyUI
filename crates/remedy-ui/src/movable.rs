@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 use crate::{App, Window, WindowSpec};
 
@@ -78,7 +78,7 @@ impl Movable {
         let _ = self.holder.clone().child(
             remedy_ui_widgets_core::column(&ui)
                 .gap(unit * 2.0)
-                .align(remedy_ui_view::Align::Center)
+                .align(remedy_ui_engine::view::Align::Center)
                 .padding(remedy_ui_core::Insets::all(unit * 4.0))
                 .child(note)
                 .child(back),

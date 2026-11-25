@@ -9,7 +9,7 @@
 //! - [`find_words`]: the words worth checking in a text, by ICU word segmentation in the
 //!   text's language, leaving out links, addresses, mentions, numbers, code and acronyms.
 //! - [`PersonalDictionary`]: the user's own words, saved and loaded by the app as a list.
-//! - [`SpellCheckField`]: misspellings underlined in a [`remedy_ui_view::TextField`] as people
+//! - [`SpellCheckField`]: misspellings underlined in a [`remedy_ui_engine::view::TextField`] as people
 //!   type, with a context menu of corrections, "Add to dictionary" and "Ignore"
 //!   ([`SpellHook::context_menu`]).
 //!
@@ -35,9 +35,9 @@
 //! ```
 
 /// The spelling menu's own words in every language the engine ships, from `i18n/*.ftl`. Apps
-/// reword them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the
+/// reword them, or add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the
 /// name `services-spell`, or give a field its own [`MenuLabels`].
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("services-spell");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("services-spell");
 
 mod backend;
 mod checker;

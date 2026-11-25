@@ -4,13 +4,13 @@
 //! on its D3D12 device, and a shared fence says when the copy is done.
 //!
 //! Textures come from a pool: one goes back when the renderer and the player have let go of
-//! its picture ([`remedy_ui_paint::GpuPicture`]'s contract), so the pool holds as many as
+//! its picture ([`remedy_ui_engine::paint::GpuPicture`]'s contract), so the pool holds as many as
 //! there are pictures decoded ahead, as the copy path holds as many buffers.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_paint::{CpuPixels, GpuPicture, GpuTexture, Plane};
+use remedy_ui_engine::paint::{CpuPixels, GpuPicture, GpuTexture, Plane};
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE, HMODULE, LUID};
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
@@ -394,7 +394,7 @@ impl GpuPicture for Shown {
                 .then(|| Arc::from(std::slice::from_raw_parts(map.pData.cast::<u8>(), len)));
             ctx.Unmap(&staging, 0);
             Some(CpuPixels {
-                format: remedy_ui_paint::PixelFormat::Nv12,
+                format: remedy_ui_engine::paint::PixelFormat::Nv12,
                 planes: [
                     Plane { offset: 0, stride: pitch },
                     Plane { offset: pitch * h as usize, stride: pitch },

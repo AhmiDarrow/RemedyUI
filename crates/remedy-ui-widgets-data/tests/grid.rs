@@ -8,7 +8,7 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Size, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
 

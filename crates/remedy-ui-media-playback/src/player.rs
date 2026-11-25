@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use remedy_ui_media_video::VideoSink;
 use remedy_ui_core::reactive::{Memo, Signal};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
@@ -636,7 +636,7 @@ type PickHandler = Rc<dyn Fn(&CaptionPick)>;
 
 struct Inner {
     id: u64,
-    ui: remedy_ui_view::WeakUi,
+    ui: remedy_ui_engine::view::WeakUi,
     /// The engine playing the current media: replaced when the next one plays.
     tx: RefCell<Option<engine::Control>>,
     shared: RefCell<Arc<Shared>>,
@@ -1283,7 +1283,7 @@ impl Drop for Inner {
 /// step. Cheap to clone; the player stops when the last clone is dropped.
 ///
 /// ```no_run
-/// # fn demo(ui: &remedy_ui_view::Ui) {
+/// # fn demo(ui: &remedy_ui_engine::view::Ui) {
 /// use remedy_ui_media_playback::{MediaSource, Player, PlayerOptions, player};
 /// let p = Player::open_platform(ui, MediaSource::file("talk.mp4"), PlayerOptions::default());
 /// ui.root().child(player(ui, &p, "Talk recording"));

@@ -9,9 +9,9 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::Length;
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, TextPaint, Ui};
+use remedy_ui_engine::view::{El, TextPaint, Ui};
 
 use crate::glyphs::{
     Arc, Clef, NoteValue, Staff, accidental_width, clef_width, draw_accidental, draw_arc, draw_beam,
@@ -339,7 +339,7 @@ pub(crate) fn dots_id(dots: u8) -> &'static str {
 }
 
 /// A beat ("1", "2.5") as a number for a message, so it is written the locale's way.
-pub(crate) fn beat_arg(beat: String) -> remedy_ui_view::strings::StrArg {
+pub(crate) fn beat_arg(beat: String) -> remedy_ui_engine::view::strings::StrArg {
     match beat.parse::<f64>() {
         Ok(b) => b.into(),
         Err(_) => beat.into(),
@@ -512,7 +512,7 @@ struct Palette {
 }
 
 fn paint_systems(
-    cx: &mut remedy_ui_view::PaintCx<'_>,
+    cx: &mut remedy_ui_engine::view::PaintCx<'_>,
     lay: &NoteLayout,
     measures: &[StaffMeasure],
     o: &NoteStaffOptions,
@@ -528,7 +528,7 @@ fn paint_systems(
         }
         time_per_measure.push(time.unwrap_or((4, 4)));
     }
-    let time_text = |cx: &mut remedy_ui_view::PaintCx<'_>, t: (u8, u8), x: f32, staff: Staff| {
+    let time_text = |cx: &mut remedy_ui_engine::view::PaintCx<'_>, t: (u8, u8), x: f32, staff: Staff| {
         let style = TextPaint { size: sp * 2.7, weight: 700.0, color: pal.ink, mono: false };
         cx.text(&t.0.to_string(), Point::new(x, staff.y(6)), Vec2::new(0.0, 0.5), style);
         cx.text(&t.1.to_string(), Point::new(x, staff.y(2)), Vec2::new(0.0, 0.5), style);
@@ -822,7 +822,7 @@ fn paint_systems(
     }
 }
 
-fn palette(cx: &remedy_ui_view::PaintCx<'_>) -> Palette {
+fn palette(cx: &remedy_ui_engine::view::PaintCx<'_>) -> Palette {
     let d = cx.theme.derive();
     let c = &cx.theme.colors;
     Palette {

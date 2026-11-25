@@ -94,7 +94,7 @@ pub(crate) struct Layout {
 )]
 impl Layout {
     /// `None` when nothing of the element shows (or what shows rounds to no pixels).
-    pub(crate) fn of(p: Option<&remedy_ui_view::Placement>) -> Option<Layout> {
+    pub(crate) fn of(p: Option<&remedy_ui_engine::view::Placement>) -> Option<Layout> {
         let p = p?;
         let frame = PxRect::from_logical(p.visible, p.scale);
         if frame.width() == 0 || frame.height() == 0 {
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn a_scrolled_element_maps_to_its_visible_part_and_its_whole_box() {
-        let p = remedy_ui_view::Placement::new(
+        let p = remedy_ui_engine::view::Placement::new(
             Rect::new(10.0, -20.0, 210.0, 80.0),
             Rect::new(10.0, 0.0, 210.0, 80.0),
             vec![Rect::new(100.0, 10.0, 150.0, 30.0)],

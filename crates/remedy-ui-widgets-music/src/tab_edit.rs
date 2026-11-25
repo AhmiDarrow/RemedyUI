@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 use crate::glyphs::NoteValue;
 use crate::tab::{TabCursor, TabEvent, TabMeasure, TabNote, Technique};

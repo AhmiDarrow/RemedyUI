@@ -8,7 +8,7 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Insets};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{El, ElementId, Ui};
+use remedy_ui_engine::view::{El, ElementId, Ui};
 use remedy_ui_widgets_core as w;
 
 use crate::inspect::{Inspector, line};
@@ -210,7 +210,7 @@ fn signals_page(ui: &Ui, insp: &Inspector) -> El {
     let l4 = log.clone();
     let controls = w::wrap(ui)
         .gap(unit * 2.0)
-        .align(remedy_ui_view::Align::Center)
+        .align(remedy_ui_engine::view::Align::Center)
         .child(w::stepper(ui, "Entries kept", keep, 1.0, f64::MAX, 100.0))
         .child(
             w::button(ui, "Clear", move || {
@@ -422,7 +422,7 @@ fn performance_page(ui: &Ui, insp: &Inspector) -> El {
     let record = record.bind(move || {
         let on = capturing.get();
         if let Some(l) = &label {
-            let _ = l.clone().text(remedy_ui_view::RichText::plain(if on {
+            let _ = l.clone().text(remedy_ui_engine::view::RichText::plain(if on {
                 "Stop and save"
             } else {
                 "Start recording"

@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use remedy_ui_rui::{Layout, Layouts, RuiError, SaveError, Scope, WeakLayout, Widgets};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 use crate::{Area, Customizations, CustomizeError, Notice, Words, files, tr_in, tr_now};
 

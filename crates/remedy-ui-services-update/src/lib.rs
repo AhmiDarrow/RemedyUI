@@ -21,9 +21,9 @@
 //! nothing on disk; a file that fails its publisher check is deleted.
 
 /// The update strip's own words in every language the engine ships, from `i18n/*.ftl`. Apps
-/// reword them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the
+/// reword them, or add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the
 /// name `services-update`; [`BannerText`] replaces them outright.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("services-update");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("services-update");
 
 use std::path::{Path, PathBuf};
 
@@ -730,23 +730,23 @@ impl std::fmt::Debug for BannerText {
 /// (when it is ready) buttons. It is empty while idle.
 #[track_caller]
 pub fn update_banner(
-    ui: &remedy_ui_view::Ui,
+    ui: &remedy_ui_engine::view::Ui,
     state: remedy_ui_core::reactive::Signal<UpdateState>,
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
-) -> remedy_ui_view::El {
+) -> remedy_ui_engine::view::El {
     update_banner_with(ui, state, &BannerText::localized(&ui.locale()), on_install, on_restart)
 }
 
 /// [`update_banner`] in the app's words ([`BannerText`]).
 #[track_caller]
 pub fn update_banner_with(
-    ui: &remedy_ui_view::Ui,
+    ui: &remedy_ui_engine::view::Ui,
     state: remedy_ui_core::reactive::Signal<UpdateState>,
     texts: &BannerText,
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
-) -> remedy_ui_view::El {
+) -> remedy_ui_engine::view::El {
     use remedy_ui_widgets_core as w;
     let gap = ui.theme().spacing.unit * 2.0;
     let text = w::text(ui, "");
@@ -763,7 +763,7 @@ pub fn update_banner_with(
     let restart = texts.restart.clone().map(|r| w::button(ui, r, on_restart).variant("primary"));
     let mut row = w::row(ui)
         .gap(gap)
-        .align(remedy_ui_view::Align::Center)
+        .align(remedy_ui_engine::view::Align::Center)
         .child(text.clone())
         .child(w::spacer(ui))
         .child(install.clone());
@@ -786,7 +786,7 @@ pub fn update_banner_with(
             UpdateState::Ready => (texts.ready.clone(), false, true, None),
             UpdateState::Failed(e) => ((texts.failure)(e), false, false, None),
         };
-        let _ = text.clone().text(remedy_ui_view::RichText::plain(msg));
+        let _ = text.clone().text(remedy_ui_engine::view::RichText::plain(msg));
         let _ = install.clone().hidden(!show_install);
         if let Some(r) = &restart {
             let _ = r.clone().hidden(!show_restart);

@@ -14,7 +14,7 @@ use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, Pointer
 use remedy_ui_core::layout::{AUTO, Length, Position};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::{Drag, DropEffect, El, Ui};
+use remedy_ui_engine::view::{Drag, DropEffect, El, Ui};
 
 use crate::model::Selection;
 use crate::rows::{RowBuilder, Rows};

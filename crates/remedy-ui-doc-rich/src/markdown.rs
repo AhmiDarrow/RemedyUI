@@ -11,7 +11,7 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_core::layout::{Display, Track};
 use remedy_ui_text::{RichText, TextStylePatch};
-use remedy_ui_view::{El, IntoProp, Prop, Ui};
+use remedy_ui_engine::view::{El, IntoProp, Prop, Ui};
 
 /// What following a link calls: the link's destination as the source wrote it.
 pub type OpenLink = Rc<dyn Fn(&str)>;
@@ -21,7 +21,7 @@ pub type OpenLink = Rc<dyn Fn(&str)>;
 /// a link calls `open` with its destination.
 ///
 /// ```
-/// # use remedy_ui_view::Ui;
+/// # use remedy_ui_engine::view::Ui;
 /// # use remedy_ui_core::reactive::Signal;
 /// # fn demo(ui: &Ui) {
 /// let note = remedy_ui_doc_rich::markdown(ui, "# Notes\n\nPlain *Markdown*.", |_| {});

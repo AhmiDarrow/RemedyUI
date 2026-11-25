@@ -41,7 +41,7 @@
 //! use remedy_ui_core::reactive::Signal;
 //! use remedy_ui_widgets_stage::*;
 //!
-//! # fn demo(ui: &remedy_ui_view::Ui) {
+//! # fn demo(ui: &remedy_ui_engine::view::Ui) {
 //! let room = Signal::new(0usize);
 //! let talking = Signal::new(false);
 //! let rooms = vec![Station::new("General").detail("01.0"), Station::new("Lounge").detail("02.4")];
@@ -52,15 +52,15 @@
 //!     .place("dial", tuner(ui, "Room", rooms, room, TunerOptions::default()))
 //!     .place("ptt", big_button(ui, "Push to talk", || {}, BigButtonOptions::default().held(talking)))
 //!     .place("board", display_text(ui, move || if talking.get() { "ON AIR" } else { "STANDBY" }, DisplayOptions::default()));
-//! let el: remedy_ui_view::El = radio.into();
+//! let el: remedy_ui_engine::view::El = radio.into();
 //! # let _ = el;
 //! # }
 //! ```
 
 /// The stage widgets' own words (screen reader names and descriptions, keyboard hints) in
 /// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
-/// with [`remedy_ui_view::strings::add_messages`] under the name `widgets-stage`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-stage");
+/// with [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-stage`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-stage");
 
 mod button;
 mod common;

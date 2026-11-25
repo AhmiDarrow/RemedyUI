@@ -3,9 +3,9 @@
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::layout::Length;
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, TextPaint, Ui};
+use remedy_ui_engine::view::{El, TextPaint, Ui};
 
 /// What a string does in a chord.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

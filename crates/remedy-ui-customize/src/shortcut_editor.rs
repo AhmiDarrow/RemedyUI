@@ -5,8 +5,8 @@
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::input::{Chord, Clash};
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
-use remedy_ui_view::strings::StrArg;
-use remedy_ui_view::{Align, El, Ui};
+use remedy_ui_engine::view::strings::StrArg;
+use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 use remedy_ui_widgets_forms::key_capture;
 use remedy_ui_widgets_nav::{Commands, fuzzy_score};

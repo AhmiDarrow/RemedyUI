@@ -254,10 +254,10 @@ fn memory_pressure_gives_scrollback_back() {
         e.feed(format!("line {i}\r\n").as_bytes());
     }
     let before = e.history_len();
-    e.relieve(remedy_ui_view::device::MemoryPressure::Moderate);
+    e.relieve(remedy_ui_engine::view::device::MemoryPressure::Moderate);
     assert_eq!(e.history_len(), before - before / 2);
     assert_eq!(e.history_line(e.history_len() - 1).map(Line::text).as_deref(), Some("line 995"));
-    e.relieve(remedy_ui_view::device::MemoryPressure::Critical);
+    e.relieve(remedy_ui_engine::view::device::MemoryPressure::Critical);
     assert_eq!(e.history_len(), 0);
     assert_eq!(rows(&e).first().map(String::as_str), Some("line 996"), "the screen stays");
 }

@@ -6,14 +6,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Color, Size};
 use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_core::layout::Direction;
-use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::Theme;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
 /// Builds the UI under preview into a [`Ui`] (theme, locale and fonts are already set).
@@ -302,13 +302,13 @@ impl Snapshot {
     }
 
     /// As an image element source.
-    pub fn image(&self) -> remedy_ui_paint::Image {
+    pub fn image(&self) -> remedy_ui_engine::paint::Image {
         // FNV-1a over the pixels: the same pixels share a cache entry.
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         for b in &self.rgba {
             h = (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
         }
-        remedy_ui_paint::Image {
+        remedy_ui_engine::paint::Image {
             id: h,
             width: self.width,
             height: self.height,

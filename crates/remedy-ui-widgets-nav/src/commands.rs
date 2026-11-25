@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use remedy_ui_core::input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{Icon, MenuItem};
 
 /// One command as the widgets show it.

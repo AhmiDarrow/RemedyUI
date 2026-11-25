@@ -10,7 +10,7 @@ use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
 use remedy_ui_media_image::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 fn png(w: u32, h: u32, px: impl Fn(u32, u32) -> [u8; 4], icc: Option<Vec<u8>>) -> Vec<u8> {
     let mut raw = Vec::with_capacity((w * h * 4) as usize);
@@ -62,7 +62,7 @@ fn turned_jpeg(w: u32, h: u32) -> Vec<u8> {
     out
 }
 
-fn px(img: &remedy_ui_paint::Image, x: u32, y: u32) -> [u8; 4] {
+fn px(img: &remedy_ui_engine::paint::Image, x: u32, y: u32) -> [u8; 4] {
     let i = ((y * img.width + x) * 4) as usize;
     img.pixels.get(i..i + 4).and_then(|s| s.try_into().ok()).unwrap_or([0; 4])
 }
@@ -217,7 +217,7 @@ fn an_image_that_cannot_be_shown_says_why() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_media_image::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_media_image::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
@@ -290,7 +290,7 @@ fn an_image_element_can_take_its_pixels_from_another_supplier() {
         a2.set(box_px);
         // Frames arrive one after the other; the element draws each.
         let pixels: std::sync::Arc<[u8]> = std::sync::Arc::from(vec![0, 0, 255, 255, 0, 0, 255, 255]);
-        state.set(ImageState::Ready(remedy_ui_paint::Image::new(2, 1, pixels), (2, 1)));
+        state.set(ImageState::Ready(remedy_ui_engine::paint::Image::new(2, 1, pixels), (2, 1)));
         Box::new(Guard(d2.clone()))
     });
     let bytes: Arc<[u8]> = Arc::from(png(2, 1, |_, _| [0, 0, 255, 255], None));

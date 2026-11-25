@@ -3995,8 +3995,7 @@ dependencies = [
  "flate2",
  "png",
  "remedy-templates",
- "remedy-ui-effects",
- "remedy-ui-paint",
+ "remedy-ui-engine",
  "remedy-ui-rui",
  "schemars",
  "serde",
@@ -4019,32 +4018,24 @@ dependencies = [
  "remedy-ui-bridge-web",
  "remedy-ui-bridge-windows",
  "remedy-ui-bridge-winit",
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-customize",
  "remedy-ui-devtools",
  "remedy-ui-doc-code",
  "remedy-ui-doc-pages",
  "remedy-ui-doc-rich",
- "remedy-ui-effects",
  "remedy-ui-embed-gpu",
  "remedy-ui-embed-webview",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",
  "remedy-ui-macros",
  "remedy-ui-media-anim",
- "remedy-ui-media-effects",
  "remedy-ui-media-image",
  "remedy-ui-media-isolated",
  "remedy-ui-media-playback",
  "remedy-ui-media-video",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
  "remedy-ui-rui",
- "remedy-ui-script",
- "remedy-ui-script-lua",
- "remedy-ui-script-wasm",
  "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
  "remedy-ui-services-net",
@@ -4053,7 +4044,6 @@ dependencies = [
  "remedy-ui-services-webstorage",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-viz",
  "remedy-ui-widgets-board",
  "remedy-ui-widgets-core",
@@ -4079,10 +4069,10 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-nav",
  "serde",
@@ -4106,10 +4096,8 @@ dependencies = [
 name = "remedy-ui-bridge-headless"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
+ "remedy-ui-engine",
 ]
 
 [[package]]
@@ -4185,14 +4173,6 @@ name = "remedy-ui-build"
 version = "1.0.0-rc.1"
 
 [[package]]
-name = "remedy-ui-compositor"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-paint",
-]
-
-[[package]]
 name = "remedy-ui-core"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4217,13 +4197,13 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-doc-code",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-media-image",
  "remedy-ui-rui",
  "remedy-ui-services-i18n",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-forms",
  "remedy-ui-widgets-nav",
@@ -4235,16 +4215,13 @@ name = "remedy-ui-devtools"
 version = "1.0.0-rc.1"
 dependencies = [
  "png",
- "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",
  "remedy-ui-macros",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-forms",
  "serde",
@@ -4257,10 +4234,10 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "syntect",
 ]
@@ -4269,16 +4246,12 @@ dependencies = [
 name = "remedy-ui-doc-pages"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
 
@@ -4289,35 +4262,22 @@ dependencies = [
  "pulldown-cmark",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-effects"
-version = "1.0.0-rc.1"
-dependencies = [
- "png",
- "remedy-ui-core",
- "remedy-ui-paint",
 ]
 
 [[package]]
 name = "remedy-ui-embed-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
 ]
 
 [[package]]
@@ -4330,11 +4290,48 @@ dependencies = [
  "remedy-ui-bridge-windows",
  "remedy-ui-bridge-winit",
  "remedy-ui-core",
- "remedy-ui-view",
+ "remedy-ui-engine",
  "serde_json",
  "webview2-com",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "remedy-ui-engine"
+version = "1.0.0-rc.1"
+dependencies = [
+ "ash",
+ "fluent-bundle",
+ "fluent-syntax",
+ "glow",
+ "intl-memoizer",
+ "intl_pluralrules",
+ "js-sys",
+ "log",
+ "png",
+ "raw-window-handle",
+ "remedy-lua",
+ "remedy-ui-bridge-linux",
+ "remedy-ui-bridge-windows",
+ "remedy-ui-bridge-winit",
+ "remedy-ui-core",
+ "remedy-ui-engine",
+ "remedy-ui-fonts",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-vello-cpu",
+ "serde_json",
+ "stacker",
+ "unic-langid",
+ "vello_gpu",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasmi",
+ "wat",
+ "web-sys",
+ "wgpu",
+ "windows",
 ]
 
 [[package]]
@@ -4371,29 +4368,13 @@ dependencies = [
  "gif",
  "image-webp",
  "png",
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-media-image",
- "remedy-ui-paint",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-media-effects"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-effects",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-text",
- "remedy-ui-view",
 ]
 
 [[package]]
@@ -4405,12 +4386,11 @@ dependencies = [
  "moxcms",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
  "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "resvg",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4428,13 +4408,12 @@ dependencies = [
  "libc",
  "ndk-context",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-media-anim",
  "remedy-ui-media-image",
- "remedy-ui-paint",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "windows-sys 0.61.2",
 ]
 
@@ -4452,19 +4431,15 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "remedy-ui",
  "remedy-ui-bridge-web",
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-media-image",
  "remedy-ui-media-video",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
  "remedy-ui-services-desktop",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4478,65 +4453,12 @@ dependencies = [
 name = "remedy-ui-media-video"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-paint"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-text",
-]
-
-[[package]]
-name = "remedy-ui-render-cpu"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-text",
- "remedy-vello-cpu",
-]
-
-[[package]]
-name = "remedy-ui-render-gpu"
-version = "1.0.0-rc.1"
-dependencies = [
- "ash",
- "glow",
- "js-sys",
- "log",
- "raw-window-handle",
- "remedy-ui-bridge-linux",
- "remedy-ui-bridge-windows",
- "remedy-ui-bridge-winit",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-effects",
- "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "vello_gpu",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
- "windows",
 ]
 
 [[package]]
@@ -4544,40 +4466,11 @@ name = "remedy-ui-rui"
 version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-script"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-script-lua"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-lua",
- "remedy-ui-core",
- "remedy-ui-script",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-script-wasm"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-script",
- "serde_json",
- "wasmi",
- "wat",
 ]
 
 [[package]]
@@ -4616,9 +4509,9 @@ dependencies = [
  "intl-memoizer",
  "js-sys",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
- "remedy-ui-view",
  "serde_json",
  "unic-langid",
  "wasm-bindgen",
@@ -4652,13 +4545,11 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
- "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "spellbook",
  "windows",
@@ -4672,11 +4563,11 @@ dependencies = [
  "minisign",
  "minisign-verify",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "rustls",
  "semver",
@@ -4728,36 +4619,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-view"
-version = "1.0.0-rc.1"
-dependencies = [
- "fluent-bundle",
- "fluent-syntax",
- "intl-memoizer",
- "intl_pluralrules",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-text",
- "stacker",
- "unic-langid",
-]
-
-[[package]]
 name = "remedy-ui-viz"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
 ]
 
 [[package]]
@@ -4766,14 +4636,11 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-script",
- "remedy-ui-script-lua",
- "remedy-ui-script-wasm",
  "remedy-ui-services-i18n",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-data",
  "remedy-ui-widgets-forms",
@@ -4787,14 +4654,11 @@ dependencies = [
 name = "remedy-ui-widgets-core"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
 ]
 
 [[package]]
@@ -4803,11 +4667,10 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
 
@@ -4816,15 +4679,12 @@ name = "remedy-ui-widgets-extra"
 version = "1.0.0-rc.1"
 dependencies = [
  "encoding_rs",
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-viz",
  "remedy-ui-widgets-core",
 ]
@@ -4834,12 +4694,11 @@ name = "remedy-ui-widgets-forms"
 version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
  "remedy-ui-services-i18n",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
 
@@ -4847,15 +4706,12 @@ dependencies = [
 name = "remedy-ui-widgets-music"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
 
@@ -4865,10 +4721,10 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-widgets-core",
  "serde_json",
 ]
@@ -4877,15 +4733,12 @@ dependencies = [
 name = "remedy-ui-widgets-stage"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "remedy-ui-viz",
 ]
 
@@ -4894,14 +4747,12 @@ name = "remedy-ui-widgets-term"
 version = "1.0.0-rc.1"
 dependencies = [
  "base64",
- "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-paint",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-view",
  "unicode-width",
  "vte",
 ]

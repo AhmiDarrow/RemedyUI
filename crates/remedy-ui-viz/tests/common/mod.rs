@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use std::cell::RefCell;
 
-use remedy_ui_compositor::{Compositor, LayerTree};
+use remedy_ui_engine::compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
-use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 use remedy_ui_viz::Clock;
 
 pub const SIZE: Size = Size { width: 300.0, height: 400.0 };
