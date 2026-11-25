@@ -79,7 +79,7 @@ pub use menu_bar::menu_bar;
 pub use menus::{MenuItem, close_menus_in, context_menu, context_menu_at, menu, menu_press_through};
 pub use overflow::{OverflowRow, overflow_row};
 pub use overlays::{
-    DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, full_text_tooltip,
+    DialogButton, Modal, PartTooltip, dialog, fill_window, fit_beside, fit_near, fit_near_dir, full_text_tooltip,
     lock_screen, modal, modal_fitted, place_at, place_beside, place_near, place_near_within, popover,
     tooltip, trusted_prompt,
 };

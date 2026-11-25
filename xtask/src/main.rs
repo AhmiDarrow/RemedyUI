@@ -166,6 +166,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // Form values and locale data live in the localization service.
     ("remedy-ui-widgets-forms", "remedy-ui-services-i18n"),
     ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
+    // Tooltips for single notes of a score.
+    ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
     // The carousel's slide runs on the viz pack's timer loop, which rests while nothing moves.
     ("remedy-ui-widgets-extra", "remedy-ui-viz"),
     // Stage widgets animate on the viz pack's timer loop, and a fader shows its level meter.
