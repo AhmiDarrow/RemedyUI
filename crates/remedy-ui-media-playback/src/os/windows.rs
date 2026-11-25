@@ -193,7 +193,15 @@ impl MediaHost for WindowsHost {
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(Wasapi::open(format)?))
+        Ok(Box::new(Wasapi::open(format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(Wasapi::open(format, latency)?))
     }
 }
 
@@ -685,6 +693,9 @@ struct Wasapi {
     frames: u32,
     format: AudioFormat,
     started: bool,
+    /// The system's timers were asked to tick every millisecond while this output lives
+    /// (an interactive output is refilled every few), to be given back when it goes.
+    fine_timer: bool,
 }
 
 // SAFETY: the audio client and its services live in the multithreaded apartment and are
@@ -711,8 +722,9 @@ fn device_error(e: windows::core::Error) -> MediaError {
 }
 
 impl Wasapi {
-    fn open(format: AudioFormat) -> Result<Wasapi, MediaError> {
+    fn open(format: AudioFormat, latency: crate::host::Latency) -> Result<Wasapi, MediaError> {
         com();
+        let interactive = latency == crate::host::Latency::Interactive;
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
@@ -727,7 +739,13 @@ impl Wasapi {
             let client: IAudioClient = device.Activate(CLSCTX_ALL, None).map_err(device_error)?;
             let mut period = 0i64;
             client.GetDevicePeriod(Some(&mut period), None).map_err(device_error)?;
-            let buffer = hns(DEVICE_BUFFER).max(period.saturating_mul(4));
+            // Interactive: two device periods (about 20 ms), the least a refill every few
+            // milliseconds keeps from running dry.
+            let buffer = if interactive {
+                period.saturating_mul(2).max(hns(Duration::from_millis(6)))
+            } else {
+                hns(DEVICE_BUFFER).max(period.saturating_mul(4))
+            };
             client
                 .Initialize(
                     AUDCLNT_SHAREMODE_SHARED,
@@ -745,7 +763,10 @@ impl Wasapi {
             if frequency == 0 {
                 return Err(MediaError::Device("the device clock reports no frequency".into()));
             }
-            Ok(Wasapi { client, render, clock, frequency, frames, format, started: false })
+            // Sleeps are as coarse as the system's timer (15.6 ms unless asked): finer than
+            // the buffer for as long as it has to be kept fed.
+            let fine_timer = interactive && windows::Win32::Media::timeBeginPeriod(1) == 0;
+            Ok(Wasapi { client, render, clock, frequency, frames, format, started: false, fine_timer })
         }
     }
 }
@@ -839,6 +860,10 @@ impl AudioOutput for Wasapi {
 impl Drop for Wasapi {
     fn drop(&mut self) {
         let _ = self.pause();
+        if self.fine_timer {
+            // SAFETY: pairs the request made when the output opened.
+            let _ = unsafe { windows::Win32::Media::timeEndPeriod(1) };
+        }
     }
 }
 

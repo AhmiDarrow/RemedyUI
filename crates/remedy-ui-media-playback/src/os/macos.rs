@@ -146,7 +146,15 @@ impl MediaHost for MacHost {
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(QueueOut::open(format)?))
+        Ok(Box::new(QueueOut::open(format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(QueueOut::open(format, latency)?))
     }
 }
 
@@ -575,6 +583,8 @@ struct QueueOut {
     /// The ring's pointer given to the queue (one strong count, released after disposal).
     user: *const Mutex<Ring>,
     format: AudioFormat,
+    /// How much sound the queue's buffers hold together (and as much again waits to go in).
+    depth: Duration,
     capacity: usize,
     started: bool,
     /// The queue's time when last read, for while it is paused.
@@ -586,12 +596,17 @@ struct QueueOut {
 unsafe impl Send for QueueOut {}
 
 impl QueueOut {
-    fn open(format: AudioFormat) -> Result<QueueOut, MediaError> {
+    fn open(format: AudioFormat, latency: crate::host::Latency) -> Result<QueueOut, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
+        // Interactive: three buffers of 4 ms, and as much waiting.
+        let depth = match latency {
+            crate::host::Latency::Interactive => Duration::from_millis(12),
+            _ => DEVICE_BUFFER,
+        };
         let ch = usize::from(format.channels);
-        let capacity = usize::try_from(format.frames_in(DEVICE_BUFFER)).unwrap_or(usize::MAX);
+        let capacity = usize::try_from(format.frames_in(depth)).unwrap_or(usize::MAX);
         let ring = Arc::new(Mutex::new(Ring {
             samples: VecDeque::with_capacity(capacity * ch),
             channels: ch,
@@ -599,12 +614,16 @@ impl QueueOut {
             log: VecDeque::new(),
             played: 0,
         }));
-        let (queue, user) = Self::make(&ring, format)?;
-        Ok(QueueOut { queue, ring, user, format, capacity, started: false, last: 0 })
+        let (queue, user) = Self::make(&ring, format, depth)?;
+        Ok(QueueOut { queue, ring, user, format, depth, capacity, started: false, last: 0 })
     }
 
     /// A new queue playing from `ring`, with its buffers primed.
-    fn make(ring: &Shared, format: AudioFormat) -> Result<(QueueRef, *const Mutex<Ring>), MediaError> {
+    fn make(
+        ring: &Shared,
+        format: AudioFormat,
+        depth: Duration,
+    ) -> Result<(QueueRef, *const Mutex<Ring>), MediaError> {
         let ch = u32::from(format.channels);
         let asbd = Asbd {
             sample_rate: f64::from(format.sample_rate),
@@ -635,7 +654,7 @@ impl QueueOut {
                 drop(Arc::from_raw(user));
                 return Err(MediaError::Device(format!("no sound output (Audio Queue error {r})")));
             }
-            let frames = format.frames_in(DEVICE_BUFFER) / QUEUE_BUFFERS as u64;
+            let frames = (format.frames_in(depth) / QUEUE_BUFFERS as u64).max(1);
             let bytes = u32::try_from(frames * u64::from(ch) * 4).unwrap_or(u32::MAX);
             for _ in 0..QUEUE_BUFFERS {
                 let mut buf: *mut QueueBuffer = std::ptr::null_mut();
@@ -671,7 +690,7 @@ impl AudioOutput for QueueOut {
     }
 
     fn buffer(&self) -> Duration {
-        DEVICE_BUFFER * 2
+        self.depth * 2
     }
 
     fn room(&mut self) -> Result<usize, MediaError> {
@@ -735,7 +754,7 @@ impl AudioOutput for QueueOut {
         }
         self.started = false;
         self.last = 0;
-        let (queue, user) = Self::make(&self.ring, self.format)?;
+        let (queue, user) = Self::make(&self.ring, self.format, self.depth)?;
         self.queue = queue;
         self.user = user;
         Ok(())

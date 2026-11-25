@@ -341,6 +341,20 @@ pub fn merge_ranges(
     out
 }
 
+/// How soon sound written to an output should be heard ([`MediaHost::audio_output_with`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Latency {
+    /// A deep buffer that rides out a busy machine: for playing media, where a fifth of a
+    /// second between writing and hearing does not matter.
+    #[default]
+    Playback,
+    /// As short a buffer as the device gives, for sound that answers a person (a tapped
+    /// note, a metronome): heard within a few hundredths of a second, and to be kept fed
+    /// that often ([`AudioFeed`](crate::AudioFeed) does).
+    Interactive,
+}
+
 /// The platform's sound output for one stream: samples written are queued in the device's
 /// buffer and played in order. It starts paused.
 pub trait AudioOutput: Send {
@@ -377,6 +391,16 @@ pub trait MediaHost: Send + Sync {
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError>;
     /// Opens the default sound output for samples in `format`.
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError>;
+    /// Opens the default sound output with the buffering `latency` asks for. A host that has
+    /// only one kind gives that.
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        let _ = latency;
+        self.audio_output(format)
+    }
     /// Opens the default sound input (the microphone the person chose in the system's
     /// settings), asking for samples in `format`. A platform that cannot convert from the
     /// device's own rate and channels gives those instead, as [`AudioInput::format`] reports;

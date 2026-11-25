@@ -149,6 +149,7 @@ struct AAudio {
     /// Android 9 and later.
     builder_set_input_preset: Option<unsafe extern "C" fn(Ptr, i32)>,
     stream_get_buffer_size_in_frames: unsafe extern "C" fn(Ptr) -> i32,
+    stream_set_buffer_size_in_frames: unsafe extern "C" fn(Ptr, i32) -> i32,
     stream_get_frames_written: unsafe extern "C" fn(Ptr) -> i64,
     stream_get_frames_read: unsafe extern "C" fn(Ptr) -> i64,
     stream_get_timestamp: unsafe extern "C" fn(Ptr, i32, *mut i64, *mut i64) -> i32,
@@ -292,6 +293,7 @@ impl AAudio {
                 .ok()
                 .map(|f| *f),
             stream_get_buffer_size_in_frames: sym!(l, "AAudioStream_getBufferSizeInFrames"),
+            stream_set_buffer_size_in_frames: sym!(l, "AAudioStream_setBufferSizeInFrames"),
             stream_get_frames_written: sym!(l, "AAudioStream_getFramesWritten"),
             stream_get_frames_read: sym!(l, "AAudioStream_getFramesRead"),
             stream_get_timestamp: sym!(l, "AAudioStream_getTimestamp"),
@@ -434,7 +436,15 @@ impl MediaHost for AndroidHost {
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(AAudioOut::open(aaudio()?, format)?))
+        Ok(Box::new(AAudioOut::open(aaudio()?, format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(AAudioOut::open(aaudio()?, format, latency)?))
     }
 }
 
@@ -1170,7 +1180,12 @@ struct AAudioOut {
 unsafe impl Send for AAudioOut {}
 
 impl AAudioOut {
-    fn open(aa: &'static AAudio, format: AudioFormat) -> Result<AAudioOut, MediaError> {
+    fn open(
+        aa: &'static AAudio,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<AAudioOut, MediaError> {
+        let interactive = latency == crate::host::Latency::Interactive;
         // SAFETY: building and opening a stream; the builder is deleted after.
         unsafe {
             let mut builder: Ptr = std::ptr::null_mut();
@@ -1182,11 +1197,23 @@ impl AAudioOut {
             (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
             (aa.builder_set_channel_count)(builder, i32::from(format.channels));
             (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
+            if interactive {
+                // The device's fast path: small bursts straight to the mixer.
+                (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+            }
             let mut stream: Ptr = std::ptr::null_mut();
             let r = (aa.builder_open_stream)(builder, &mut stream);
             (aa.builder_delete)(builder);
             if r != AAUDIO_OK || stream.is_null() {
                 return Err(aa.error("the sound output would not open", r));
+            }
+            if interactive {
+                // Two bursts in the buffer: as little as plays without gaps (the device
+                // gives what it can; a refusal leaves its own size).
+                let burst = (aa.stream_get_frames_per_burst)(stream);
+                if burst > 0 {
+                    let _ = (aa.stream_set_buffer_size_in_frames)(stream, burst.saturating_mul(2));
+                }
             }
             Ok(AAudioOut { aa, stream, format, base: 0, _live: super::Live::new() })
         }
