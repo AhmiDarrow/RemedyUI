@@ -3,12 +3,12 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Point, Rect};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerPhase};
-use remedy_ui_layout::{AUTO, Align, Position};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase};
+use remedy_ui_core::layout::{AUTO, Align, Position};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, MenuKey, Prop, RichText, Ui};
 
 use crate::menus::{BarLink, Chain, MenuItem, Open, alt_shows_keys, mnemonic_text};
@@ -442,7 +442,7 @@ const MORE: &str = "menu-more";
 ///
 /// ```
 /// use remedy_ui_widgets_core::{MenuItem, menu_bar};
-/// # use remedy_ui_style::{StyleSheet, Theme};
+/// # use remedy_ui_core::style::{StyleSheet, Theme};
 /// # let ui = remedy_ui_view::Ui::new(Theme::dark_forest(), StyleSheet::new(), remedy_ui_text::FontCollection::new());
 ///
 /// let bar = menu_bar(
@@ -514,7 +514,7 @@ pub fn menu_bar(ui: &Ui, menus: Vec<MenuItem>) -> El {
         .row()
         .gap(gap)
         .pass_through()
-        .style(remedy_ui_style::StylePatch::default().opacity(0.0))
+        .style(remedy_ui_core::style::StylePatch::default().opacity(0.0))
         .layout(|l| {
             l.position = Position::Absolute;
             l.inset = Insets { top: 0.0, start: 0.0, end: AUTO, bottom: AUTO };

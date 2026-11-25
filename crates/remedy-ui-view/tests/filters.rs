@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, ColorMatrix, Size};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::{Filter, Item};
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
-use remedy_ui_style::{Shadow, States, Style, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{Shadow, States, Style, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 
@@ -100,7 +100,7 @@ fn backdrop_blur_makes_frosted_glass_on_a_layer_of_its_own() {
     ui.root().child(stripes.layout(|l| {
         l.width = Length::Px(200.0);
         l.height = Length::Px(120.0);
-        l.position = remedy_ui_layout::Position::Absolute;
+        l.position = remedy_ui_core::layout::Position::Absolute;
     }));
     ui.root().padding(30.0).child(glass);
     let (tree, frame) = draw(&ui);
@@ -157,7 +157,7 @@ fn a_style_can_round_some_corners_only() {
 #[test]
 fn dashed_and_dotted_borders_follow_the_corners() {
     use remedy_ui_core::CornerRadii;
-    use remedy_ui_style::BorderStyle;
+    use remedy_ui_core::style::BorderStyle;
     let ui = ui();
     let top = CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO };
     let dashed =
@@ -189,7 +189,7 @@ fn dashed_and_dotted_borders_follow_the_corners() {
 
 #[test]
 fn a_wide_dotted_border_is_round_dots() {
-    use remedy_ui_style::BorderStyle;
+    use remedy_ui_core::style::BorderStyle;
     let ui = ui();
     let dotted =
         StylePatch::default().border(Color::BLACK).border_width(4.0).border_style(BorderStyle::Dotted);
@@ -204,7 +204,7 @@ fn a_wide_dotted_border_is_round_dots() {
 #[test]
 fn each_side_can_have_its_own_border() {
     use remedy_ui_core::CornerRadii;
-    use remedy_ui_style::{BorderEdge, BorderSide, BorderStyle};
+    use remedy_ui_core::style::{BorderEdge, BorderSide, BorderStyle};
     let ui = ui();
     let (red, blue) = (Color::rgb8(220, 30, 30), Color::rgb8(30, 60, 220));
     // A thick red top, a dashed blue start, nothing at the end or bottom; round at the top start.
@@ -249,7 +249,7 @@ fn each_side_can_have_its_own_border() {
 
 #[test]
 fn text_lines_follow_the_elements_alignment_wrapped_or_not() {
-    use remedy_ui_style::TextAlign;
+    use remedy_ui_core::style::TextAlign;
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
@@ -304,7 +304,7 @@ fn stripes(ui: &Ui) -> remedy_ui_view::El {
         .layout(|l| {
             l.width = Length::Px(200.0);
             l.height = Length::Px(120.0);
-            l.position = remedy_ui_layout::Position::Absolute;
+            l.position = remedy_ui_core::layout::Position::Absolute;
         })
 }
 

@@ -11,8 +11,8 @@ use std::panic::{AssertUnwindSafe, Location, catch_unwind};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_reactive::{ErrorSink, Memo, Scope, Signal, Suspense, provide_context, untrack};
-use remedy_ui_tree::ElementId;
+use remedy_ui_core::reactive::{ErrorSink, Memo, Scope, Signal, Suspense, provide_context, untrack};
+use remedy_ui_core::tree::ElementId;
 
 use crate::element::{El, Ui};
 use crate::motion::{Motion, Target};
@@ -29,7 +29,7 @@ impl El {
 
     /// Provides `value` to the element's subtree: descendants read it with
     /// [`El::use_context`], and code built inside the element ([`El::child_with`], its
-    /// bindings) with [`remedy_ui_reactive::use_context`]. A value that changes is provided
+    /// bindings) with [`remedy_ui_core::reactive::use_context`]. A value that changes is provided
     /// as a [`Signal`].
     pub fn provide<T: 'static>(self, value: T) -> Self {
         if let Some(s) = self.scope() {
@@ -150,7 +150,7 @@ pub(crate) fn install_failure_handling(ui: &Ui) {
         }
     })));
     let weak = ui.downgrade();
-    let id = remedy_ui_reactive::add_panic_handler(move |c| {
+    let id = remedy_ui_core::reactive::add_panic_handler(move |c| {
         let Some(ui) = weak.upgrade() else { return false };
         let Some(el) = ui.element_of_binding(c.node) else { return false };
         ui.report_failure(el, FailurePhase::Effect, c.message.clone(), c.created_at);
@@ -372,7 +372,7 @@ pub fn catch_errors(
                         match catch_unwind(AssertUnwindSafe(&child)) {
                             Ok(el) => el,
                             Err(p) => {
-                                broke = Some(remedy_ui_reactive::panic_message(p.as_ref()));
+                                broke = Some(remedy_ui_core::reactive::panic_message(p.as_ref()));
                                 ui2.el("error_boundary_empty")
                             }
                         }
@@ -393,7 +393,7 @@ pub fn catch_errors(
                         match catch_unwind(AssertUnwindSafe(|| fallback(err, Retry(failed)))) {
                             Ok(el) => el,
                             Err(p) => {
-                                broke = Some(remedy_ui_reactive::panic_message(p.as_ref()));
+                                broke = Some(remedy_ui_core::reactive::panic_message(p.as_ref()));
                                 ui2.el("error_boundary_empty")
                             }
                         }
@@ -473,8 +473,8 @@ pub fn play_enter(el: &El, t: &Transition) {
 /// Plays `t` out on `el`, which is inert (outside hit testing and accessibility) while it
 /// leaves, then calls `gone` (which removes it).
 pub fn play_exit(el: &El, t: &Transition, gone: impl FnOnce() + 'static) {
-    let _ = el.ui.tree().set_hit_mode(el.id, remedy_ui_tree::HitMode::None);
-    let _ = el.clone().semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Group).hidden(true));
+    let _ = el.ui.tree().set_hit_mode(el.id, remedy_ui_core::tree::HitMode::None);
+    let _ = el.clone().semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Group).hidden(true));
     if t.from.is_empty() {
         gone();
         return;
@@ -523,7 +523,7 @@ impl std::fmt::Debug for Show {
 ///
 /// ```
 /// # use remedy_ui_view::{Ui, show};
-/// # use remedy_ui_reactive::Signal;
+/// # use remedy_ui_core::reactive::Signal;
 /// # fn demo(ui: &Ui) {
 /// let error = Signal::new(None::<String>);
 /// let banner = show(ui, move || error.get().is_some(), {

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -94,7 +94,7 @@ impl T {
 }
 
 fn ptr(phase: PointerPhase, p: Point, buttons: Buttons) -> PointerEvent {
-    PointerEvent::new(phase, p).with_buttons(buttons).with_modifiers(remedy_ui_input::Modifiers::NONE)
+    PointerEvent::new(phase, p).with_buttons(buttons).with_modifiers(remedy_ui_core::input::Modifiers::NONE)
 }
 
 #[test]
@@ -149,11 +149,11 @@ fn choices_follow_their_signals() {
     assert_eq!(seg.get(), 2);
     // The box shows the app's value, whoever changes it.
     let mark = c.child_elements().into_iter().next();
-    assert!(mark.as_ref().is_some_and(|m| m.states().contains(remedy_ui_style::States::CHECKED)));
+    assert!(mark.as_ref().is_some_and(|m| m.states().contains(remedy_ui_core::style::States::CHECKED)));
     on.set(false);
     t.frame();
     assert!(
-        mark.is_some_and(|m| !m.states().contains(remedy_ui_style::States::CHECKED)),
+        mark.is_some_and(|m| !m.states().contains(remedy_ui_core::style::States::CHECKED)),
         "set from outside, shown inside"
     );
 }
@@ -197,7 +197,7 @@ fn an_unavailable_segment_cannot_be_chosen() {
     let [room, one, everyone] = parts.as_slice() else { unreachable!("three options") };
     t.click(one);
     assert_eq!(seg.get(), 0, "a click on an unavailable option does nothing");
-    assert!(one.states().contains(remedy_ui_style::States::DISABLED));
+    assert!(one.states().contains(remedy_ui_core::style::States::DISABLED));
     room.focus();
     t.key(Key::ArrowRight);
     assert_eq!(seg.get(), 2, "the arrows step over it");
@@ -465,8 +465,8 @@ fn assistive_technology_can_dismiss_a_toast_as_a_click_does() {
     t.frame();
     assert!(t.ui.tree().len() > before);
     let s = toast.composed_semantics().unwrap_or_else(|| unreachable!("a toast has semantics"));
-    assert!(s.actions().contains(&remedy_ui_a11y::Action::Click), "the click that dismisses it is offered");
-    assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(s.actions().contains(&remedy_ui_core::a11y::Action::Click), "the click that dismisses it is offered");
+    assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(t.ui.tree().len(), before, "dismissed before its time");
 }
@@ -476,8 +476,8 @@ fn toasts_showing_together_stack_in_the_corner_asked_for() {
     let mut t = T::new();
     t.frame();
     let before = t.ui.tree().len();
-    let first = w::toast_at(&t.ui, "Shared Photos", Duration::from_secs(60), remedy_ui_layout::Align::End);
-    let second = w::toast_at(&t.ui, "Invite copied", Duration::from_secs(60), remedy_ui_layout::Align::End);
+    let first = w::toast_at(&t.ui, "Shared Photos", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
+    let second = w::toast_at(&t.ui, "Invite copied", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
     t.frame();
     let (a, b) = (first.bounds().unwrap_or_default(), second.bounds().unwrap_or_default());
     assert!(a.max.y <= b.min.y, "the newer toast sits under the older one, not on it: {a:?} {b:?}");
@@ -490,12 +490,12 @@ fn toasts_showing_together_stack_in_the_corner_asked_for() {
     };
     let m = w::modal(&t.ui, "Settings", w::text(&t.ui, "Body"), true);
     assert_eq!(top(&t), Some("toast_host"), "a dialog's scrim does not dim the toasts showing");
-    let third = w::toast_at(&t.ui, "Saved", Duration::from_secs(60), remedy_ui_layout::Align::End);
+    let third = w::toast_at(&t.ui, "Saved", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
     t.frame();
     assert_eq!(top(&t), Some("toast_host"), "toasts are the top overlay");
     m.close();
     for toast in [first, second, third] {
-        assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_a11y::Action::Click));
+        assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_core::a11y::Action::Click));
     }
     t.frame();
     assert_eq!(t.ui.tree().len(), before, "the last toast to go takes the layer with it");
@@ -797,7 +797,7 @@ fn a_virtual_list_fills_its_height_and_shows_changed_items() {
 #[test]
 fn keyed_views_apply_signal_vec_operations_without_rebuilding() {
     let mut t = T::new();
-    let items = remedy_ui_reactive::SignalVec::new(vec![1u32, 2, 3]);
+    let items = remedy_ui_core::reactive::SignalVec::new(vec![1u32, 2, 3]);
     let built = Rc::new(Cell::new(0));
     let b2 = built.clone();
     let row_ui = t.ui.clone();
@@ -839,7 +839,7 @@ fn keyed_views_apply_signal_vec_operations_without_rebuilding() {
 #[test]
 fn virtual_lists_over_a_signal_vec_build_only_new_rows_in_view() {
     let mut t = T::new();
-    let items = remedy_ui_reactive::SignalVec::new((0..1000u32).collect());
+    let items = remedy_ui_core::reactive::SignalVec::new((0..1000u32).collect());
     let built = Rc::new(Cell::new(0));
     let (b2, ui) = (built.clone(), t.ui.clone());
     let vl = w::virtual_list(&t.ui, "Messages", items, 20.0, move |_, i| {
@@ -870,7 +870,7 @@ type ReaderRow = (Option<String>, Option<(usize, usize)>, Vec<&'static str>, u64
 fn list_rows(t: &T) -> Vec<ReaderRow> {
     t.ui.reader_view()
         .into_iter()
-        .filter(|n| n.role == remedy_ui_a11y::Role::Option)
+        .filter(|n| n.role == remedy_ui_core::a11y::Role::Option)
         .map(|n| (n.name, n.position, n.states, n.id))
         .collect()
 }
@@ -879,7 +879,7 @@ fn list_rows(t: &T) -> Vec<ReaderRow> {
 fn list_rows_tell_screen_readers_their_name_place_and_selection() {
     let mut t = T::new();
     t.ui.connect_accessibility();
-    let items = remedy_ui_reactive::SignalVec::new(vec!["Alex", "Sam", "Kai"]);
+    let items = remedy_ui_core::reactive::SignalVec::new(vec!["Alex", "Sam", "Kai"]);
     let sel = Signal::new(None::<&'static str>);
     let ui = t.ui.clone();
     let l = w::list(&t.ui, "People", items, |s| *s, move |s| w::text(&ui, *s), sel, |_| {});
@@ -897,7 +897,7 @@ fn list_rows_tell_screen_readers_their_name_place_and_selection() {
     );
     // Assistive technology selects a row by clicking it.
     let sam = seen.get(1).map(|r| r.3).unwrap_or_default();
-    assert!(t.ui.accessibility_action(sam, remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(sam, remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(sel.get(), Some("Sam"));
     let selected: Vec<_> =
@@ -922,7 +922,7 @@ fn transitions() -> w::ListTransitions {
         .moves(tween)
 }
 
-fn keyed_rows(t: &T, items: remedy_ui_reactive::SignalVec<u32>) -> El {
+fn keyed_rows(t: &T, items: remedy_ui_core::reactive::SignalVec<u32>) -> El {
     let ui = t.ui.clone();
     let col = w::for_each_with(
         &w::column(&t.ui),
@@ -943,7 +943,7 @@ fn row_named(col: &El, name: &str) -> Option<El> {
 fn keyed_rows_fade_in_fade_out_and_glide_to_new_places() {
     let mut t = T::new();
     t.ui.set_frame_time(Duration::ZERO);
-    let items = remedy_ui_reactive::SignalVec::new(vec![1u32, 2, 3]);
+    let items = remedy_ui_core::reactive::SignalVec::new(vec![1u32, 2, 3]);
     let col = keyed_rows(&t, items);
     t.frame();
     let opacity = |el: &El| el.info().map_or(-1.0, |i| i.style.opacity);
@@ -998,7 +998,7 @@ fn a_select_puts_its_value_where_justify_says() {
     let centered = w::select(&t.ui, "Fruit", options.clone(), Signal::new(0usize)).width(240.0);
     let started = w::select(&t.ui, "Fruit", options, Signal::new(0usize))
         .width(240.0)
-        .justify(remedy_ui_layout::Justify::SpaceBetween);
+        .justify(remedy_ui_core::layout::Justify::SpaceBetween);
     t.ui.root().child(w::column(&t.ui).child(centered.clone()).child(started.clone()));
     t.frame();
     let value_x = |s: &El| {
@@ -1027,15 +1027,15 @@ fn choices_with_nothing_chosen_take_arrows_and_letters() {
     t.frame();
     // A combo box, as a page's `<select>`: named, collapsed until pressed.
     let said = || sel.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!((said().role(), said().name()), (remedy_ui_a11y::Role::ComboBox, Some("Fruit")));
+    assert_eq!((said().role(), said().name()), (remedy_ui_core::a11y::Role::ComboBox, Some("Fruit")));
     assert_eq!(said().expanded_state(), Some(false));
     sel.focus();
     assert!(t.key(Key::Enter));
     assert_eq!(said().expanded_state(), Some(true), "open while its list shows");
     // Its list is a list box of options, the chosen one selected.
     let reader = t.ui.reader_view();
-    assert!(reader.iter().any(|n| n.role == remedy_ui_a11y::Role::ListBox), "a list box");
-    assert_eq!(reader.iter().filter(|n| n.role == remedy_ui_a11y::Role::Option).count(), 3, "three options");
+    assert!(reader.iter().any(|n| n.role == remedy_ui_core::a11y::Role::ListBox), "a list box");
+    assert_eq!(reader.iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Option).count(), 3, "three options");
     assert!(t.key(Key::Escape));
     t.frame();
     assert_eq!(said().expanded_state(), Some(false), "closed again");
@@ -1087,7 +1087,7 @@ fn value_widgets_mirror_right_to_left() {
     let f = Signal::new(0.5f32);
     let split = w::split(
         &t.ui,
-        remedy_ui_layout::Axis::Row,
+        remedy_ui_core::layout::Axis::Row,
         t.ui.el("pane").height(20.0),
         t.ui.el("pane").height(20.0),
         f,
@@ -1203,13 +1203,13 @@ fn dock_pane_resizes_collapses_and_redocks() {
     spec.max_width = 280.0;
     spec.strip_width = 36.0;
     let body = t.ui.el("plan-body").layout(|l| {
-        l.width = remedy_ui_layout::Length::Percent(1.0);
-        l.height = remedy_ui_layout::Length::Percent(1.0);
+        l.width = remedy_ui_core::layout::Length::Percent(1.0);
+        l.height = remedy_ui_core::layout::Length::Percent(1.0);
         l.grow = 1.0;
     });
     let main = t.ui.el("main-body").layout(|l| {
-        l.width = remedy_ui_layout::Length::Percent(1.0);
-        l.height = remedy_ui_layout::Length::Percent(1.0);
+        l.width = remedy_ui_core::layout::Length::Percent(1.0);
+        l.height = remedy_ui_core::layout::Length::Percent(1.0);
         l.grow = 1.0;
     });
     let dock = w::dock(&t.ui, state, spec, body.clone(), main.clone()).width(400.0).height(200.0);

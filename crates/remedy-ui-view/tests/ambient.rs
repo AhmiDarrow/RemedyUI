@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size, Vec2};
-use remedy_ui_layout::Length;
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{AmbientLoop, AmbientMode, AmbientPolicy, AmbientTick, El, Request, TickKind, Ui};
 
@@ -177,8 +177,8 @@ fn scrolled_out_of_sight_it_stops_and_comes_back() {
         .scroll()
         .layout(|l| {
             l.height = Length::Px(100.0);
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Column;
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Column;
         })
         .child(fly.clone())
         .child(ui.el("rest").layout(|l| {

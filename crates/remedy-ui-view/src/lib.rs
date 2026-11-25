@@ -27,7 +27,7 @@ mod flow;
 mod frame;
 mod history;
 mod links;
-pub use remedy_ui_input::Cursor;
+pub use remedy_ui_core::input::Cursor;
 pub mod motion;
 mod native;
 mod prop;
@@ -57,19 +57,19 @@ pub use flow::{
 pub use frame::{Frame, FrameStats, Placement, gradient_brush};
 pub use history::HistoryItem;
 pub use prop::{IntoProp, Prop};
-pub use remedy_ui_a11y::Action as A11yAction;
-pub use remedy_ui_host::{DragData, DragEvent, DropEffect, EnterKey, ImeEvent, InputPurpose, PointerCaps};
-pub use remedy_ui_input::WheelEvent;
-pub use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_style::{
+pub use remedy_ui_core::a11y::Action as A11yAction;
+pub use remedy_ui_core::host::{DragData, DragEvent, DropEffect, EnterKey, ImeEvent, InputPurpose, PointerCaps};
+pub use remedy_ui_core::input::WheelEvent;
+pub use remedy_ui_core::layout::{Align, Justify};
+pub use remedy_ui_core::style::{
     ColorRole, Dp, Gradient, GradientStop, LineHeight, Pad, Pos, Radius, Space, Style, TextRole,
     TextTransform,
 };
 pub use remedy_ui_text::{InlineObject, RichText, SpanBackground, TextStylePatch};
-pub use remedy_ui_tree::ElementId;
+pub use remedy_ui_core::tree::ElementId;
 pub use spatial::SpatialTuning;
 
-use remedy_ui_host::TextInputState;
+use remedy_ui_core::host::TextInputState;
 
 /// Something the view needs its host to do.
 #[derive(Clone, Debug, PartialEq)]
@@ -120,9 +120,9 @@ pub enum Request {
     /// [`Ui::drag_finished`] with the result.
     StartDrag {
         /// What is dragged.
-        data: remedy_ui_host::DragData,
+        data: remedy_ui_core::host::DragData,
         /// What a drop may do.
-        allowed: Vec<remedy_ui_host::DropEffect>,
+        allowed: Vec<remedy_ui_core::host::DropEffect>,
     },
     /// Draw this window with the GPU renderer from now on, where the app lets the runner
     /// choose: it shows content rendered on the GPU (an embedded 3D view), which the CPU

@@ -5,8 +5,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_input::Key;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::Key;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::Ui;
 
 use crate::glyphs::NoteValue;
@@ -260,7 +260,7 @@ impl TabEditor {
     }
 
     /// Handles an editing key; true if it was one.
-    pub(crate) fn key(&self, e: &remedy_ui_input::KeyEvent) -> bool {
+    pub(crate) fn key(&self, e: &remedy_ui_core::input::KeyEvent) -> bool {
         let m = e.modifiers;
         if m.meta || e.composing {
             return false;

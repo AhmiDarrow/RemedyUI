@@ -1,10 +1,10 @@
 //! Property grids: named values in collapsible groups, each with its own editor, and a
 //! filter over the names.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_input::Key;
-use remedy_ui_layout::Length;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 

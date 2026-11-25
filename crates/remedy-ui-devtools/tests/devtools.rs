@@ -2,8 +2,8 @@
 
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_devtools::*;
-use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 use remedy_ui_widgets_core as w;
@@ -25,7 +25,7 @@ fn frame(ui: &Ui) {
 fn ptr(phase: PointerPhase, p: Point) -> PointerEvent {
     PointerEvent::new(phase, p)
         .with_buttons(if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() })
-        .with_modifiers(remedy_ui_input::Modifiers::NONE)
+        .with_modifiers(remedy_ui_core::input::Modifiers::NONE)
 }
 
 /// A preview's first variation.
@@ -217,7 +217,7 @@ fn the_gallery_shows_each_variation_with_a_caption() {
 #[test]
 #[ignore = "writes images for review"]
 fn shots() {
-    use remedy_ui_reactive::Signal;
+    use remedy_ui_core::reactive::Signal;
     use remedy_ui_widgets_forms as f;
     let Some(dir) = std::env::var_os("REMEDY_SHOTS").map(std::path::PathBuf::from) else { return };
     let _ = std::fs::create_dir_all(&dir);
@@ -239,13 +239,13 @@ fn shots() {
             .child(f::key_capture(
                 ui,
                 "Shortcut",
-                Signal::new(Some(remedy_ui_input::Chord::new(
-                    remedy_ui_input::Modifiers {
+                Signal::new(Some(remedy_ui_core::input::Chord::new(
+                    remedy_ui_core::input::Modifiers {
                         ctrl: true,
                         shift: true,
-                        ..remedy_ui_input::Modifiers::NONE
+                        ..remedy_ui_core::input::Modifiers::NONE
                     },
-                    remedy_ui_input::Key::Character("k".into()),
+                    remedy_ui_core::input::Key::Character("k".into()),
                 ))),
             ))
             .child(f::date_picker(ui, "Due", Signal::new(date), None, None))
@@ -353,7 +353,7 @@ fn wrapped_text_and_fields_stay_inside_their_boxes_right_to_left() {
 
 #[test]
 fn every_widget_passes_the_accessibility_check() {
-    use remedy_ui_reactive::Signal;
+    use remedy_ui_core::reactive::Signal;
     use remedy_ui_widgets_forms as f;
     let ui = ui();
     let d = |s: &str| f::Decimal::parse(s).unwrap_or_default();
@@ -439,13 +439,13 @@ fn the_audit_finds_focus_that_does_not_show() {
         .width(40.0)
         .height(40.0)
         .focusable(true)
-        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Ringed"));
+        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Ringed"));
     let unmarked = ui
         .el("box")
         .width(40.0)
         .height(40.0)
         .focusable(true)
-        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Unmarked"))
+        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Unmarked"))
         .style(StylePatch::default().outline_width(0.0));
     ui.root().child(w::column(&ui).child(ringed.clone()).child(unmarked.clone()));
     frame(&ui);

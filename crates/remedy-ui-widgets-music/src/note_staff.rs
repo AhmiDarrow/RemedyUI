@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, TextPaint, Ui};
 
 use crate::glyphs::{

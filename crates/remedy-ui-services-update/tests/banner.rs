@@ -1,7 +1,7 @@
 //! The update banner follows the update's state.
 
 use remedy_ui_core::Size;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_services_update::{Release, UpdateState, update_banner};
 use remedy_ui_view::Ui;
 

@@ -1,8 +1,8 @@
 //! Reactions: emoji with counts that people toggle, a component any widget (or app screen)
 //! can use. Shown as toggle buttons that say their count and whether they are the viewer's.
 
-use remedy_ui_a11y::{Action as A11yAction, Role, Semantics};
-use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_core::a11y::{Action as A11yAction, Role, Semantics};
+use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 

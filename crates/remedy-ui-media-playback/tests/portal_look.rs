@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_devtools::Snapshot;
-use remedy_ui_input::{PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_media_playback::*;
 use remedy_ui_media_video::{Picture, PixelFormat};
 use remedy_ui_render_cpu::CpuCompositor;
@@ -75,10 +75,10 @@ fn pip_button(ui: &Ui) -> El {
     let size = ui.theme().metric("player-glyph", 16.0);
     ui.el("player_button")
         .row()
-        .align(remedy_ui_layout::Align::Center)
-        .justify(remedy_ui_layout::Justify::Center)
+        .align(remedy_ui_core::layout::Align::Center)
+        .justify(remedy_ui_core::layout::Justify::Center)
         .child(svg(ui, PIP, size))
-        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Picture in picture"))
+        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Picture in picture"))
 }
 
 /// A frame of Portal's test file (tests/fixtures/portal-frame.png), as a decoder gives it.
@@ -173,7 +173,7 @@ impl Window {
     }
 
     fn pump(&mut self) {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let f = self.ui.frame(self.size, 1.0);
         if let Some(l) = f.layers {
             self.comp.commit(l);
@@ -429,20 +429,20 @@ fn up_next_reads_as_portals_card_with_a_spaced_label() {
     let info = label.info().unwrap_or_else(|| unreachable!());
     // Drawn in capitals; its text (what is read and copied) as written.
     assert_eq!(info.text.as_deref(), Some("Up next"));
-    assert_eq!(info.style.text_transform, remedy_ui_style::TextTransform::Upper);
-    assert_eq!(info.style.letter_spacing, remedy_ui_style::LetterSpacing::Em(0.08));
+    assert_eq!(info.style.text_transform, remedy_ui_core::style::TextTransform::Upper);
+    assert_eq!(info.style.letter_spacing, remedy_ui_core::style::LetterSpacing::Em(0.08));
     // Laid out with the label's look, and without its spacing: seven clusters, 0.96 px each.
     let ui = view.ui().clone();
     let words = |spaced: bool| {
-        let look = remedy_ui_style::StylePatch::default().text_size(12.0);
-        let look = if spaced { look.letter_spacing(remedy_ui_style::LetterSpacing::Em(0.08)) } else { look };
+        let look = remedy_ui_core::style::StylePatch::default().text_size(12.0);
+        let look = if spaced { look.letter_spacing(remedy_ui_core::style::LetterSpacing::Em(0.08)) } else { look };
         let el = ui.el("label").nowrap().style(look).text("UP NEXT").layout(|l| {
-            l.position = remedy_ui_layout::Position::Absolute;
+            l.position = remedy_ui_core::layout::Position::Absolute;
             l.inset = remedy_ui_core::Insets {
                 top: 0.0,
                 start: 0.0,
-                end: remedy_ui_layout::AUTO,
-                bottom: remedy_ui_layout::AUTO,
+                end: remedy_ui_core::layout::AUTO,
+                bottom: remedy_ui_core::layout::AUTO,
             };
         });
         let _ = ui.root().child(el.clone());

@@ -252,7 +252,7 @@ mod http {
             .header("Accept", "application/vnd.github+json, application/json, */*");
         let res = remedy_ui_services_net::Http::new("")
             .timeout(Duration::from_secs(60))
-            .send_blocking(req, &remedy_ui_reactive::Cancel::new())
+            .send_blocking(req, &remedy_ui_core::reactive::Cancel::new())
             .map_err(net)?;
         String::from_utf8(res.body).map_err(net)
     }
@@ -731,7 +731,7 @@ impl std::fmt::Debug for BannerText {
 #[track_caller]
 pub fn update_banner(
     ui: &remedy_ui_view::Ui,
-    state: remedy_ui_reactive::Signal<UpdateState>,
+    state: remedy_ui_core::reactive::Signal<UpdateState>,
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
 ) -> remedy_ui_view::El {
@@ -742,7 +742,7 @@ pub fn update_banner(
 #[track_caller]
 pub fn update_banner_with(
     ui: &remedy_ui_view::Ui,
-    state: remedy_ui_reactive::Signal<UpdateState>,
+    state: remedy_ui_core::reactive::Signal<UpdateState>,
     texts: &BannerText,
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
@@ -750,7 +750,7 @@ pub fn update_banner_with(
     use remedy_ui_widgets_core as w;
     let gap = ui.theme().spacing.unit * 2.0;
     let text = w::text(ui, "");
-    let pct = remedy_ui_reactive::Signal::new(None::<f32>);
+    let pct = remedy_ui_core::reactive::Signal::new(None::<f32>);
     let bar = w::progress(ui, texts.progress.clone(), pct);
     // `install` may hold `{version}` too ("Install 1.2.0 & restart"); it shows only while a
     // release is available.

@@ -1,11 +1,11 @@
 //! Values: sliders and steppers.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_layout::Align;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::layout::Align;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
@@ -20,7 +20,7 @@ fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
 /// It draws with the theme's colors `slider-track`, `slider-fill` and `slider-thumb` when the
 /// theme has them (else the line, the accent and the text), and its sizes `slider-thumb` (the
 /// thumb's width) and `slider-track` (the track's thickness) from
-/// [`Theme::metrics`](remedy_ui_style::Theme::metrics) (else a thumb 0.6 of its height, at
+/// [`Theme::metrics`](remedy_ui_core::style::Theme::metrics) (else a thumb 0.6 of its height, at
 /// least 10, on a 4 px track).
 #[track_caller]
 pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
@@ -132,7 +132,7 @@ pub fn reveal_on_hover(group: El, target: &El, width: f32) -> El {
             let shown = hover.get() || focus.get();
             let _ = t
                 .clone()
-                .layout(move |l| l.width = remedy_ui_layout::Length::Px(if shown { width } else { 0.0 }));
+                .layout(move |l| l.width = remedy_ui_core::layout::Length::Px(if shown { width } else { 0.0 }));
             let to = remedy_ui_view::motion::Target::Opacity(if shown { 1.0 } else { 0.0 });
             match ui.reduced_motion() {
                 true => t.set_animated(to),
@@ -152,7 +152,7 @@ pub fn reveal_on_hover(group: El, target: &El, width: f32) -> El {
 pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
     let label = label.into();
     let gap = ui.theme().spacing.unit;
-    let shown = ui.el("label").nowrap().layout(|l| l.min_width = remedy_ui_layout::Length::Px(32.0));
+    let shown = ui.el("label").nowrap().layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(32.0));
     let (u1, l1, u2, l2) = (ui.clone(), label.clone(), ui.clone(), label.clone());
     let minus = crate::icon_button(
         ui,

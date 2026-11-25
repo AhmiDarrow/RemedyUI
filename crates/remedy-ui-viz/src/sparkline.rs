@@ -3,10 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Point;
 use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 use crate::series::{PlotBox, Range, Samples, extent, plot};

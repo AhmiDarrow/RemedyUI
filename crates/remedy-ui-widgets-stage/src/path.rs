@@ -3,10 +3,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_paint::Path;
-use remedy_ui_reactive::untrack;
+use remedy_ui_core::reactive::untrack;
 use remedy_ui_view::{El, IntoProp, Ui};
 
 use crate::common::{LineStyle, Place, Slot, layer};

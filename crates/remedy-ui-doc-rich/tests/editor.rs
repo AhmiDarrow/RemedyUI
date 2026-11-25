@@ -5,9 +5,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::Role;
+use remedy_ui_core::a11y::Role;
 use remedy_ui_doc_rich::*;
-use remedy_ui_input::{Key, KeyEvent};
+use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_text::{Block, Mark, RichDoc};
 use remedy_ui_view::{El, TextField, Ui};
 
@@ -60,7 +60,7 @@ fn the_toolbar_formats_and_shows_what_is_on() {
     assert!(checked(&button(&el, "Bold")), "the button shows bold is on");
     assert!(!checked(&button(&el, "Italic")));
     // Focus went back to the text.
-    assert!(field.el().info().is_some_and(|i| i.states.contains(remedy_ui_style::States::FOCUS)));
+    assert!(field.el().info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::FOCUS)));
     // The caret in plain text: bold shows off.
     field.edit_rich(|e| e.set_selection(2, 2));
     frame(&ui);

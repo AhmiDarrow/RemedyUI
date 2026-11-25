@@ -11,7 +11,7 @@ use objc2_app_kit::{
     NSVariableStatusItemLength,
 };
 use objc2_foundation::{NSSize, NSString};
-use remedy_ui_host::{TrayEvent, TrayIcon, TrayItem, Unsupported, Waker};
+use remedy_ui_core::host::{TrayEvent, TrayIcon, TrayItem, Unsupported, Waker};
 
 thread_local! {
     static EVENTS: RefCell<Vec<TrayEvent>> = const { RefCell::new(Vec::new()) };

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
 use remedy_ui_doc_pages::*;
-use remedy_ui_input::{
+use remedy_ui_core::input::{
     Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
 use remedy_ui_paint::{Affine, Brush, DisplayList, Image, Item, Path, Stroke};
@@ -180,7 +180,7 @@ impl Win {
 
     /// One frame, returning the layers it committed (none when nothing changed).
     pub fn frame_layers(&mut self) -> Option<remedy_ui_compositor::LayerTree> {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let now = Instant::now();
         let due: Vec<u64> = self.timers.iter().filter(|(t, _)| *t <= now).map(|(_, id)| *id).collect();
         self.timers.retain(|(t, _)| *t > now);

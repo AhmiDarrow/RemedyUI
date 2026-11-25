@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_core::token::{TOKEN_LEN, random_token, same_secret};
-use remedy_ui_reactive::debug::NodeInfo;
+use remedy_ui_core::reactive::debug::NodeInfo;
 use remedy_ui_view::Ui;
 use serde::{Deserialize, Serialize};
 
@@ -341,7 +341,7 @@ impl RemoteServer {
             }
             None => random_token(),
         };
-        let waker = remedy_ui_reactive::waker().map_err(std::io::Error::other)?;
+        let waker = remedy_ui_core::reactive::waker().map_err(std::io::Error::other)?;
         let socket = TcpListener::bind(("127.0.0.1", options.port))?;
         let addr = socket.local_addr()?;
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -436,7 +436,7 @@ fn read_token(stream: &mut TcpStream) -> Option<String> {
 }
 
 /// Answers one connection's requests until it closes.
-fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_reactive::Waker, stop: &AtomicBool) {
+fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_core::reactive::Waker, stop: &AtomicBool) {
     let Ok(mut out) = stream.try_clone() else { return };
     let (tx, rx) = channel::<String>();
     // Answers are written in the order they come, from the window's thread.
@@ -548,7 +548,7 @@ fn respond(served: &mut Served, req: &RemoteRequest) -> RemoteAnswer {
             None => RemoteAnswer::Error { message: format!("no element {id}") },
         },
         RemoteRequest::Signals { id: None } => RemoteAnswer::Graph {
-            nodes: remedy_ui_reactive::debug::graph().iter().map(|n| remote_node(&ui, n)).collect(),
+            nodes: remedy_ui_core::reactive::debug::graph().iter().map(|n| remote_node(&ui, n)).collect(),
         },
         RemoteRequest::Updates => RemoteAnswer::Updates {
             entries: served

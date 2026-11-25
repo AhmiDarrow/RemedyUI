@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use common::*;
 use remedy_ui_core::{Point, Size};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::ColorRole;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::ColorRole;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_stage::{LineStyle, OrbitOptions, PathOptions, Route, Spread, orbit, path_layout};
@@ -22,9 +22,9 @@ fn mount(ui: &Ui, el: &El) {
 fn dot(ui: &Ui, name: &str) -> El {
     let n = name.to_owned();
     ui.el("dot").width(24.0).height(24.0).focusable(true).on_click(|| {}).semantics(
-        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button)
+        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button)
             .label(n)
-            .action(remedy_ui_a11y::Action::Click),
+            .action(remedy_ui_core::a11y::Action::Click),
     )
 }
 

@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use remedy_ui_core::Vec2;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
@@ -169,7 +169,7 @@ fn messages_read_well_and_select_across_rows() {
         .iter()
         .flat_map(|r| find(r, "label"))
         .filter_map(|l| l.info().and_then(|i| i.semantics))
-        .filter(|s| matches!(s.role(), remedy_ui_a11y::Role::Heading(_)))
+        .filter(|s| matches!(s.role(), remedy_ui_core::a11y::Role::Heading(_)))
         .filter_map(|s| s.name().map(str::to_owned))
         .collect();
     assert_eq!(headers, ["Today"], "one header for the day");
@@ -178,7 +178,7 @@ fn messages_read_well_and_select_across_rows() {
 #[test]
 fn a_chat_follows_a_signal_vec_as_the_other_lists_do() {
     let ui = ui();
-    let items = remedy_ui_reactive::SignalVec::new(msgs(1000..1100));
+    let items = remedy_ui_core::reactive::SignalVec::new(msgs(1000..1100));
     let state = ChatState::new();
     let list = chat_list(
         &ui,

@@ -8,7 +8,7 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use remedy_ui_reactive::Cancel;
+use remedy_ui_core::reactive::Cancel;
 use remedy_ui_services_net::{Http, PoolLimits, Request, pool_limits, set_pool_limits};
 
 /// A server answering every request on a connection with "ok"; returns its address and how

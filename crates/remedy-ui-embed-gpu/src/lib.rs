@@ -53,11 +53,11 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect};
-use remedy_ui_input::{KeyEvent, PointerEvent};
+use remedy_ui_core::input::{KeyEvent, PointerEvent};
 use remedy_ui_paint::{ExternalTexture, Image, Item, Sampling};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 /// The wgpu RemedyUI renders with: app content uses these types, at this version.
 pub use remedy_ui_render_gpu::wgpu;
 use remedy_ui_render_gpu::{FORMAT, GpuContext, LadderOptions};
@@ -578,7 +578,7 @@ pub fn gpu_view(ui: &Ui, label: impl Into<String>, content: impl GpuContent) -> 
             let (Some(ui), Some(id)) = (pointer.ui.upgrade(), pointer.id.get()) else { return false };
             let el = ui.element(id);
             let origin = el.bounds().map_or(Point::ZERO, |b| b.min);
-            if e.phase == remedy_ui_input::PointerPhase::Down && !el.is_focused() {
+            if e.phase == remedy_ui_core::input::PointerPhase::Down && !el.is_focused() {
                 el.focus();
             }
             let local = Point::new(e.position.x - origin.x, e.position.y - origin.y);

@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use remedy_ui_core::Size;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_rui::spec::Kind;
 use remedy_ui_rui::*;
 use remedy_ui_text::FontCollection;
@@ -68,7 +68,7 @@ fn outline(el: &El) -> Vec<String> {
             info.widget,
             s.as_ref().and_then(|s| s.name().map(str::to_owned)),
             s.as_ref().and_then(|s| s.value_text().map(str::to_owned)),
-            s.as_ref().and_then(remedy_ui_a11y::Semantics::checked_state),
+            s.as_ref().and_then(remedy_ui_core::a11y::Semantics::checked_state),
         ));
         let kids = e.child_elements();
         stack.extend(kids.into_iter().rev().map(|k| (k, depth + 1)));
@@ -219,7 +219,7 @@ fn an_interpreted_screen_follows_and_writes_the_apps_signals() {
 
     // Translations go through the app's catalog.
     let noise = find(&el, "«Noise suppression»").must("the switch, translated");
-    assert!(ui.accessibility_action(noise.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(ui.accessibility_action(noise.node_id(), remedy_ui_core::a11y::Action::Click));
     frame(&ui);
     assert!(v.noise.get(), "the switch writes the app's signal");
     v.noise.set(false);
@@ -262,7 +262,7 @@ fn an_interpreted_screen_follows_and_writes_the_apps_signals() {
 
     // Commands.
     let save = find(&el, "«Save»").must("the button");
-    assert!(ui.accessibility_action(save.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(ui.accessibility_action(save.node_id(), remedy_ui_core::a11y::Action::Click));
     assert_eq!(v.saved.get(), 1);
 }
 
@@ -286,7 +286,7 @@ fn the_compiled_screen_builds_what_the_interpreter_builds() {
 
     // And it is live the same way.
     let noise = find(&a, "«Noise suppression»").must("switch");
-    assert!(ui_a.accessibility_action(noise.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(ui_a.accessibility_action(noise.node_id(), remedy_ui_core::a11y::Action::Click));
     assert!(va.noise.get());
     // Its scope lets a person's own version load against the same signals.
     let scope = va.bindings().scope(tr);
@@ -375,7 +375,7 @@ fn peoples_layouts_load_fall_back_with_a_notice_and_reset_undoably() {
     frame(&ui);
     assert!(layout.is_custom());
     let quiet = find(&layout.el(), "Quiet").must("their switch");
-    assert!(ui.accessibility_action(quiet.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(ui.accessibility_action(quiet.node_id(), remedy_ui_core::a11y::Action::Click));
     assert!(v.noise.get(), "bound to the same signal");
     assert!(find(&layout.el(), "«Noise suppression»").is_none());
     assert_eq!(ui.next_undo().map(|h| h.label).as_deref(), Some("Change layout settings_voice.rui"));
@@ -392,7 +392,7 @@ fn peoples_layouts_load_fall_back_with_a_notice_and_reset_undoably() {
         outline(&layout.el())
     );
     let reset = find(&layout.el(), "Reset").must("a reset button");
-    assert!(ui.accessibility_action(reset.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(ui.accessibility_action(reset.node_id(), remedy_ui_core::a11y::Action::Click));
     frame(&ui);
     assert!(layout.error().is_none() && !layout.is_custom());
     assert!(!dir.join("settings_voice.rui").exists());

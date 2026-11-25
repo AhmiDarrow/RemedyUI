@@ -13,7 +13,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
 use remedy_ui_bridge_winit::winit::window::WindowId;
-use remedy_ui_host::{DragData, DropEffect, Unsupported, Waker};
+use remedy_ui_core::host::{DragData, DropEffect, Unsupported, Waker};
 
 thread_local! {
     static ENDED: RefCell<Vec<(WindowId, DropEffect)>> = const { RefCell::new(Vec::new()) };

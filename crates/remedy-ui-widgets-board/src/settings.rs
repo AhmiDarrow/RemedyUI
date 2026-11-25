@@ -5,8 +5,8 @@
 
 use std::cell::Cell;
 
-use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_reactive::{Effect, Signal, untrack};
+use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_script::{SettingKind, SettingSpec};
 use remedy_ui_services_i18n::{Date, Time};
 use remedy_ui_view::{Align, El, Ui};

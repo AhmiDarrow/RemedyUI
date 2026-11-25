@@ -47,7 +47,7 @@ async fn until(ui: &Ui, done: impl Fn() -> bool) -> bool {
     while js_sys::Date::now() - start < 10_000.0 {
         let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
         let _ = remedy_ui_core::exec::run_pending(Duration::from_millis(8));
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if done() {
             let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
             return true;
@@ -178,7 +178,7 @@ async fn status(url: &str) -> String {
 }
 
 /// Waits for `state` to settle on a decoded image or a failure.
-async fn settled(ui: &Ui, state: remedy_ui_reactive::Signal<ImageState>) -> ImageState {
+async fn settled(ui: &Ui, state: remedy_ui_core::reactive::Signal<ImageState>) -> ImageState {
     let _ = until(ui, || {
         state.with_untracked(|s| matches!(s, ImageState::Ready(..) | ImageState::Failed(_))).unwrap_or(false)
     })
@@ -198,7 +198,7 @@ async fn the_browser_decodes_and_scales_pictures_to_the_size_they_show() {
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .is_ok()
     );
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::Bytes(png.into()), Some((60, 60)), false, state);
     match settled(&ui, state).await {
         ImageState::Ready(img, source) => {
@@ -210,7 +210,7 @@ async fn the_browser_decodes_and_scales_pictures_to_the_size_they_show() {
     // AVIF: a format this build's decoder does not read, so only the browser's decoder can
     // have decoded it.
     let avif: &[u8] = include_bytes!("fixtures/red.avif");
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::Bytes(avif.into()), Some((32, 32)), false, state);
     match settled(&ui, state).await {
         ImageState::Ready(img, source) => {

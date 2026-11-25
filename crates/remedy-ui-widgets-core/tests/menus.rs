@@ -4,10 +4,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_a11y::{ReaderNode, Role};
+use remedy_ui_core::a11y::{ReaderNode, Role};
 use remedy_ui_core::{Point, Rect, Size};
-use remedy_ui_input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, FieldKind, Request, Ui};
 use remedy_ui_widgets_core::{self as w, MenuItem};
@@ -586,7 +586,7 @@ fn a_narrow_window_moves_the_menus_that_do_not_fit_into_more() {
 fn a_right_to_left_menu_bar_is_mirrored() {
     let mut t = T::new();
     t.ui.set_locale("ar");
-    let _ = t.ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = t.ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
     let log: Rc<RefCell<Vec<String>>> = Rc::default();
     let (_bar, field) = bar_window(&t, &log);
     t.frame();

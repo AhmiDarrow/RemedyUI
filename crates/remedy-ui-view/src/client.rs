@@ -5,9 +5,9 @@
 use std::rc::Rc;
 
 use remedy_ui_core::Rect;
-use remedy_ui_host::{ImeEvent, TextInputState};
+use remedy_ui_core::host::{ImeEvent, TextInputState};
 use remedy_ui_text::{Paragraph, ParagraphOptions, RichText, TextStyle};
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::{El, Request, Ui};
 

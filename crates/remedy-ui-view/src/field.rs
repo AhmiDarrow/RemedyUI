@@ -4,17 +4,17 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect, Size, Vec2};
-use remedy_ui_host::{ImeEvent, TextInputState};
-use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform};
+use remedy_ui_core::host::{ImeEvent, TextInputState};
+use remedy_ui_core::input::{Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_paint::{Brush, DisplayList};
-use remedy_ui_style::{ResolvedStyle, Theme};
+use remedy_ui_core::style::{ResolvedStyle, Theme};
 use remedy_ui_text::{
     Block, CodeEditor, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
     SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextSelection, TextStyle,
 };
-use remedy_ui_tree::Dirty;
+use remedy_ui_core::tree::Dirty;
 
 use crate::decoration::{self, Decoration, DecorationKind};
 use crate::element::{El, Ui};
@@ -80,7 +80,7 @@ impl RichState {
 pub(crate) fn rich_look(theme: &Theme) -> RichLook {
     let d = theme.derive();
     let c = &theme.colors;
-    let link = remedy_ui_style::ensure_contrast(c.accent, c.bg, 4.5);
+    let link = remedy_ui_core::style::ensure_contrast(c.accent, c.bg, 4.5);
     RichLook {
         link,
         mention: link,
@@ -129,9 +129,9 @@ pub(crate) struct Field {
     style: TextStyle,
     placeholder: String,
     /// What the field holds, for keyboards, input methods and password managers.
-    purpose: remedy_ui_host::InputPurpose,
+    purpose: remedy_ui_core::host::InputPurpose,
     /// The touch keyboard's Enter key, when the app picks it.
-    enter: Option<remedy_ui_host::EnterKey>,
+    enter: Option<remedy_ui_core::host::EnterKey>,
     /// The pseudo-locale placeholders are shown in, if one is active.
     pseudo: Option<remedy_ui_text::Pseudo>,
     label: Option<String>,
@@ -161,7 +161,7 @@ pub(crate) struct Field {
     /// The text's size and the box's at the last paint (how far the wheel can scroll).
     extent: (Size, Size),
     on_change: Option<Rc<dyn Fn()>>,
-    on_submit: Option<Rc<dyn Fn(remedy_ui_input::Modifiers)>>,
+    on_submit: Option<Rc<dyn Fn(remedy_ui_core::input::Modifiers)>>,
     /// Called after every change to the text, by a person or by the app.
     observers: Vec<Rc<dyn Fn()>>,
     version: u64,
@@ -700,7 +700,7 @@ impl Field {
         let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
             FieldKind::Multi | FieldKind::Rich | FieldKind::Code => Role::MultilineTextInput,
-            FieldKind::Single if self.purpose == remedy_ui_host::InputPurpose::Search => Role::SearchInput,
+            FieldKind::Single if self.purpose == remedy_ui_core::host::InputPurpose::Search => Role::SearchInput,
             FieldKind::Single => Role::TextInput,
         });
         if let Some(l) = &self.label {
@@ -708,9 +708,9 @@ impl Field {
         }
         // Assistive technology may set a field's text (secrets are only ever typed).
         match &self.editor {
-            Editor::Plain(e) => s.value(e.text()).action(remedy_ui_a11y::Action::SetValue),
-            Editor::Rich(r) => s.value(r.ed.text()).action(remedy_ui_a11y::Action::SetValue),
-            Editor::Code(c) => s.value(c.ed.text()).action(remedy_ui_a11y::Action::SetValue),
+            Editor::Plain(e) => s.value(e.text()).action(remedy_ui_core::a11y::Action::SetValue),
+            Editor::Rich(r) => s.value(r.ed.text()).action(remedy_ui_core::a11y::Action::SetValue),
+            Editor::Code(c) => s.value(c.ed.text()).action(remedy_ui_core::a11y::Action::SetValue),
             // Secrets are never exposed, not even their length.
             Editor::Secret(_) => s,
         }
@@ -751,7 +751,7 @@ impl Field {
                 // A secret is a password unless the app says it is a code or a PIN.
                 v_.enter = self.enter;
                 v_.purpose = match self.purpose {
-                    remedy_ui_host::InputPurpose::Text => remedy_ui_host::InputPurpose::CurrentPassword,
+                    remedy_ui_core::host::InputPurpose::Text => remedy_ui_core::host::InputPurpose::CurrentPassword,
                     p => p,
                 };
                 v_
@@ -1649,7 +1649,7 @@ impl Ui {
     /// A text field element of `kind`, styled as `widget`.
     #[track_caller]
     pub fn text_field(&self, widget: &'static str, kind: FieldKind) -> TextField {
-        let el = self.el(widget).focusable(true).cursor(remedy_ui_input::Cursor::Text);
+        let el = self.el(widget).focusable(true).cursor(remedy_ui_core::input::Cursor::Text);
         let scale = self.0.borrow().scale;
         let look = rich_look(&self.0.borrow().theme);
         // The style the element has now: a frame restyles a field only when its style changes,
@@ -1677,7 +1677,7 @@ impl Ui {
             },
             style,
             placeholder: String::new(),
-            purpose: remedy_ui_host::InputPurpose::Text,
+            purpose: remedy_ui_core::host::InputPurpose::Text,
             enter: None,
             pseudo: self.0.borrow().pseudo,
             label: None,
@@ -1713,9 +1713,9 @@ impl Ui {
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
         let f2 = field.clone();
-        let measure = move |m: remedy_ui_layout::MeasureInput| {
+        let measure = move |m: remedy_ui_core::layout::MeasureInput| {
             let width = m.known_width.or(match m.available_width {
-                remedy_ui_layout::Available::Px(w) => Some(w),
+                remedy_ui_core::layout::Available::Px(w) => Some(w),
                 _ => None,
             });
             let mut f = f2.borrow_mut();
@@ -1731,9 +1731,9 @@ impl Ui {
             // `min-height: auto` for one) it may shrink below its text: a growing field
             // then fills the space it has and scrolls, rather than growing past it.
             if matches!(kind, FieldKind::Multi | FieldKind::Rich)
-                && matches!(style.min_height, remedy_ui_layout::Length::Auto)
+                && matches!(style.min_height, remedy_ui_core::layout::Length::Auto)
             {
-                style.min_height = remedy_ui_layout::Length::Px(0.0);
+                style.min_height = remedy_ui_core::layout::Length::Px(0.0);
                 if let Some(d) = i.els.get_mut(&el.id) {
                     d.layout.min_height = style.min_height;
                 }
@@ -1885,19 +1885,19 @@ impl TextField {
     }
 
     /// Marks the field as holding a number, so touch keyboards show their number pad:
-    /// [`purpose`](Self::purpose) with [`InputPurpose::Decimal`](remedy_ui_host::InputPurpose::Decimal).
+    /// [`purpose`](Self::purpose) with [`InputPurpose::Decimal`](remedy_ui_core::host::InputPurpose::Decimal).
     pub fn numeric(self) -> Self {
-        self.purpose(remedy_ui_host::InputPurpose::Decimal)
+        self.purpose(remedy_ui_core::host::InputPurpose::Decimal)
     }
 
     /// Says what the field holds: touch keyboards show the matching keys, input methods
     /// switch mode, and password managers and autofill know what to offer. A secret field
-    /// is [`CurrentPassword`](remedy_ui_host::InputPurpose::CurrentPassword) unless set.
-    pub fn purpose(self, purpose: remedy_ui_host::InputPurpose) -> Self {
+    /// is [`CurrentPassword`](remedy_ui_core::host::InputPurpose::CurrentPassword) unless set.
+    pub fn purpose(self, purpose: remedy_ui_core::host::InputPurpose) -> Self {
         let mut f = self.field.borrow_mut();
         f.purpose = purpose;
         // A URL bar selects the whole address on first click or focus, as browsers do.
-        if purpose == remedy_ui_host::InputPurpose::Url {
+        if purpose == remedy_ui_core::host::InputPurpose::Url {
             f.select_all_on_focus = true;
         }
         drop(f);
@@ -1906,16 +1906,16 @@ impl TextField {
 
     /// Selects the whole value when the field gains focus, including the first click
     /// that focuses it (a browser's address bar). A later click places the caret.
-    /// [`TextField::purpose`] with [`InputPurpose::Url`](remedy_ui_host::InputPurpose::Url) turns this on.
+    /// [`TextField::purpose`] with [`InputPurpose::Url`](remedy_ui_core::host::InputPurpose::Url) turns this on.
     pub fn select_all_on_focus(self) -> Self {
         self.field.borrow_mut().select_all_on_focus = true;
         self
     }
 
-    /// Picks the touch keyboard's Enter key: [`Next`](remedy_ui_host::EnterKey::Next) on
+    /// Picks the touch keyboard's Enter key: [`Next`](remedy_ui_core::host::EnterKey::Next) on
     /// every field of a form but the last moves on to the next field, as Tab does. Unset,
-    /// it follows the field (see [`TextInputState::enter_key`](remedy_ui_host::TextInputState::enter_key)).
-    pub fn enter_key(self, key: remedy_ui_host::EnterKey) -> Self {
+    /// it follows the field (see [`TextInputState::enter_key`](remedy_ui_core::host::TextInputState::enter_key)).
+    pub fn enter_key(self, key: remedy_ui_core::host::EnterKey) -> Self {
         self.field.borrow_mut().enter = Some(key);
         self
     }
@@ -2246,7 +2246,7 @@ impl TextField {
     /// Called when Enter is pressed in a single-line or secret field, or in a multi-line or
     /// rich field that [`TextField::submit_on_enter`]. with the modifiers
     /// held (Shift+Enter goes back in a find bar).
-    pub fn on_submit_with(self, f: impl Fn(remedy_ui_input::Modifiers) + 'static) -> Self {
+    pub fn on_submit_with(self, f: impl Fn(remedy_ui_core::input::Modifiers) + 'static) -> Self {
         self.field.borrow_mut().on_submit = Some(Rc::new(f));
         self
     }
@@ -2289,7 +2289,7 @@ pub(crate) fn key_filter(field: &Rc<RefCell<Field>>) -> Option<KeyFilter> {
     field.borrow().key_filter.clone()
 }
 
-pub(crate) fn notify_submit(field: &Rc<RefCell<Field>>, modifiers: remedy_ui_input::Modifiers) {
+pub(crate) fn notify_submit(field: &Rc<RefCell<Field>>, modifiers: remedy_ui_core::input::Modifiers) {
     let cb = field.borrow().on_submit.clone();
     if let Some(cb) = cb {
         cb(modifiers);

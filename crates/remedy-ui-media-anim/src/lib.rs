@@ -43,13 +43,13 @@ mod view;
 use std::any::Any;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Point, Rect};
-use remedy_ui_layout::{AUTO, Align, Justify, Position};
+use remedy_ui_core::layout::{AUTO, Align, Justify, Position};
 use remedy_ui_media_image::{ImageState, Loader, image_with};
 use remedy_ui_paint::{Brush, Item, Path};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{El, Ui};
 
 pub use policy::set_memory_budget;

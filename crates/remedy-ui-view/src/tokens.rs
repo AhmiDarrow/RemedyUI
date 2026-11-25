@@ -1,8 +1,8 @@
 //! Tokens on elements: style and layout lengths given as design tokens resolve through the
 //! window's theme, and again whenever it changes.
 
-use remedy_ui_layout::{LayoutStyle, Length};
-use remedy_ui_style::{Dp, StylePatch, Theme};
+use remedy_ui_core::layout::{LayoutStyle, Length};
+use remedy_ui_core::style::{Dp, StylePatch, Theme};
 
 use crate::element::ElData;
 
@@ -37,7 +37,7 @@ pub(crate) fn resolve_local(d: &ElData, theme: &Theme) -> StylePatch {
 /// True when the element's padding sets only some sides.
 pub(crate) fn partial_padding(d: &ElData) -> bool {
     d.style_src.has_partial_padding()
-        || d.style_bound.as_ref().is_some_and(remedy_ui_style::Style::has_partial_padding)
+        || d.style_bound.as_ref().is_some_and(remedy_ui_core::style::Style::has_partial_padding)
 }
 
 /// The element's own style under `theme`, padding sides it leaves unset taken from `under`.

@@ -8,12 +8,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Size, Vec2};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::States;
-use remedy_ui_tree::ElementId;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::States;
+use remedy_ui_core::tree::ElementId;
 use remedy_ui_view::{Align, Drag, DropEffect, El, FieldKind, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon, Rejection};
 
@@ -436,13 +436,13 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .scroll_x()
         .column()
         .grow(1.0)
-        .layout(|l| l.min_height = remedy_ui_layout::Length::Px(0.0));
+        .layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(0.0));
     let frozen_body = ui
         .el("scroll")
         .scroll()
         .column()
         .scroll_follows(&main_body, false, true)
-        .layout(|l| l.min_height = remedy_ui_layout::Length::Px(0.0));
+        .layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(0.0));
     let header_main = ui
         .el("scroll")
         .scroll()
@@ -704,8 +704,8 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             let _ = fb2.clone().width(total_f).hidden(frozen.is_empty());
             // The scrolling part is as wide as its columns, so its rows and headings line up
             // and it scrolls sideways when the table is narrower.
-            let _ = mcol.clone().layout(move |l| l.min_width = remedy_ui_layout::Length::Px(total_m));
-            let _ = hm.clone().layout(move |l| l.min_width = remedy_ui_layout::Length::Px(total_m));
+            let _ = mcol.clone().layout(move |l| l.min_width = remedy_ui_core::layout::Length::Px(total_m));
+            let _ = hm.clone().layout(move |l| l.min_width = remedy_ui_core::layout::Length::Px(total_m));
             let _ = hf.clone().hidden(frozen.is_empty());
             let n = view.get_untracked().map(|v| v.len()).unwrap_or(0);
             rebuild2(n);
@@ -751,11 +751,11 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                             apply(sorted_order(&values, dir));
                         } else {
                             // Keep showing the previous order until the sorted one arrives.
-                            let waker = remedy_ui_reactive::waker().ok();
+                            let waker = remedy_ui_core::reactive::waker().ok();
                             let result: Signal<Option<Vec<usize>>> = Signal::new(None);
                             let apply = Rc::new(apply);
                             let gen2 = generation.clone();
-                            let _ = remedy_ui_reactive::Effect::new(move || {
+                            let _ = remedy_ui_core::reactive::Effect::new(move || {
                                 if let Some(order) = result.get()
                                     && gen2.load(AtomicOrdering::SeqCst) == gen_now
                                 {
@@ -883,7 +883,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .row()
         .grow(1.0)
         .fill_width()
-        .layout(|l| l.min_height = remedy_ui_layout::Length::Px(0.0))
+        .layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(0.0))
         .child(frozen_body)
         .child(main_body);
     let (n_rows, u) = (rows, ui.clone());
@@ -899,7 +899,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     root.column()
         .grow(1.0)
         .fill_width()
-        .layout(|l| l.min_height = remedy_ui_layout::Length::Px(0.0))
+        .layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(0.0))
         .focusable(true)
         .on_key(on_key)
         .child(header)

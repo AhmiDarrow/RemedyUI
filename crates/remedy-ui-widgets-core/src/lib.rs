@@ -31,7 +31,7 @@ pub const MIN_TARGET: f32 = 24.0;
 /// Keeps `el` at least [`MIN_TARGET`] tall.
 pub fn min_target(el: El) -> El {
     el.layout(|l| {
-        l.min_height = remedy_ui_layout::Length::Px(MIN_TARGET);
+        l.min_height = remedy_ui_core::layout::Length::Px(MIN_TARGET);
     })
 }
 

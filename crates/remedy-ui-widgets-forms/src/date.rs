@@ -1,10 +1,10 @@
 //! The calendar, the date picker and the time picker.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Key, KeyEvent};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::input::{Key, KeyEvent};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{Align, El, FieldKind, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
@@ -46,7 +46,7 @@ pub fn calendar(
         let _ = t2.clone().text(remedy_ui_view::RichText::plain(text.clone()));
         let _ = t2
             .clone()
-            .semantics(Semantics::new(Role::Heading(3)).label(text).live(remedy_ui_a11y::Live::Polite));
+            .semantics(Semantics::new(Role::Heading(3)).label(text).live(remedy_ui_core::a11y::Live::Polite));
     });
     let header = w::row(ui)
         .fill_width()
@@ -308,7 +308,7 @@ pub fn time_picker(ui: &Ui, label: impl Into<String>, value: Signal<Time>, step_
         if !e2.is_focused() {
             untrack(|| field.set_value(&shown));
         }
-        e2.state(remedy_ui_style::States::INVALID, bad);
+        e2.state(remedy_ui_core::style::States::INVALID, bad);
         let _ = e2.clone().semantics(
             Semantics::new(Role::TimeInput)
                 .label(label.clone())

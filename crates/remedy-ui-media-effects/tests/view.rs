@@ -10,8 +10,8 @@ use remedy_ui_view::{AmbientMode, AmbientPolicy, Request, Ui};
 
 fn ui() -> Ui {
     Ui::new(
-        remedy_ui_style::Theme::dark_forest(),
-        remedy_ui_style::StyleSheet::new(),
+        remedy_ui_core::style::Theme::dark_forest(),
+        remedy_ui_core::style::StyleSheet::new(),
         remedy_ui_text::FontCollection::new(),
     )
 }

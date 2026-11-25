@@ -14,7 +14,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSLocale, NSString};
 use remedy_ui_core::Color;
-use remedy_ui_host::Unsupported;
+use remedy_ui_core::host::Unsupported;
 
 /// The pasteboard's plain text.
 pub(crate) fn clipboard_text() -> Option<String> {

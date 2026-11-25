@@ -6,10 +6,10 @@ use std::net::TcpStream;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Size;
 use remedy_ui_devtools::*;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
@@ -51,7 +51,7 @@ fn frame(ui: &Ui) {
 fn pump_until(mut done: impl FnMut() -> bool) {
     let start = Instant::now();
     while !done() {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         assert!(start.elapsed() < Duration::from_secs(20), "the window answered in time");
         std::thread::yield_now();
     }
@@ -119,7 +119,7 @@ fn the_log_says_why_each_element_updated() {
     assert!(!log.entries_for(count.id()).is_empty(), "the counter updated for the same write");
 
     // A change made directly (not by a binding) is told apart.
-    row.state(remedy_ui_style::States::HOVER, true);
+    row.state(remedy_ui_core::style::States::HOVER, true);
     let last = log.entries().last().cloned().must("the hover mark");
     assert!(last.record.cause.is_none());
     assert!(last.sentence().contains("changed directly"), "{}", last.sentence());
@@ -149,7 +149,7 @@ fn the_log_says_why_each_element_updated() {
     log.clear();
     assert!(log.entries().is_empty());
     drop(log);
-    assert!(!remedy_ui_reactive::debug::is_tracing(), "dropping the log stops tracing");
+    assert!(!remedy_ui_core::reactive::debug::is_tracing(), "dropping the log stops tracing");
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn the_overlay_shows_frames_without_keeping_the_window_busy() {
     frame(&target);
     assert!(!target.last_frame_stats().repainted.is_empty(), "the overlay redrew");
     // …and that redraw's own frame is no reason to draw again: the window goes idle.
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     let _ = target.frame(Size::new(480.0, 360.0), 1.0);
     let idle = target.last_frame_stats();
     assert!(idle.repainted.is_empty(), "nothing left to draw: {idle:?}");
@@ -558,7 +558,7 @@ fn the_inspector_panel_has_every_page() {
             .nth(i)
             .map(|(e, _)| e)
             .must("a tab");
-        assert!(panel.accessibility_action(seg.node_id(), remedy_ui_a11y::Action::Click));
+        assert!(panel.accessibility_action(seg.node_id(), remedy_ui_core::a11y::Action::Click));
         frame(&panel);
     };
     assert!(shown(&panel).contains("Pick an element"));
@@ -602,14 +602,14 @@ fn the_inspector_panel_has_every_page() {
             .must("the button")
     };
     let retry = button("Retry");
-    assert!(panel.accessibility_action(retry.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(panel.accessibility_action(retry.node_id(), remedy_ui_core::a11y::Action::Click));
     frame(&target);
     frame(&panel);
     assert_eq!(attempts.get(), 2, "the boundary built its content again");
     assert!(shown(&target).contains("Profile"));
     assert!(shown(&panel).contains("Its boundary has built its content again."));
     let clear = button("Clear failures");
-    assert!(panel.accessibility_action(clear.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(panel.accessibility_action(clear.node_id(), remedy_ui_core::a11y::Action::Click));
     frame(&panel);
     assert!(shown(&panel).contains("Nothing has failed in this window."));
     assert_eq!(TABS.len(), 6);

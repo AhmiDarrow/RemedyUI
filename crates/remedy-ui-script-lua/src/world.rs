@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use remedy_ui_motion::Animation;
+use remedy_ui_core::motion::Animation;
 
 /// A key of the widget's `refs` table.
 pub(crate) type Ref = i64;

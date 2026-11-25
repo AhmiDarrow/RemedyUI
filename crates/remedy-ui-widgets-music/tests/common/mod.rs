@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -162,11 +162,11 @@ pub fn name_of(el: &El) -> String {
     el.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned)).unwrap_or_default()
 }
 
-pub fn role_of(el: &El) -> Option<remedy_ui_a11y::Role> {
+pub fn role_of(el: &El) -> Option<remedy_ui_core::a11y::Role> {
     el.info().and_then(|i| i.semantics).map(|s| s.role())
 }
 
-pub fn actions_of(el: &El) -> Vec<remedy_ui_a11y::Action> {
+pub fn actions_of(el: &El) -> Vec<remedy_ui_core::a11y::Action> {
     el.info().and_then(|i| i.semantics).map(|s| s.actions().to_vec()).unwrap_or_default()
 }
 

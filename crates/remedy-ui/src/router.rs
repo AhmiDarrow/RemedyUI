@@ -22,10 +22,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::Vec2;
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -508,7 +508,7 @@ impl Router {
         let outlet = outlet.bind(move || {
             let route = me.route.get();
             let _ = reloads.get();
-            remedy_ui_reactive::untrack(|| {
+            remedy_ui_core::reactive::untrack(|| {
                 o.clear();
                 me.inner.borrow_mut().scroller = None;
                 let _ = o.clone().child(page(&route).grow(1.0));

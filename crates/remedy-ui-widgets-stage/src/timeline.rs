@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Rect, Size};
-use remedy_ui_input::{Key, PointerPhase};
-use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_core::input::{Key, PointerPhase};
+use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::{Clock, Moved, smooth};
 
@@ -285,7 +285,7 @@ pub fn timeline<T: Clone + 'static>(
         .fill_width()
         .clip()
         .focusable(true)
-        .layout(|l| l.min_height = remedy_ui_layout::Length::Px(theme.spacing.control_height * 2.0))
+        .layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(theme.spacing.control_height * 2.0))
         .child(content.clone());
     let head = untrack(|| items.with(|v| v.last().map_or(0.0, &time)));
     let state = Rc::new(State {

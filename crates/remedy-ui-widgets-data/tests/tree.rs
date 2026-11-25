@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Vec2};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
@@ -181,7 +181,7 @@ fn rows_tell_screen_readers_their_level_position_and_state() {
     frame(&t.ui);
     let rows = find(&t.tree, "tree_item");
     let letters = rows.get(1).and_then(El::info).and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
-    assert_eq!(letters.role(), remedy_ui_a11y::Role::TreeItem);
+    assert_eq!(letters.role(), remedy_ui_core::a11y::Role::TreeItem);
     let docs = rows.first().and_then(El::info).and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
     let dbg = format!("{docs:?} {letters:?}");
     assert!(dbg.contains("level: Some(1)") || dbg.contains("level: 1"), "{dbg}");
@@ -196,7 +196,7 @@ fn typing_jumps_to_the_matching_item() {
     let t = tree(true);
     let typed = |c: &str| {
         t.ui.key(
-            &remedy_ui_input::KeyEvent::press(Key::Character(c.into()))
+            &remedy_ui_core::input::KeyEvent::press(Key::Character(c.into()))
                 .with_modifiers(NONE)
                 .with_text(Some(c.into())),
         )
@@ -244,7 +244,7 @@ fn cut_and_paste_moves_items_and_refusals_are_announced() {
     frame(&t.ui);
     assert!(key(&t.ui, Key::Character("v".into()), CTRL));
     let alert = find(&t.tree, "label").into_iter().find(|l| {
-        l.info().and_then(|i| i.semantics).is_some_and(|s| s.role() == remedy_ui_a11y::Role::Alert)
+        l.info().and_then(|i| i.semantics).is_some_and(|s| s.role() == remedy_ui_core::a11y::Role::Alert)
     });
     assert_eq!(alert.and_then(|a| a.info()).and_then(|i| i.text).as_deref(), Some("Music holds only songs"));
     // An item cannot move into itself.
@@ -278,7 +278,7 @@ fn dragging_items_onto_a_folder_moves_them() {
     frame(&t.ui);
     let docs_now = find(&t.tree, "tree_item").into_iter().next().unwrap_or_else(|| unreachable!());
     assert!(
-        docs_now.info().is_some_and(|i| i.states.contains(remedy_ui_style::States::DROP_TARGET)),
+        docs_now.info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::DROP_TARGET)),
         "the folder under the drag lights up"
     );
     pointer(&t.ui, to, PointerPhase::Up, Buttons::default(), Duration::from_secs(1));
@@ -400,24 +400,24 @@ fn assistive_technology_selects_opens_and_closes_rows() {
     let row = |t: &T, i: usize| find(&t.tree, "tree_item").get(i).map(El::node_id).unwrap_or_default();
     // Click selects the row, as a press does.
     let music = row(&t, 1);
-    assert!(t.ui.accessibility_action(music, remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(music, remedy_ui_core::a11y::Action::Click));
     frame(&t.ui);
     assert_eq!(cursor(&t).as_deref(), Some("/music"));
     assert_eq!(t.state.selection.selected.get(), ["/music".to_string()]);
     // Expand and Collapse open and close a folder.
     let docs = row(&t, 0);
-    assert!(t.ui.accessibility_action(docs, remedy_ui_a11y::Action::Expand));
+    assert!(t.ui.accessibility_action(docs, remedy_ui_core::a11y::Action::Expand));
     frame(&t.ui);
     assert_eq!(labels(&t), ["docs", "letters", "cv.pdf", "notes.md", "music", "readme.txt"]);
     let docs = row(&t, 0);
     let sem = find(&t.tree, "tree_item").first().and_then(El::info).and_then(|i| i.semantics);
     assert!(sem.is_some_and(
-        |s| s.expanded_state() == Some(true) && s.actions().contains(&remedy_ui_a11y::Action::Collapse)
+        |s| s.expanded_state() == Some(true) && s.actions().contains(&remedy_ui_core::a11y::Action::Collapse)
     ));
-    assert!(t.ui.accessibility_action(docs, remedy_ui_a11y::Action::Collapse));
+    assert!(t.ui.accessibility_action(docs, remedy_ui_core::a11y::Action::Collapse));
     frame(&t.ui);
     assert_eq!(labels(&t), ["docs", "music", "readme.txt"]);
     // A file has nothing to open.
     let readme = row(&t, 2);
-    assert!(!t.ui.accessibility_action(readme, remedy_ui_a11y::Action::Expand));
+    assert!(!t.ui.accessibility_action(readme, remedy_ui_core::a11y::Action::Expand));
 }

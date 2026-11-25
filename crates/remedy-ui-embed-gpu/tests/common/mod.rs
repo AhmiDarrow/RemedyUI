@@ -9,7 +9,7 @@ use std::time::Duration;
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Size};
 use remedy_ui_embed_gpu::*;
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 use remedy_ui_render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions, wgpu};
 use remedy_ui_text::FontCollection;

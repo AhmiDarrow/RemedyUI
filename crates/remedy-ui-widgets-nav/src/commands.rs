@@ -5,8 +5,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use remedy_ui_input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{Icon, MenuItem};
 
@@ -263,14 +263,14 @@ impl Commands {
     /// [`MenuItem::mnemonic`].
     ///
     /// ```
-    /// use remedy_ui_input::Chord;
+    /// use remedy_ui_core::input::Chord;
     /// use remedy_ui_widgets_nav::Commands;
     ///
     /// let commands = Commands::new();
     /// commands.add("file.open", "Open…", vec!["Ctrl+O".parse::<Chord>()?], None, || {});
     /// let open = commands.menu_item("file.open").mnemonic('o');
     /// assert_eq!(open.label_text(), "Open…");
-    /// # Ok::<(), remedy_ui_input::ChordError>(())
+    /// # Ok::<(), remedy_ui_core::input::ChordError>(())
     /// ```
     pub fn menu_item(&self, id: &str) -> MenuItem {
         let info = self.info(id);

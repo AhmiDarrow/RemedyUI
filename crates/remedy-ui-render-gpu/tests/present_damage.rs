@@ -14,8 +14,8 @@ use std::time::Duration;
 use remedy_ui_bridge_winit::run_on;
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Rect, Size};
-use remedy_ui_host::{App, Host, HostEvent, WindowOptions};
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::host::{App, Host, HostEvent, WindowOptions};
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_render_gpu::{
     GpuCompositor, GpuContext, GpuRenderer, GpuSurface, LadderOptions, PresentChecks, Presented,

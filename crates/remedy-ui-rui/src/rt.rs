@@ -5,11 +5,11 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use remedy_ui_core::Insets;
-pub use remedy_ui_layout as layout;
-use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_reactive as reactive;
-use remedy_ui_reactive::Signal;
-pub use remedy_ui_style as style;
+pub use remedy_ui_core::layout as layout;
+use remedy_ui_core::layout::{Align, Justify};
+pub use remedy_ui_core::reactive as reactive;
+use remedy_ui_core::reactive::Signal;
+pub use remedy_ui_core::style as style;
 pub use remedy_ui_view as view;
 use remedy_ui_view::{El, TextField, Ui};
 pub use remedy_ui_widgets_core as w;
@@ -19,7 +19,7 @@ pub use remedy_ui_widgets_core as w;
 #[non_exhaustive]
 pub enum Space {
     /// `s3`, `s0_5`: a spacing token, resolved through the theme.
-    Token(remedy_ui_style::Space),
+    Token(remedy_ui_core::style::Space),
     /// `12`: pixels.
     Px(f32),
 }

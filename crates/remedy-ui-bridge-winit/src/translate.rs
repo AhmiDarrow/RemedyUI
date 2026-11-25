@@ -1,6 +1,6 @@
 //! winit events into RemedyUI's event model.
 
-use remedy_ui_input::{Key, Modifiers};
+use remedy_ui_core::input::{Key, Modifiers};
 use winit::keyboard::{Key as WKey, ModifiersState, NamedKey, NativeKey, PhysicalKey};
 
 /// Logical pixels one wheel notch (one "line") scrolls: three lines of 16 px interface text,

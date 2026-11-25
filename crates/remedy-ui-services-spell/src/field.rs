@@ -219,7 +219,7 @@ fn start(shared: &Shared) {
     }
     let langs = languages(&s);
     let id = s.id;
-    let waker = remedy_ui_reactive::waker();
+    let waker = remedy_ui_core::reactive::waker();
     let notify: Box<dyn FnOnce() + Send> = Box::new(move || {
         if let Ok(w) = waker {
             let _ = w.post(move || deliver(id));

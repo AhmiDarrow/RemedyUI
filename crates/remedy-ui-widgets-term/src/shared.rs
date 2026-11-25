@@ -9,7 +9,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use remedy_ui_reactive::{Signal, Waker};
+use remedy_ui_core::reactive::{Signal, Waker};
 
 use crate::term::Emulator;
 

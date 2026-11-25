@@ -4,9 +4,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Live, Role, Semantics};
-use remedy_ui_reactive::{Memo, Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::a11y::{Live, Role, Semantics};
+use remedy_ui_core::reactive::{Memo, Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Rejection};
 
@@ -123,7 +123,7 @@ impl Form {
         // Any edit reveals the field's error and clears a finished submission (the first run
         // only subscribes).
         let first = std::cell::Cell::new(true);
-        let _ = remedy_ui_reactive::Effect::new(move || {
+        let _ = remedy_ui_core::reactive::Effect::new(move || {
             value.with(|_| ());
             if first.replace(false) {
                 return;
@@ -277,7 +277,7 @@ pub fn submit_button(
         }
         let _ = b2
             .clone()
-            .semantics(Semantics::new(Role::Button).label(shown).action(remedy_ui_a11y::Action::Click));
+            .semantics(Semantics::new(Role::Button).label(shown).action(remedy_ui_core::a11y::Action::Click));
         b2.state(States::DISABLED, busy);
     })
 }

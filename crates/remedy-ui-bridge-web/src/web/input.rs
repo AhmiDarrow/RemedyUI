@@ -4,8 +4,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_host::{DragData, DragEvent, DropEffect, HostEvent, WindowId};
-use remedy_ui_input::{
+use remedy_ui_core::host::{DragData, DragEvent, DropEffect, HostEvent, WindowId};
+use remedy_ui_core::input::{
     Buttons, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
 use wasm_bindgen::JsCast;
@@ -43,7 +43,7 @@ fn position(w: &Win, e: &JsValue) -> Point {
     Point::new((x - r.left()) as f32, (y - r.top()) as f32)
 }
 
-fn mods(e: &web_sys::MouseEvent) -> remedy_ui_input::Modifiers {
+fn mods(e: &web_sys::MouseEvent) -> remedy_ui_core::input::Modifiers {
     convert::modifiers(e.shift_key(), e.ctrl_key(), e.alt_key(), e.meta_key())
 }
 
@@ -205,11 +205,11 @@ fn key(w: &Rc<Win>, e: &web_sys::KeyboardEvent, pressed: bool) {
     let mut modifiers = convert::modifiers(e.shift_key(), e.ctrl_key(), e.alt_key(), e.meta_key());
     let mut k = convert::key(&dom_key);
     // A "next" or "previous" Enter key moves focus, as Tab and Shift+Tab do.
-    if k == remedy_ui_input::Key::Enter
-        && modifiers == remedy_ui_input::Modifiers::NONE
+    if k == remedy_ui_core::input::Key::Enter
+        && modifiers == remedy_ui_core::input::Modifiers::NONE
         && let Some(back) = w.text.enter_moves()
     {
-        k = remedy_ui_input::Key::Tab;
+        k = remedy_ui_core::input::Key::Tab;
         modifiers.shift = back;
     }
     let ev = KeyEvent::press(k)

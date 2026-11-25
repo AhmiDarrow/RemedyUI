@@ -6,7 +6,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_host::Waker;
+use remedy_ui_core::host::Waker;
 
 /// A later launch: its arguments, and where its reply code goes when it waits for one.
 pub(crate) struct Launch {

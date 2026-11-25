@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use remedy_ui_core::Point;
-use remedy_ui_host::{DragData, DragEvent, DropEffect, Unsupported};
+use remedy_ui_core::host::{DragData, DragEvent, DropEffect, Unsupported};
 use windows::Win32::Foundation::{HGLOBAL, HWND, POINT, POINTL};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::System::Com::{DVASPECT_CONTENT, FORMATETC, IDataObject, STGMEDIUM, TYMED_HGLOBAL};

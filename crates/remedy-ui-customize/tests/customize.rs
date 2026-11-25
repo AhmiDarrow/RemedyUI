@@ -6,12 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use remedy_ui_a11y::Action;
+use remedy_ui_core::a11y::Action;
 use remedy_ui_core::{Color, Size};
 use remedy_ui_customize::*;
-use remedy_ui_input::{Chord, Key, KeyEvent, Modifiers, Platform};
+use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_services_i18n::{Catalog, MessageEntry, Messages};
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_nav::Commands;
@@ -108,7 +108,7 @@ fn commands() -> Commands {
 }
 
 /// The element named `name` whose semantics pass `pred`, anywhere in the window.
-fn find_where(ui: &Ui, name: &str, pred: impl Fn(&remedy_ui_a11y::Semantics) -> bool) -> Option<El> {
+fn find_where(ui: &Ui, name: &str, pred: impl Fn(&remedy_ui_core::a11y::Semantics) -> bool) -> Option<El> {
     let mut stack: Vec<El> = ui.layers().into_iter().collect();
     while let Some(e) = stack.pop() {
         if e.composed_semantics().is_some_and(|s| s.name() == Some(name) && pred(&s)) {
@@ -203,7 +203,7 @@ fn reset_per_token_for_the_theme_and_for_everything_is_undoable() {
     c.attach(&ui);
     c.set_token(&ui, &Token::radius("medium"), TokenValue::Px(12.0)).must("radius");
     c.set_token(&ui, &Token::motion("quick"), TokenValue::Duration(Duration::from_millis(40))).must("motion");
-    c.set_token(&ui, &Token::density(), TokenValue::Density(remedy_ui_style::Density::Compact))
+    c.set_token(&ui, &Token::density(), TokenValue::Density(remedy_ui_core::style::Density::Compact))
         .must("density");
     c.set_token(&ui, &Token::font_family(), TokenValue::Families(vec!["Remedy Sans".into(), "serif".into()]))
         .must("font");
@@ -604,19 +604,19 @@ fn the_theme_editor_works_from_assistive_technology() {
 
     // Density and colors.
     assert!(act(&ui, "Compact", Action::Click));
-    assert_eq!(ui.theme().density, remedy_ui_style::Density::Compact);
+    assert_eq!(ui.theme().density, remedy_ui_core::style::Density::Compact);
     assert!(act(&ui, "Edit Cards", Action::Click));
     frame(&ui);
     assert!(type_into(&ui, "Cards hex", "#f0f0f0"));
     assert_eq!(ui.theme().colors.card, Color::rgb8(0xf0, 0xf0, 0xf0));
     frame(&ui);
     let contrast =
-        find_where(&ui, "Contrast", |s| s.role() == remedy_ui_a11y::Role::Status).must("the contrast status");
+        find_where(&ui, "Contrast", |s| s.role() == remedy_ui_core::a11y::Role::Status).must("the contrast status");
     let value = contrast.composed_semantics().and_then(|s| s.value_text().map(str::to_owned)).must("a value");
     assert!(value.contains("below WCAG"), "light cards under light text are flagged: {value}");
     assert!(act(&ui, "Reset theme", Action::Click));
     assert_eq!(ui.theme(), base());
-    let value = find_where(&ui, "Contrast", |s| s.role() == remedy_ui_a11y::Role::Status)
+    let value = find_where(&ui, "Contrast", |s| s.role() == remedy_ui_core::a11y::Role::Status)
         .and_then(|e| e.composed_semantics())
         .and_then(|s| s.value_text().map(str::to_owned));
     assert_eq!(value.as_deref(), Some("Every color pair meets WCAG contrast"));
@@ -735,7 +735,7 @@ fn the_settings_page_shows_notices_toolbars_and_text() {
 const SETTINGS_RUI: &str = "column { switch(label: \"Noise suppression\", checked: $noise) }\n";
 
 /// A screen the app builds through the customizations, with its built-in version.
-fn screen(c: &Customizations, ui: &Ui, noise: remedy_ui_reactive::Signal<bool>) -> remedy_ui_rui::Layout {
+fn screen(c: &Customizations, ui: &Ui, noise: remedy_ui_core::reactive::Signal<bool>) -> remedy_ui_rui::Layout {
     let scope = remedy_ui_rui::Scope::new().flag("noise", noise);
     let built_in = move |ui: &Ui| remedy_ui_widgets_core::switch(ui, "Noise suppression", noise);
     c.layout(ui, "settings.rui", &scope, SETTINGS_RUI, built_in).must("layouts are on")
@@ -747,7 +747,7 @@ fn people_rearrange_screens_with_notices_resets_and_undo() {
     let ui = window();
     let c = Customizations::new(dir.path());
     c.enable_layouts(remedy_ui_rui::Widgets::new());
-    let noise = remedy_ui_reactive::Signal::new(false);
+    let noise = remedy_ui_core::reactive::Signal::new(false);
     let layout = screen(&c, &ui, noise);
     let _ = ui.root().child(layout.el());
     frame(&ui);
@@ -806,12 +806,12 @@ fn the_layout_editor_checks_as_the_person_types_and_saves() {
     let ui = window();
     let c = Customizations::new(dir.path());
     c.enable_layouts(remedy_ui_rui::Widgets::new());
-    let noise = remedy_ui_reactive::Signal::new(false);
+    let noise = remedy_ui_core::reactive::Signal::new(false);
     let layout = screen(&c, &ui, noise);
     let _ = ui.root().child(layout.el()).child(settings_page(&ui, &c));
     frame(&ui);
     let check = |ui: &Ui| {
-        find_where(ui, "Layout check", |s| s.role() == remedy_ui_a11y::Role::Status)
+        find_where(ui, "Layout check", |s| s.role() == remedy_ui_core::a11y::Role::Status)
             .and_then(|e| e.composed_semantics())
             .and_then(|s| s.value_text().map(str::to_owned))
             .unwrap_or_default()
@@ -896,7 +896,7 @@ fn the_text_editor_edits_fluent_messages_and_their_attributes() {
     assert_eq!(messages.format_in("en", "share", Some("tooltip"), &[]), "Send it to people");
     assert!(type_into(&ui, "share", "Share { $oops"));
     frame(&ui);
-    let check = find_where(&ui, "share check", |s| s.role() == remedy_ui_a11y::Role::Status)
+    let check = find_where(&ui, "share check", |s| s.role() == remedy_ui_core::a11y::Role::Status)
         .and_then(|e| e.composed_semantics())
         .and_then(|s| s.value_text().map(str::to_owned))
         .unwrap_or_default();
@@ -1084,7 +1084,7 @@ fn every_locale_has_every_message_with_its_plurals() {
 
 /// The value of the status named `name`.
 fn status_value(ui: &Ui, name: &str) -> String {
-    find_where(ui, name, |s| s.role() == remedy_ui_a11y::Role::Status)
+    find_where(ui, name, |s| s.role() == remedy_ui_core::a11y::Role::Status)
         .and_then(|e| e.composed_semantics())
         .and_then(|s| s.value_text().map(str::to_owned))
         .unwrap_or_default()

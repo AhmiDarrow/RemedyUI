@@ -6,7 +6,7 @@ use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
 use remedy_ui_paint::{Brush, DisplayList, Stop};
 use remedy_ui_render_cpu::{CpuRenderer, Frame};
 use remedy_ui_render_gpu::*;
-use remedy_ui_style::Gradient;
+use remedy_ui_core::style::Gradient;
 
 fn gpu() -> GpuRenderer {
     match GpuContext::new(&LadderOptions::default()) {

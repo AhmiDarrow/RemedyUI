@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use fluent_bundle::types::FluentNumber;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use intl_memoizer::{IntlLangMemoizer, Memoizable};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::Ui;
 use unic_langid::LanguageIdentifier;
 
@@ -112,7 +112,7 @@ struct Inner {
     /// Bumped whenever messages change: everything that formatted one formats again.
     revision: Signal<u64>,
     /// The folder watcher, if running: its stop flag and the effect that reloads.
-    watcher: RefCell<Option<(Arc<AtomicBool>, remedy_ui_reactive::Effect)>>,
+    watcher: RefCell<Option<(Arc<AtomicBool>, remedy_ui_core::reactive::Effect)>>,
 }
 
 impl Drop for Inner {
@@ -376,17 +376,17 @@ impl Messages {
         if folders.is_empty() || self.0.watcher.borrow().is_some() {
             return;
         }
-        let Ok(waker) = remedy_ui_reactive::waker() else { return };
+        let Ok(waker) = remedy_ui_core::reactive::waker() else { return };
         let changed = Signal::new(0u64);
         let me = Rc::downgrade(&self.0);
         let first = std::cell::Cell::new(true);
         // The effect reloads on the UI thread when the watcher reports a change.
-        let effect = remedy_ui_reactive::Effect::new(move || {
+        let effect = remedy_ui_core::reactive::Effect::new(move || {
             changed.get();
             if !first.replace(false)
                 && let Some(inner) = me.upgrade()
             {
-                remedy_ui_reactive::untrack(|| Messages(inner).reload());
+                remedy_ui_core::reactive::untrack(|| Messages(inner).reload());
             }
         });
         let stop = Arc::new(AtomicBool::new(false));

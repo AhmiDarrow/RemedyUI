@@ -15,8 +15,6 @@ categories.workspace = true
 # they are tested on any machine.
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }

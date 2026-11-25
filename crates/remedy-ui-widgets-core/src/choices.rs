@@ -1,12 +1,12 @@
 //! Choices: checks, switches, radios, segments, selects and chips.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect};
-use remedy_ui_input::Key;
-use remedy_ui_layout::Align;
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::Align;
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::States;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
 use crate::menus::{MenuItem, menu};
@@ -129,12 +129,12 @@ pub fn radio_group(ui: &Ui, label: impl Into<String>, options: &[&str], selected
     })
 }
 
-fn arrows(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize) -> bool {
+fn arrows(e: &remedy_ui_core::input::KeyEvent, selected: Signal<usize>, n: usize) -> bool {
     arrows_skipping(e, selected, n, &[])
 }
 
 /// [`arrows`], stepping over the options in `skip` (shown but not choosable).
-fn arrows_skipping(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize, skip: &[usize]) -> bool {
+fn arrows_skipping(e: &remedy_ui_core::input::KeyEvent, selected: Signal<usize>, n: usize, skip: &[usize]) -> bool {
     if !e.pressed || n == 0 || skip.len() >= n {
         return false;
     }
@@ -275,7 +275,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
             Semantics::new(Role::ComboBox)
                 .label(label.get())
                 .value(v)
-                .has_popup(remedy_ui_a11y::Popup::ListBox)
+                .has_popup(remedy_ui_core::a11y::Popup::ListBox)
                 .expanded(open.try_get().unwrap_or(false))
                 .action(Action::Click),
         );

@@ -35,7 +35,7 @@
 //!
 //! ```no_run
 //! use remedy_ui_services_net::{Http, Request};
-//! use remedy_ui_reactive::Cancel;
+//! use remedy_ui_core::reactive::Cancel;
 //!
 //! #[derive(serde::Deserialize)]
 //! struct Saved {
@@ -58,7 +58,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_reactive::{Cancel, Resource};
+use remedy_ui_core::reactive::{Cancel, Resource};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -685,7 +685,7 @@ impl Http {
     ///
     /// ```no_run
     /// # use remedy_ui_services_net::{Http, NetError, Request};
-    /// # use remedy_ui_reactive::{Resource, Signal};
+    /// # use remedy_ui_core::reactive::{Resource, Signal};
     /// let page = Signal::new(1u32);
     /// let http = Http::new("https://example.com/api");
     /// let items: Resource<Vec<String>, NetError> =

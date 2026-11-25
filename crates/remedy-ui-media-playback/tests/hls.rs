@@ -259,7 +259,7 @@ fn plays_a_growing_playlist() {
 fn wait_for(what: &str, ok: impl Fn() -> bool) {
     let start = std::time::Instant::now();
     while !ok() {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         assert!(start.elapsed() < Duration::from_secs(20), "waited for {what}");
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -293,7 +293,7 @@ fn a_player_follows_a_growing_playlist() {
     p.seek(secs(2.5));
     wait_for("the seek", || p.position() == secs(2.5));
     std::thread::sleep(Duration::from_millis(300));
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     assert_eq!(p.position(), secs(2.5), "the seek waits for the playlist to get there");
     set(playlist());
     wait_for("the playlist's end", || length() == Some((Some(secs(3.0)), false)));

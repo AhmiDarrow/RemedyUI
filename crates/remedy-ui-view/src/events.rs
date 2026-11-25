@@ -7,10 +7,10 @@ use remedy_ui_core::{Point, Size, Vec2};
 
 /// How far an arrow key scrolls by default ([`Ui::set_scroll_step`]), in logical pixels.
 pub const SCROLL_STEP: f32 = 40.0;
-use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
-use remedy_ui_style::States;
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::host::ImeEvent;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
+use remedy_ui_core::style::States;
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::Request;
 use crate::element::Ui;
@@ -87,7 +87,7 @@ impl Ui {
                 i.alt_tap = false;
                 i.alt_held
             };
-            if remedy_ui_reactive::untrack(|| held.get()) {
+            if remedy_ui_core::reactive::untrack(|| held.get()) {
                 held.set(false);
             }
         }
@@ -96,7 +96,7 @@ impl Ui {
     fn offer_menu_key(&self, k: &MenuKey) -> bool {
         let handlers: Vec<MenuKeyHandler> =
             self.0.borrow().menu_keys.iter().map(|(_, f)| f.clone()).collect();
-        handlers.iter().any(|f| remedy_ui_reactive::batch(|| f(k)))
+        handlers.iter().any(|f| remedy_ui_core::reactive::batch(|| f(k)))
     }
 
     /// The menu key `e` is, keeping track of Alt on its own: `None` for every other key. On
@@ -113,7 +113,7 @@ impl Ui {
                         || !e.repeat && !e.modifiers.ctrl && !e.modifiers.shift && !e.modifiers.meta);
                 tap
             };
-            if remedy_ui_reactive::untrack(|| held.get()) != e.pressed {
+            if remedy_ui_core::reactive::untrack(|| held.get()) != e.pressed {
                 held.set(e.pressed);
             }
             return (!e.pressed && tap && !apple).then_some(MenuKey::AltTap);
@@ -128,7 +128,7 @@ impl Ui {
         }
         let m = e.modifiers;
         match &e.key {
-            Key::F(10) if m == remedy_ui_input::Modifiers::NONE && !e.repeat => Some(MenuKey::F10),
+            Key::F(10) if m == remedy_ui_core::input::Modifiers::NONE && !e.repeat => Some(MenuKey::F10),
             Key::Character(c) if m.alt && !m.ctrl && !m.meta && !e.repeat && !apple => {
                 Some(MenuKey::Mnemonic(c.to_lowercase()))
             }
@@ -220,7 +220,7 @@ impl Ui {
         // tap leaves no hover look and no tooltip behind; a long press still shows them.
         let chain = self.chain(hit);
         let lifted = e.phase == PointerPhase::Cancel
-            || (e.kind == remedy_ui_input::PointerKind::Touch && e.phase == PointerPhase::Up);
+            || (e.kind == remedy_ui_core::input::PointerKind::Touch && e.phase == PointerPhase::Up);
         let old = std::mem::take(&mut self.0.borrow_mut().hovered);
         for id in old.iter().filter(|id| lifted || !chain.contains(id)) {
             self.set_state(*id, States::HOVER, false);
@@ -235,7 +235,7 @@ impl Ui {
             // A press while Alt is down makes Alt part of it (Alt+click), not a tap.
             self.0.borrow_mut().alt_tap = false;
         }
-        if e.phase == PointerPhase::Down && e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) {
+        if e.phase == PointerPhase::Down && e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY) {
             // Count presses in a row: same element, within the double-click time and a few
             // pixels (a hand moves a little between clicks).
             let mut i = self.0.borrow_mut();
@@ -255,10 +255,10 @@ impl Ui {
         }
         match e.phase {
             PointerPhase::Down
-                if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
-                    || e.buttons.contains(remedy_ui_input::Buttons::SECONDARY) =>
+                if e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
+                    || e.buttons.contains(remedy_ui_core::input::Buttons::SECONDARY) =>
             {
-                let primary = e.buttons.contains(remedy_ui_input::Buttons::PRIMARY);
+                let primary = e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY);
                 let target = chain.iter().copied().find(|id| self.clickable(*id));
                 if primary {
                     if let Some(t) = target {
@@ -318,7 +318,7 @@ impl Ui {
                     }
                 }
             }
-            PointerPhase::Move if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
+            PointerPhase::Move if e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY) => {
                 // Copy `pressed` out first: place_field marks (and may request a frame),
                 // which mutably borrows the same cell.
                 let pressed = self.0.borrow().pressed;
@@ -384,28 +384,28 @@ impl Ui {
     /// Routes a wheel or touchpad scroll to the elements under it that take scrolls
     /// ([`El::on_wheel`](crate::El::on_wheel)), innermost first. Returns true when one used it;
     /// otherwise the host scrolls the scroll containers under the pointer.
-    pub fn wheel(&self, e: &remedy_ui_input::WheelEvent) -> bool {
+    pub fn wheel(&self, e: &remedy_ui_core::input::WheelEvent) -> bool {
         let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         self.positioned(e.position, e)
     }
 
     /// Routes a touchpad pinch to the elements under it that zoom
     /// ([`El::on_pinch`](crate::El::on_pinch)). Returns true when one used it.
-    pub fn pinch(&self, e: &remedy_ui_input::PinchEvent) -> bool {
+    pub fn pinch(&self, e: &remedy_ui_core::input::PinchEvent) -> bool {
         let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         // A pinch stays with the element it started on, as a press does.
         let tree = self.tree();
         let held = self.0.borrow().pinching.filter(|p| tree.contains(*p));
         let target = match e.phase {
-            remedy_ui_input::PinchPhase::Start => tree.hit_test(e.position),
+            remedy_ui_core::input::PinchPhase::Start => tree.hit_test(e.position),
             _ => held.or_else(|| tree.hit_test(e.position)),
         };
         let Some(t) = target else { return false };
         let d = tree.dispatch(t, e).ok();
         let handled = d.as_ref().is_some_and(|d| d.handled);
         self.0.borrow_mut().pinching = match e.phase {
-            remedy_ui_input::PinchPhase::Start => d.and_then(|d| d.handled_by),
-            remedy_ui_input::PinchPhase::Change => held.or(Some(t)),
+            remedy_ui_core::input::PinchPhase::Start => d.and_then(|d| d.handled_by),
+            remedy_ui_core::input::PinchPhase::Change => held.or(Some(t)),
             _ => None,
         };
         handled
@@ -467,7 +467,7 @@ impl Ui {
     }
 
     fn route_key(&self, e: &KeyEvent) -> bool {
-        if e.pressed && e.key == remedy_ui_input::Key::Escape && self.cancel_drag() {
+        if e.pressed && e.key == remedy_ui_core::input::Key::Escape && self.cancel_drag() {
             return true;
         }
         let tree = self.tree();
@@ -528,7 +528,7 @@ impl Ui {
             }
         }
         // Copy selected text when no field holds focus (a field copies its own).
-        let cmd = if self.platform() == remedy_ui_input::Platform::Apple {
+        let cmd = if self.platform() == remedy_ui_core::input::Platform::Apple {
             e.modifiers.meta
         } else {
             e.modifiers.ctrl

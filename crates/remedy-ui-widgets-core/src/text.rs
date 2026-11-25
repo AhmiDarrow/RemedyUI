@@ -1,6 +1,6 @@
 //! Text.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_view::{El, IntoProp, RichText, Ui};
 
 /// Body text (wraps to its width): a string, or a signal or closure giving one. A variant of the style changes its look: `muted`, `small`,
@@ -47,7 +47,7 @@ pub fn heading(ui: &Ui, level: u8, s: impl IntoProp<String>) -> El {
 pub fn link(ui: &Ui, s: impl IntoProp<String>, on_activate: impl Fn() + 'static) -> El {
     let s = s.into_prop();
     let accent = ui.theme().colors.accent;
-    let color = remedy_ui_style::ensure_contrast(accent, ui.theme().colors.bg, 4.5);
+    let color = remedy_ui_core::style::ensure_contrast(accent, ui.theme().colors.bg, 4.5);
     crate::min_target(ui.el("link"))
         .cursor(remedy_ui_view::Cursor::Pointer)
         .text(s.clone().map(move |s| {

@@ -3,7 +3,7 @@
 //! `_NET_WM_STATE_SKIP_TASKBAR` and `_NET_WM_STATE_SKIP_PAGER` (no taskbar button, not in
 //! the window switcher). Window managers that follow EWMH honor them. A connection of its own.
 
-use remedy_ui_host::Unsupported;
+use remedy_ui_core::host::Unsupported;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, PropMode};
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;

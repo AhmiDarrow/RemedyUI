@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::layout::Length;
 use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 

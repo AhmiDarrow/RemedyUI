@@ -9,14 +9,14 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
-use remedy_ui_input::{
+use remedy_ui_core::input::{
     Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase,
     WheelEvent,
 };
 use remedy_ui_paint::{Affine, Brush, Filter, Item, Sampling};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{ElementId, PaintCx, WeakUi};
 
 use crate::annot::{self, Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
@@ -924,7 +924,7 @@ impl PageView {
     fn locale(&self) -> String {
         let h = self.0.host.borrow();
         let ui = h.as_ref().and_then(|(ui, _)| ui.upgrade());
-        ui.map_or_else(|| "en".to_owned(), |ui| remedy_ui_reactive::untrack(|| ui.locale()))
+        ui.map_or_else(|| "en".to_owned(), |ui| remedy_ui_core::reactive::untrack(|| ui.locale()))
     }
 
     pub(crate) fn update_page_text(&self) {
@@ -1764,7 +1764,7 @@ impl PageView {
     }
 
     pub(crate) fn wheel(&self, e: &WheelEvent) -> bool {
-        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_input::Platform::Apple);
+        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
         let zoom_key = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         if zoom_key {
             let input = self.0.input.get();
@@ -2036,7 +2036,7 @@ impl PageView {
         if !e.pressed {
             return false;
         }
-        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_input::Platform::Apple);
+        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
         let cmd = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         let ch = match &e.key {
             Key::Character(c) => Some(c.as_str()),

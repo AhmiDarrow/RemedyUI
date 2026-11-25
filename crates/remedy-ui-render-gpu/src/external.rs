@@ -145,7 +145,7 @@ impl GpuContext {
     /// made here, before `ready` runs.
     pub fn prepare_shared(
         ladder: &LadderOptions,
-        window: Arc<dyn remedy_ui_host::WindowHandles>,
+        window: Arc<dyn remedy_ui_core::host::WindowHandles>,
         ready: impl FnOnce(Result<(), GpuError>) + 'static,
     ) {
         #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -205,7 +205,7 @@ mod web {
 
     pub(super) fn prepare(
         ladder: LadderOptions,
-        window: Arc<dyn remedy_ui_host::WindowHandles>,
+        window: Arc<dyn remedy_ui_core::host::WindowHandles>,
         ready: Ready,
     ) {
         let live =

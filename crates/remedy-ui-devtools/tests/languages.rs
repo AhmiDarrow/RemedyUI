@@ -6,7 +6,7 @@
 
 use remedy_ui_core::Insets;
 use remedy_ui_devtools::{GoldenError, Preview, check_golden};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_forms::{CalendarSymbols, Date, Decimal, NumberSymbols};
@@ -73,7 +73,7 @@ fn screen(ui: &Ui) -> El {
     let number = Decimal::from_f64(1_234_567.89, 2).map(|d| NumberSymbols::for_locale(&locale).format(d, 2));
     let header = w::row(ui)
         .gap(unit * 2.0)
-        .align(remedy_ui_layout::Align::Center)
+        .align(remedy_ui_core::layout::Align::Center)
         .child(w::icon_button(ui, w::Icon::ArrowLeft, w::Icon::ArrowLeft.localized_name(ui), || {}))
         .child(w::heading(ui, 2, title))
         .child(w::spacer(ui))

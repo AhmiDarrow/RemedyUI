@@ -6,10 +6,10 @@ use std::any::Any;
 use std::rc::Rc;
 
 use remedy_ui_core::{Point, Vec2};
-use remedy_ui_host::{DragData, DragEvent, DropEffect};
-use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
-use remedy_ui_style::States;
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::host::{DragData, DragEvent, DropEffect};
+use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
+use remedy_ui_core::style::States;
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::{El, Request, Ui};
 

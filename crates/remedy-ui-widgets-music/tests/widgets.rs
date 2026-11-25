@@ -4,10 +4,10 @@
 mod common;
 
 use common::*;
-use remedy_ui_a11y::{Action, Role};
+use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_core::{Color, Point};
-use remedy_ui_input::{Buttons, Key, Modifiers, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_music::*;
 
@@ -18,7 +18,7 @@ fn mount(ui: &Ui, el: &El) {
     let _ = frame(ui);
 }
 
-fn theme_rgb(ui: &Ui, f: impl Fn(&remedy_ui_style::Theme) -> Color) -> [u8; 3] {
+fn theme_rgb(ui: &Ui, f: impl Fn(&remedy_ui_core::style::Theme) -> Color) -> [u8; 3] {
     rgb(f(&ui.theme()))
 }
 
@@ -67,7 +67,7 @@ fn settle(ui: &Ui) {
 }
 
 fn is_rtl_window(ui: &Ui) {
-    let _ = ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
 }
 
 // --- fretboard ---

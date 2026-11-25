@@ -8,11 +8,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use common::*;
-use remedy_ui_a11y::{Live, Role};
+use remedy_ui_core::a11y::{Live, Role};
 use remedy_ui_core::Point;
-use remedy_ui_input::{Buttons, Key, Modifiers, PointerPhase};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::States;
+use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerPhase};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_core as w;
@@ -230,7 +230,7 @@ fn dragging_turns_the_page_past_a_quarter_and_springs_back_short_of_it() {
 #[test]
 fn right_to_left_pages_run_from_the_right() {
     let ui = ui();
-    let _ = ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
     let clock = Clock::manual();
     let index = Signal::new(0usize);
     let pages: Vec<El> = (0..3).map(|i| w::text(&ui, format!("Slide {i}"))).collect();

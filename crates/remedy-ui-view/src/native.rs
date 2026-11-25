@@ -4,8 +4,8 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use remedy_ui_host::WindowHandles;
-use remedy_ui_tree::Dirty;
+use remedy_ui_core::host::WindowHandles;
+use remedy_ui_core::tree::Dirty;
 
 use crate::element::{El, Ui};
 use crate::{Placement, Request};
@@ -33,7 +33,7 @@ impl Ui {
     /// True while the GPU renderer draws this window, as a signal: a painter that reads it
     /// (it may, unlike the view itself, while the frame runs) records again when the window
     /// moves between renderers.
-    pub fn gpu_rendering(&self) -> remedy_ui_reactive::Signal<bool> {
+    pub fn gpu_rendering(&self) -> remedy_ui_core::reactive::Signal<bool> {
         self.0.borrow().gpu
     }
 

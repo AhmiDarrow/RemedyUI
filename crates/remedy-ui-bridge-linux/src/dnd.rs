@@ -5,7 +5,7 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use remedy_ui_host::{DragData, DropEffect};
+use remedy_ui_core::host::{DragData, DropEffect};
 
 /// How long reading a dropped offer from another app may take (Wayland) unless the app says
 /// otherwise ([`set_drop_waits`]).
@@ -90,7 +90,7 @@ pub(crate) fn preferred(allowed: &[DropEffect]) -> DropEffect {
 mod tests {
     use std::path::PathBuf;
 
-    use remedy_ui_host::{DragData, DropEffect};
+    use remedy_ui_core::host::{DragData, DropEffect};
 
     use super::{file_uri, offers, preferred};
 

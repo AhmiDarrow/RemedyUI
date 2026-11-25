@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_automation::*;
 use remedy_ui_core::Size;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request as ViewRequest, Ui};
 use remedy_ui_widgets_core as w;
@@ -142,7 +142,7 @@ fn nothing_is_visible_without_a_grant_and_reading_cannot_act() {
 
     // Stop in the indicator ends access.
     let stop = trusted(&t.ui, "Stop").must("a stop button");
-    assert!(t.ui.accessibility_action(stop.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(stop.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(agents.snapshot(&token), Err(Refused::NoAccess));
     assert!(agents.granted().is_empty());
@@ -235,7 +235,7 @@ fn destructive_commands_ask_the_person_who_alone_can_answer() {
     );
     t.fire();
     let deny = trusted(&t.ui, "Deny").must("deny");
-    assert!(t.ui.accessibility_action(deny.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(deny.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(deleted.get(), 0);
     assert_eq!(outcome.borrow().as_slice(), &[Err(Refused::Declined)]);
@@ -244,7 +244,7 @@ fn destructive_commands_ask_the_person_who_alone_can_answer() {
     assert_eq!(agents.command(&token, "chat.delete", move |r| o3.borrow_mut().push(r)), Answer::Asking);
     t.fire();
     let allow = trusted(&t.ui, "Allow").must("asked again");
-    assert!(t.ui.accessibility_action(allow.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(allow.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(deleted.get(), 1, "it runs once allowed");
     assert_eq!(outcome.borrow().last(), Some(&Ok(())));
@@ -265,7 +265,7 @@ fn confirming_grants_ask_before_every_action() {
     assert!(!noise.get());
     t.fire();
     let allow = trusted(&t.ui, "Allow").must("asked");
-    assert!(t.ui.accessibility_action(allow.node_id(), remedy_ui_a11y::Action::Click));
+    assert!(t.ui.accessibility_action(allow.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert!(noise.get() && done.get());
     assert_eq!(t.ui.next_undo().and_then(|h| h.by).as_deref(), Some("helper"));
@@ -354,7 +354,7 @@ fn agents_in_other_processes_connect_with_their_token_and_strangers_are_turned_a
     let pump = |done: &dyn Fn() -> bool| {
         let start = std::time::Instant::now();
         while !done() {
-            let _ = remedy_ui_reactive::run_posted();
+            let _ = remedy_ui_core::reactive::run_posted();
             assert!(start.elapsed() < Duration::from_secs(20), "the window answered in time");
             std::thread::yield_now();
         }

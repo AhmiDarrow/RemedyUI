@@ -3,12 +3,12 @@
 
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Key, PointerPhase};
-use remedy_ui_layout::{Length, Position};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::input::{Key, PointerPhase};
+use remedy_ui_core::layout::{Length, Position};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{Align, El, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
@@ -166,7 +166,7 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         });
         let _ = m2
             .clone()
-            .semantics(Semantics::new(Role::Button).label(label).action(remedy_ui_a11y::Action::Click));
+            .semantics(Semantics::new(Role::Button).label(label).action(remedy_ui_core::a11y::Action::Click));
     });
     let buttons = w::row(ui)
         .gap(unit / 2.0)
@@ -179,7 +179,7 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
             w::icon_button(ui, Icon::Close, crate::tr_fn(ui, "title-bar-close"), move || (a3.close)())
                 .variant("quiet"),
         );
-    let apple = ui.platform() == remedy_ui_input::Platform::Apple;
+    let apple = ui.platform() == remedy_ui_core::input::Platform::Apple;
     let mut bar = ui
         .el("title_bar")
         .row()

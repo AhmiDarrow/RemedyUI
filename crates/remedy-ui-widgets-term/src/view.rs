@@ -9,14 +9,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Live, Role, Semantics};
+use remedy_ui_core::a11y::{Live, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
-use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase, WheelEvent};
-use remedy_ui_layout::Length;
+use remedy_ui_core::host::ImeEvent;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::{Brush, DisplayList, GlyphRun, Item, Path, Stroke};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::Theme;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::Theme;
 use remedy_ui_text::{Antialias, Hinting, ParagraphOptions, RichText, RunFont, TextStyle};
 use remedy_ui_view::{El, PaintCx, TextInput, Ui};
 
@@ -225,7 +225,7 @@ struct Look {
     /// start. Otherwise each is centered in its cells.
     monospace: bool,
     /// The theme colors the palette was made from, and the program's color changes.
-    theme_colors: Option<remedy_ui_style::ColorRoles>,
+    theme_colors: Option<remedy_ui_core::style::ColorRoles>,
     overrides: Vec<(u16, (u8, u8, u8))>,
     palette: Option<Rc<Palette>>,
     /// The palette changed and the emulator should answer color queries with it.
@@ -377,7 +377,7 @@ pub fn terminal(ui: &Ui, options: TerminalOptions) -> Terminal {
     }
     emu.state.colors = theme_colors(&ui.theme());
     let tick = Signal::new(0u64);
-    let notify = remedy_ui_reactive::waker().ok().map(|w| (w, tick));
+    let notify = remedy_ui_core::reactive::waker().ok().map(|w| (w, tick));
     let shared = Shared::new(emu, notify);
     let measure = ui.el("terminal_measure").text(RichText::plain("0000000000")).nowrap().data_text();
     let measure_box = ui
@@ -402,7 +402,7 @@ pub fn terminal(ui: &Ui, options: TerminalOptions) -> Terminal {
         .child(rows_box.clone())
         .child(bottom.clone());
     // The terminal takes the room it is given, never the height of its scrollback.
-    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+    let fill = |l: &mut remedy_ui_core::layout::LayoutStyle| {
         l.grow = 1.0;
         l.min_height = Length::Px(0.0);
     };

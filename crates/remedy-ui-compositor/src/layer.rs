@@ -60,7 +60,7 @@ pub struct ScrollSnap {
     pub proximity: f32,
     /// How the container moves onto the snap point. Default a 250 ms decelerating tween;
     /// under reduced motion it jumps.
-    pub motion: remedy_ui_motion::Motion,
+    pub motion: remedy_ui_core::motion::Motion,
     /// How long the wheel must be still before its gesture counts as ended and the container
     /// settles. Default 150 ms.
     pub wheel_idle: std::time::Duration,
@@ -73,9 +73,9 @@ impl Default for ScrollSnap {
             y: Vec::new(),
             mandatory: false,
             proximity: 0.3,
-            motion: remedy_ui_motion::Motion::Tween {
+            motion: remedy_ui_core::motion::Motion::Tween {
                 duration: std::time::Duration::from_millis(250),
-                easing: remedy_ui_motion::Easing::DECELERATE,
+                easing: remedy_ui_core::motion::Easing::DECELERATE,
             },
             wheel_idle: std::time::Duration::from_millis(150),
         }

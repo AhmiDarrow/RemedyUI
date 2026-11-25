@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
+use remedy_ui_core::host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
 use zbus::{Structure, Variant as Value};
 
 const DEST: &str = "org.freedesktop.Notifications";
@@ -47,7 +47,7 @@ fn unsupported(e: impl std::fmt::Display) -> Unsupported {
 
 /// The `image-data` hint: width, height, row stride, alpha, bits per sample, channels and
 /// straight (not premultiplied) RGBA bytes.
-fn image_data(icon: &remedy_ui_host::TrayImage) -> Option<Value<'static>> {
+fn image_data(icon: &remedy_ui_core::host::TrayImage) -> Option<Value<'static>> {
     let size = i32::try_from(icon.size).ok()?;
     if icon.rgba.len() != (icon.size as usize).checked_mul(icon.size as usize)?.checked_mul(4)? {
         return None;
@@ -246,7 +246,7 @@ mod tests {
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::{Duration, Instant};
 
-    use remedy_ui_host::{HostEvent, Notification, NotificationResponse, TrayImage};
+    use remedy_ui_core::host::{HostEvent, Notification, NotificationResponse, TrayImage};
     use zbus::object_server::SignalEmitter;
     use zbus::{OwnedVariant, interface};
 
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn warnings_and_errors_carry_the_spec_urgency_and_a_stock_icon() {
-        use remedy_ui_host::Urgency;
+        use remedy_ui_core::host::Urgency;
         assert_eq!(urgency(Urgency::Info), (1, ""));
         assert_eq!(urgency(Urgency::Warning), (1, "dialog-warning"));
         assert_eq!(urgency(Urgency::Error), (2, "dialog-error"), "critical");

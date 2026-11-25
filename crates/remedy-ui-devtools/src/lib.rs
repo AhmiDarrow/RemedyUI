@@ -32,10 +32,10 @@ mod signals;
 
 /// The theme and style sheet devtools windows draw with (the first Remedy palette and the
 /// widget sheet), whatever the inspected app uses.
-pub fn tool_style() -> (remedy_ui_style::Theme, remedy_ui_style::StyleSheet) {
+pub fn tool_style() -> (remedy_ui_core::style::Theme, remedy_ui_core::style::StyleSheet) {
     let theme = remedy_ui_themes::PALETTES
         .first()
-        .map_or_else(remedy_ui_style::Theme::dark_forest, remedy_ui_themes::theme);
+        .map_or_else(remedy_ui_core::style::Theme::dark_forest, remedy_ui_themes::theme);
     let sheet = remedy_ui_themes::sheet(&theme);
     (theme, sheet)
 }

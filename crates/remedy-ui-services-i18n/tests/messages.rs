@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use remedy_ui_reactive::{Effect, Signal};
+use remedy_ui_core::reactive::{Effect, Signal};
 use remedy_ui_services_i18n::{Arg, Messages, Problem};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
@@ -32,7 +32,7 @@ fn ui() -> Ui {
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(remedy_ui_style::Theme::dark_forest(), remedy_ui_style::StyleSheet::new(), fonts)
+    Ui::new(remedy_ui_core::style::Theme::dark_forest(), remedy_ui_core::style::StyleSheet::new(), fonts)
 }
 
 /// Without the bidi isolation marks Fluent puts around placeables.
@@ -104,7 +104,7 @@ fn user_folders_override_strings_and_reload_live() {
     std::thread::sleep(Duration::from_millis(50));
     let _ = std::fs::write(dir.join("en-US.ftl"), "share = Share it all\n");
     for _ in 0..60 {
-        remedy_ui_reactive::run_posted();
+        remedy_ui_core::reactive::run_posted();
         if shown.get() == "Share it all" {
             break;
         }

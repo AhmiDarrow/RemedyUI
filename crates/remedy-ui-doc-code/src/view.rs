@@ -5,9 +5,9 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::Color;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::{RichText, TextStylePatch};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;

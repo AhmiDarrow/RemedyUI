@@ -520,7 +520,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Windows' keyboard settings, GNOME's through the desktop portal, 500 ms and 33 ms elsewhere);
   the web also reads the left stick now. `App::set_gamepad_tuning(GamepadTuning)` sets the
   app's own delay, interval and stick dead zone (0.5 by default), through
-  `Host::set_gamepad_tuning`. `remedy_ui_input::GamepadKeys` is the shared state machine,
+  `Host::set_gamepad_tuning`. `remedy_ui_core::input::GamepadKeys` is the shared state machine,
   and a platform bridge hands the shared core its pads through `PlatformHooks::gamepads`.
 - **Every controller on Windows, and the real keyboard repeat on any Linux desktop.**
   Windows now also reads PlayStation, Switch Pro and generic HID gamepads through

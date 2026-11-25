@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use js_sys::{Array, Promise, Uint8Array};
-use remedy_ui_reactive::Cancel;
+use remedy_ui_core::reactive::Cancel;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 

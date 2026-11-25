@@ -7,7 +7,7 @@
 //!
 //! ```
 //! use remedy_ui_macros::Store;
-//! use remedy_ui_reactive::Store;
+//! use remedy_ui_core::reactive::Store;
 //!
 //! #[derive(Store, Clone, PartialEq)]
 //! struct Message {
@@ -18,12 +18,12 @@
 //! let msg = Store::new(Message { body: "hi".into(), edited: false });
 //! msg.edited().set(true)?;            // wakes readers of `edited`, not of `body`
 //! assert_eq!(msg.body().get()?, "hi");
-//! # Ok::<(), remedy_ui_reactive::StoreError>(())
+//! # Ok::<(), remedy_ui_core::reactive::StoreError>(())
 //! ```
 //!
 //! The generated code names the reactive runtime the way the deriving crate depends on it:
 //! through the facade (`remedy_ui::reactive`, with `remedy_ui::Store` as the derive) when it
-//! depends on `remedy-ui`, or `remedy_ui_reactive` when it depends on that crate directly
+//! depends on `remedy-ui`, or `remedy_ui_core::reactive` when it depends on that crate directly
 //! (renamed dependencies are followed).
 //!
 //! Field names that would clash with `Field`'s own methods (`with`, `get`, `set`, `update`,
@@ -107,7 +107,7 @@ fn runtime_path() -> proc_macro2::TokenStream {
         }
         Ok(FoundCrate::Itself) => quote!(crate::reactive),
         // Neither is a dependency: the error names the crate to add.
-        Err(_) => quote!(::remedy_ui_reactive),
+        Err(_) => quote!(::remedy_ui_core::reactive),
     }
 }
 

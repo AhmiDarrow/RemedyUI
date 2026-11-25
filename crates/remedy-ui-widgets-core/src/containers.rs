@@ -1,9 +1,9 @@
 //! Containers.
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_layout::{Axis, Display, Length, Position};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::layout::{Axis, Display, Length, Position};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, IntoProp, Ui};
 
 /// Children in a column.
@@ -49,7 +49,7 @@ pub fn divider(ui: &Ui, vertical: bool) -> El {
     ui.el("divider").layout(move |l| {
         if vertical {
             l.width = Length::Px(stroke);
-            l.align_self = Some(remedy_ui_layout::Align::Stretch);
+            l.align_self = Some(remedy_ui_core::layout::Align::Stretch);
         } else {
             l.height = Length::Px(stroke);
             l.width = Length::Percent(1.0);
@@ -87,7 +87,7 @@ pub fn disclosure(ui: &Ui, title: impl IntoProp<String>, body: El, open: Signal<
         (crate::icon(ui, crate::Icon::ChevronRight, size), crate::icon(ui, crate::Icon::ChevronDown, size));
     let head = crate::min_target(ui.el("disclosure_head"))
         .row()
-        .align(remedy_ui_layout::Align::Center)
+        .align(remedy_ui_core::layout::Align::Center)
         .gap(unit * 1.5)
         .child(closed_mark.clone())
         .child(open_mark.clone())
@@ -97,7 +97,7 @@ pub fn disclosure(ui: &Ui, title: impl IntoProp<String>, body: El, open: Signal<
             Semantics::new(Role::Button)
                 .label(title.get())
                 .expanded(open.get())
-                .action(remedy_ui_a11y::Action::Click)
+                .action(remedy_ui_core::a11y::Action::Click)
         });
     let b2 = body.clone();
     let body = body.bind(move || {
@@ -130,7 +130,7 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
     });
     // The divider decides the panes' sizes, not their content: each pane may be narrower
     // (or shorter) than what is in it, which then scrolls or clips inside it.
-    let no_min = move |l: &mut remedy_ui_layout::LayoutStyle| {
+    let no_min = move |l: &mut remedy_ui_core::layout::LayoutStyle| {
         if horizontal {
             l.min_width = Length::Px(0.0);
         } else {
@@ -176,8 +176,8 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             )
         })
         .on_pointer(move |e| {
-            if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
-                && e.phase == remedy_ui_input::PointerPhase::Move
+            if e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
+                && e.phase == remedy_ui_core::input::PointerPhase::Move
             {
                 if let Some(b) = c2.bounds() {
                     // The first pane is at the start: the right, right to left.
@@ -198,10 +198,10 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             // The arrows move the divider the way they point.
             let flip = if horizontal && key_el.is_rtl() { -1.0 } else { 1.0 };
             let step = match e.key {
-                remedy_ui_input::Key::ArrowUp => -0.02,
-                remedy_ui_input::Key::ArrowDown => 0.02,
-                remedy_ui_input::Key::ArrowLeft => -0.02 * flip,
-                remedy_ui_input::Key::ArrowRight => 0.02 * flip,
+                remedy_ui_core::input::Key::ArrowUp => -0.02,
+                remedy_ui_core::input::Key::ArrowDown => 0.02,
+                remedy_ui_core::input::Key::ArrowLeft => -0.02 * flip,
+                remedy_ui_core::input::Key::ArrowRight => 0.02 * flip,
                 _ => return false,
             };
             fraction.update(|f| *f = (*f + step).clamp(0.05, 0.95));

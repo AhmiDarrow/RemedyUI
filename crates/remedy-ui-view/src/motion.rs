@@ -23,9 +23,9 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 use remedy_ui_core::{Color, Insets, Vec2};
-pub use remedy_ui_motion::{Animatable, Animation, CubicBezier, Easing, FrameClock, Motion, Spring};
-use remedy_ui_style::StylePatch;
-use remedy_ui_tree::Dirty;
+pub use remedy_ui_core::motion::{Animatable, Animation, CubicBezier, Easing, FrameClock, Motion, Spring};
+use remedy_ui_core::style::StylePatch;
+use remedy_ui_core::tree::Dirty;
 
 use crate::element::{El, ElData, Ui};
 

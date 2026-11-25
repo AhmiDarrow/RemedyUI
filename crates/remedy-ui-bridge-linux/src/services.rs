@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use remedy_ui_host::{FileDialog, TrayEvent, TrayIcon, TrayItem, Unsupported, Waker};
+use remedy_ui_core::host::{FileDialog, TrayEvent, TrayIcon, TrayItem, Unsupported, Waker};
 use zbus::object_server::SignalEmitter;
 use zbus::{OwnedVariant, Type, Variant, interface};
 

@@ -62,12 +62,12 @@ pub use source::{Cancel, PageSource, PageText, RenderError, RenderRequest, TextR
 pub use text::{Match, SearchStatus, TextPos};
 pub use view::{MAX_ZOOM, MIN_ZOOM, PageView, SETTLE};
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Vec2};
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Align, Length, Position};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::States;
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Align, Length, Position};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::States;
 use remedy_ui_view::strings::StrArg;
 use remedy_ui_view::{El, Ui};
 
@@ -134,7 +134,7 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         // The annotations on the page are read in the window's language.
         .bind(move || {
             let _ = u.locale();
-            remedy_ui_reactive::untrack(|| h.update_page_text());
+            remedy_ui_core::reactive::untrack(|| h.update_page_text());
         })
         .child(reader);
     view.attach(ui.downgrade(), el.id());

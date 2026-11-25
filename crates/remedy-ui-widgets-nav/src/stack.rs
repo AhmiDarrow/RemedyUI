@@ -4,11 +4,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Live, Role, Semantics};
+use remedy_ui_core::a11y::{Live, Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 

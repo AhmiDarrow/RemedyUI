@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, Insets};
-use remedy_ui_host::FileDialog;
-use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_core::host::FileDialog;
+use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_services_i18n::Decimal;
-use remedy_ui_style::{Density, StylePatch};
+use remedy_ui_core::style::{Density, StylePatch};
 use remedy_ui_view::{Align, El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_forms::{NumberOptions, color_picker, number_input};
@@ -115,7 +115,7 @@ pub(crate) fn search(
         .child(w::icon(ui, w::Icon::Search, ui.theme().type_scale.body + 2.0))
         .child(field.el().grow(1.0))
         .on_key(move |e| {
-            if e.pressed && e.key == remedy_ui_input::Key::Escape && !f3.is_empty() {
+            if e.pressed && e.key == remedy_ui_core::input::Key::Escape && !f3.is_empty() {
                 f3.set_value("");
                 return true;
             }
@@ -453,7 +453,7 @@ fn preview(ui: &Ui) -> El {
     w::card(ui)
         .gap(unit * 2.0)
         .padding(Insets::all(unit * 3.0))
-        .layout(|l| l.min_width = remedy_ui_layout::Length::Px(240.0))
+        .layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(240.0))
         .semantics(move || Semantics::new(Role::Group).label(group()))
         .child(w::heading(ui, 2, words(ui, "preview")))
         .child(w::text(ui, words(ui, "preview-body")))
@@ -806,7 +806,7 @@ pub fn theme_editor(ui: &Ui, c: &Customizations) -> El {
     let controls = w::column(ui)
         .gap(unit * 4.0)
         .grow(1.0)
-        .layout(|l| l.min_width = remedy_ui_layout::Length::Px(280.0))
+        .layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(280.0))
         .child(colors)
         .child(contrast_panel(ui, c))
         .child(text)

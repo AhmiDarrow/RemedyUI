@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Size};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_layout::Direction;
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::layout::Direction;
 use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;

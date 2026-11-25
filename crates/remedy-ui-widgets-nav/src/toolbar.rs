@@ -3,10 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Key, Platform};
-use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_core::input::{Key, Platform};
+use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
@@ -277,7 +277,7 @@ impl CommandPalette {
                                 .selected(i == at)
                                 .action(Action::Click),
                         );
-                    row.state(remedy_ui_style::States::SELECTED, i == at);
+                    row.state(remedy_ui_core::style::States::SELECTED, i == at);
                     let _ = l2.clone().child(row);
                 }
             });
@@ -306,7 +306,7 @@ impl CommandPalette {
         });
         let content = w::column(ui).gap(unit * 2.0).fill_width().child(field_el.clone()).child(
             w::scroll(ui).child(list).layout(|l| {
-                l.max_height = remedy_ui_layout::Length::Px(360.0);
+                l.max_height = remedy_ui_core::layout::Length::Px(360.0);
             }),
         );
         let m = w::modal(ui, crate::tr(ui, "palette-title"), content, true);

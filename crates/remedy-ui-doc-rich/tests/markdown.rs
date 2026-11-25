@@ -5,9 +5,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::Role;
+use remedy_ui_core::a11y::Role;
 use remedy_ui_doc_rich::*;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::El;
 
 mod common;
@@ -117,7 +117,7 @@ fn styled_words_and_links_in_a_paragraph() {
     assert_eq!(*opened.borrow(), ["https://example.org/guide"]);
     // So does the keyboard.
     guide.focus();
-    key(&ui, remedy_ui_input::Key::Enter, NONE);
+    key(&ui, remedy_ui_core::input::Key::Enter, NONE);
     assert_eq!(opened.borrow().len(), 2);
 }
 

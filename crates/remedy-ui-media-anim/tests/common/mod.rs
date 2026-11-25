@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_compositor::{Layer, LayerTree};
 use remedy_ui_core::Size;
-use remedy_ui_input::{Key, KeyEvent};
+use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_paint::{Image, Item};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -95,7 +95,7 @@ impl Screen {
 
     /// Runs what workers posted, then a frame.
     pub fn pump(&mut self) {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         self.frame();
     }
 

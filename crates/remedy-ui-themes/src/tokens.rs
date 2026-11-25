@@ -22,7 +22,7 @@
 use std::time::Duration;
 
 use remedy_ui_core::Color;
-use remedy_ui_style::{Density, Theme};
+use remedy_ui_core::style::{Density, Theme};
 use serde_json::{Map, Value, json};
 
 /// Why a theme file could not be read.

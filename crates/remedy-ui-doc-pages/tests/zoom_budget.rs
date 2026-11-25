@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_doc_pages::*;
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions};
 
@@ -129,7 +129,7 @@ fn run(name: &str, renderer: Renderer) -> Run {
     while s.w.view.zoom().get_untracked().unwrap_or(MAX_ZOOM) < MAX_ZOOM {
         s.frame(|w| {
             let _ = w.ui.wheel(
-                &remedy_ui_input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, -48.0))
+                &remedy_ui_core::input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, -48.0))
                     .with_modifiers(ctrl()),
             );
         });
@@ -146,7 +146,7 @@ fn run(name: &str, renderer: Renderer) -> Run {
     while s.w.view.zoom().get_untracked().unwrap_or(MIN_ZOOM) > MIN_ZOOM {
         s.frame(|w| {
             let _ = w.ui.wheel(
-                &remedy_ui_input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, 48.0))
+                &remedy_ui_core::input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, 48.0))
                     .with_modifiers(ctrl()),
             );
         });

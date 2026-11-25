@@ -1,7 +1,7 @@
 //! The browser's share sheet: `navigator.share`, with the files as `File` objects where
 //! `navigator.canShare` takes them.
 
-use remedy_ui_host::{HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported};
+use remedy_ui_core::host::{HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;

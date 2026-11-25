@@ -4,10 +4,10 @@
 mod common;
 
 use common::*;
-use remedy_ui_a11y::Role;
+use remedy_ui_core::a11y::Role;
 use remedy_ui_core::Point;
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::{
     BarsOptions, Clock, History, MeterOptions, Orientation, Range, RingOptions, SparklineOptions, bars,

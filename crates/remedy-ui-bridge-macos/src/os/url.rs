@@ -9,7 +9,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{MainThreadOnly, define_class, msg_send, sel};
 use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager};
-use remedy_ui_host::Waker;
+use remedy_ui_core::host::Waker;
 
 /// `kInternetEventClass` and `kAEGetURL`: both 'GURL'.
 const GURL: u32 = u32::from_be_bytes(*b"GURL");

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 
 use crate::{DecodeError, Decoded, Format, add_format};
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Rect};
 use remedy_ui_paint::{Image, Item, Sampling};
 use remedy_ui_view::{El, Ui};

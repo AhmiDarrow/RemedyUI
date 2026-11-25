@@ -26,11 +26,11 @@ mod hooks {
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use remedy_ui_bridge_winit::winit::window::{Window, WindowAttributes, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
-    use remedy_ui_host::{
+    use remedy_ui_core::host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, ImeEvent, ShareOptions,
         ShareStarted, SystemSettings, TextInputState, TrayIcon, Unsupported, WindowIcon,
     };
-    use remedy_ui_input::Platform;
+    use remedy_ui_core::input::Platform;
 
     use crate::os;
 
@@ -54,7 +54,7 @@ mod hooks {
         /// The share window's shares.
         sharing: os::share::Sharing,
         /// The badge every taskbar button shows, for windows opened later too.
-        badge: Option<remedy_ui_host::Badge>,
+        badge: Option<remedy_ui_core::host::Badge>,
         /// Pointing devices coming and going.
         devices: os::devices::DeviceWatch,
     }
@@ -163,7 +163,7 @@ mod hooks {
             &mut self,
             windows: &[&Window],
             _app_id: &str,
-            badge: Option<remedy_ui_host::Badge>,
+            badge: Option<remedy_ui_core::host::Badge>,
         ) -> Result<(), Unsupported> {
             self.badge = badge;
             let hwnds: Vec<isize> = windows.iter().filter_map(|w| hwnd(w)).collect();
@@ -181,7 +181,7 @@ mod hooks {
             events
         }
 
-        fn set_waker(&mut self, waker: remedy_ui_host::Waker) {
+        fn set_waker(&mut self, waker: remedy_ui_core::host::Waker) {
             os::toast::set_waker(waker.clone());
             self.devices.set_waker(waker.clone());
             self.sharing.set_waker(waker);
@@ -189,7 +189,7 @@ mod hooks {
 
         fn show_notification(
             &mut self,
-            notification: &remedy_ui_host::Notification,
+            notification: &remedy_ui_core::host::Notification,
         ) -> Result<(), Unsupported> {
             self.toasts.show(notification)
         }

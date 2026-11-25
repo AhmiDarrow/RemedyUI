@@ -22,7 +22,7 @@ fn ui() -> Ui {
 fn wait(what: &str, ok: impl Fn() -> bool) {
     let start = Instant::now();
     loop {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if ok() {
             return;
         }
@@ -165,7 +165,7 @@ fn stopping_lets_the_device_go_and_no_sound_follows() {
     wait("the device let go", || dropped.load(Ordering::Acquire));
     let after = calls.load(Ordering::Acquire);
     std::thread::sleep(Duration::from_millis(50));
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     assert_eq!(calls.load(Ordering::Acquire), after, "nothing is heard after stopping");
     assert_eq!(mic.error(), None);
 }

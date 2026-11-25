@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use remedy_ui_bridge_winit::gamepad::PadSource;
-use remedy_ui_input::{PadButtons, PadState};
+use remedy_ui_core::input::{PadButtons, PadState};
 use windows::Gaming::Input::{GameControllerButtonLabel as Label, GameControllerSwitchPosition as Hat};
 use windows_core::HSTRING;
 use windows_sys::Win32::UI::Input::XboxController::{

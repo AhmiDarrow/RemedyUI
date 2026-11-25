@@ -79,7 +79,7 @@ impl Agents {
     /// along with their tokens). Must be called on the window's thread, which must be running
     /// the reactive runtime's posted work (every bridge does).
     pub fn listen(&self) -> std::io::Result<Listener> {
-        let waker = remedy_ui_reactive::waker().map_err(std::io::Error::other)?;
+        let waker = remedy_ui_core::reactive::waker().map_err(std::io::Error::other)?;
         let socket = TcpListener::bind(("127.0.0.1", 0))?;
         let addr = socket.local_addr()?;
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -115,7 +115,7 @@ impl Agents {
 }
 
 /// Answers one connection's requests until it closes.
-fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_reactive::Waker, stop: &AtomicBool) {
+fn serve(stream: TcpStream, id: u64, waker: &remedy_ui_core::reactive::Waker, stop: &AtomicBool) {
     let Ok(mut out) = stream.try_clone() else { return };
     let (tx, rx) = channel::<String>();
     // Answers are written in the order they come, from the window's thread.

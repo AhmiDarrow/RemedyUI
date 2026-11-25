@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use remedy_lua::{Error, Lua, TableRef, Value};
-use remedy_ui_motion::{Animation, Easing, Motion, Spring};
+use remedy_ui_core::motion::{Animation, Easing, Motion, Spring};
 
 use crate::world::{Caps, Comp, CompKind, Element, Id, Owned, Ref, Signal, SignalKind, Timer, World};
 

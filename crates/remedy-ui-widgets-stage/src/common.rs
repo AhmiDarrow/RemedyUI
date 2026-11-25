@@ -6,9 +6,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Rect};
-use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
-use remedy_ui_reactive::untrack;
-use remedy_ui_style::{ColorRole, Theme};
+use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
+use remedy_ui_core::reactive::untrack;
+use remedy_ui_core::style::{ColorRole, Theme};
 use remedy_ui_view::{El, TickKind, Ui};
 use remedy_ui_viz::{Clock, Moved, Ticker};
 

@@ -119,7 +119,7 @@ fn flags(tearing: bool) -> DXGI_SWAP_CHAIN_FLAG {
     f
 }
 
-fn hwnd(handles: &dyn remedy_ui_host::WindowHandles) -> Option<HWND> {
+fn hwnd(handles: &dyn remedy_ui_core::host::WindowHandles) -> Option<HWND> {
     use raw_window_handle::RawWindowHandle;
     match handles.window_handle().ok()?.as_raw() {
         RawWindowHandle::Win32(h) => Some(HWND(h.hwnd.get() as *mut _)),
@@ -133,7 +133,7 @@ impl DxgiChain {
     /// a Win32 window: the caller presents through wgpu's own surface instead.
     pub(crate) fn new(
         device: &wgpu::Device,
-        handles: &dyn remedy_ui_host::WindowHandles,
+        handles: &dyn remedy_ui_core::host::WindowHandles,
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,

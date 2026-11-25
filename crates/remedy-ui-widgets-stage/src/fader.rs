@@ -3,12 +3,12 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
-use remedy_ui_input::PointerPhase;
-use remedy_ui_layout::Align;
+use remedy_ui_core::input::PointerPhase;
+use remedy_ui_core::layout::Align;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::{MeterOptions, Orientation, level_meter};
 

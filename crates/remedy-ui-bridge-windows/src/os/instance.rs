@@ -5,7 +5,7 @@
 use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant};
 
-use remedy_ui_host::Unsupported;
+use remedy_ui_core::host::Unsupported;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE,
     GetLastError, HANDLE, INVALID_HANDLE_VALUE,

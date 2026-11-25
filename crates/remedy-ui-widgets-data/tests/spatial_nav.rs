@@ -5,8 +5,8 @@
 mod common;
 
 use common::{NONE, audit, frame, key, ui};
-use remedy_ui_input::Key;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::Key;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 

@@ -5,11 +5,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_a11y::Role;
+use remedy_ui_core::a11y::Role;
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_doc_pages::*;
-use remedy_ui_input::{
+use remedy_ui_core::input::{
     Buttons, Key, Modifiers, PinchEvent, PinchPhase, PointerKind, PointerPhase, ScrollPhysics,
 };
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
@@ -361,7 +361,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     ui.root().child(row);
     let frame = |n: usize| {
         for _ in 0..n {
-            let _ = remedy_ui_reactive::run_posted();
+            let _ = remedy_ui_core::reactive::run_posted();
             let _ = ui.frame(WINDOW, 1.0);
             // Scroll requests are applied the way the runner applies them.
             for r in ui.take_requests() {
@@ -386,7 +386,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     let at = third.as_ref().and_then(|r| r.bounds()).map(|b| b.center()).unwrap_or_default();
     for phase in [PointerPhase::Down, PointerPhase::Up] {
         let buttons = if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() };
-        ui.pointer(&remedy_ui_input::PointerEvent::new(phase, at).with_buttons(buttons));
+        ui.pointer(&remedy_ui_core::input::PointerEvent::new(phase, at).with_buttons(buttons));
     }
     frame(5);
     assert_eq!(view.current_page().get_untracked().ok(), Some(2));
@@ -397,7 +397,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
         list.focus();
     }
     for _ in 0..10 {
-        let _ = ui.key(&remedy_ui_input::KeyEvent::press(Key::ArrowDown));
+        let _ = ui.key(&remedy_ui_core::input::KeyEvent::press(Key::ArrowDown));
         frame(1);
     }
     frame(5);
@@ -423,7 +423,7 @@ fn thumbnails_and_page_view_size_themselves_inside_plain_containers() {
     let column = ui.el("column").column().width(WINDOW.width).height(WINDOW.height).child(bar).child(row);
     ui.root().child(column);
     for _ in 0..10 {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let _ = ui.frame(WINDOW, 1.0);
         let _ = ui.take_requests();
         std::thread::sleep(Duration::from_millis(1));
@@ -511,7 +511,7 @@ fn the_app_sets_wheel_zoom_and_shortcuts_and_hears_taps() {
     // Shortcuts move, and a command runs from code.
     w.view.rebind(
         PageCommand::NextPage,
-        vec![remedy_ui_input::Chord::new(Modifiers::NONE, Key::Character("n".into()))],
+        vec![remedy_ui_core::input::Chord::new(Modifiers::NONE, Key::Character("n".into()))],
     );
     w.view.rebind(PageCommand::LastPage, Vec::new());
     assert!(w.key(Key::Character("n".into()), Modifiers::NONE));

@@ -7,10 +7,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use common::*;
-use remedy_ui_a11y::{Action, Role};
+use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_core::{Point, Vec2};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerPhase, WheelEvent};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_stage::{
@@ -24,8 +24,8 @@ fn mount(ui: &Ui, el: &El) {
     let _ = frame(ui);
 }
 
-fn semantics(el: &El) -> remedy_ui_a11y::Semantics {
-    el.info().and_then(|i| i.semantics).unwrap_or_else(|| remedy_ui_a11y::Semantics::new(Role::Group))
+fn semantics(el: &El) -> remedy_ui_core::a11y::Semantics {
+    el.info().and_then(|i| i.semantics).unwrap_or_else(|| remedy_ui_core::a11y::Semantics::new(Role::Group))
 }
 
 fn act(ui: &Ui, el: &El, a: Action) -> bool {

@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Insets, Point, Size, Vec2};
-use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
-use remedy_ui_layout::Length;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::host::ImeEvent;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{FieldKind, Request, Ui};
 
@@ -77,7 +77,7 @@ impl Screen {
 fn pointer(phase: PointerPhase, x: f32, y: f32, down: bool) -> PointerEvent {
     PointerEvent::new(phase, Point::new(x, y))
         .with_buttons(if down { Buttons::PRIMARY } else { Buttons::default() })
-        .with_modifiers(remedy_ui_input::Modifiers::NONE)
+        .with_modifiers(remedy_ui_core::input::Modifiers::NONE)
 }
 
 fn key(k: Key, text: Option<&str>, m: Modifiers) -> KeyEvent {
@@ -277,7 +277,7 @@ fn a_focus_target_takes_focus_from_code_but_tab_passes_it() {
 
 #[test]
 fn local_time_at_gives_each_instant_its_own_offset() {
-    use remedy_ui_host::{LocalTime, TimeZone};
+    use remedy_ui_core::host::{LocalTime, TimeZone};
     let ui = ui();
     // Paris: UTC+1, then UTC+2 from 2026-03-29 01:00 UTC.
     let change = 1_774_746_000;
@@ -393,8 +393,8 @@ fn scroll_containers_become_compositor_layers_and_hit_testing_follows_offsets() 
     let clicks = Rc::new(Cell::new(0));
     let list = ui.el("list").scroll().layout(|l| {
         l.height = Length::Px(100.0);
-        l.display = remedy_ui_layout::Display::Flex;
-        l.axis = remedy_ui_layout::Axis::Column;
+        l.display = remedy_ui_core::layout::Display::Flex;
+        l.axis = remedy_ui_core::layout::Axis::Column;
     });
     let list = list.child(ui.el("spacer").layout(|l| l.height = Length::Px(150.0)));
     let list = list.child(button(&ui, clicks.clone()));
@@ -453,7 +453,7 @@ fn overlays_draw_above_content_trap_focus_and_timers_fire() {
         ui.el("dialog")
             .style(StylePatch::default().background(BLUE))
             .layout(|l| {
-                l.position = remedy_ui_layout::Position::Absolute;
+                l.position = remedy_ui_core::layout::Position::Absolute;
                 l.inset = Insets::ZERO;
             })
             .focus_scope()
@@ -542,7 +542,7 @@ fn elements_report_the_signals_their_bindings_and_painters_read() {
     let reads = el.info().map(|i| i.reads).unwrap_or_default();
     assert_eq!(reads.len(), 2, "{reads:?}");
     assert!(reads.iter().all(|s| s.created_at.file().ends_with("view.rs")), "{reads:?}");
-    assert!(reads.iter().all(|s| s.kind == remedy_ui_reactive::SourceKind::Signal));
+    assert!(reads.iter().all(|s| s.kind == remedy_ui_core::reactive::SourceKind::Signal));
     assert!(reads.iter().all(|s| s.to_string().starts_with("signal at ")));
 }
 
@@ -585,14 +585,14 @@ fn focus_within_is_told_once_on_entering_and_once_on_leaving() {
     let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
     a.focus();
     let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
-    assert!(row.states().contains(remedy_ui_style::States::FOCUS_WITHIN));
+    assert!(row.states().contains(remedy_ui_core::style::States::FOCUS_WITHIN));
     b.focus();
     let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
     assert_eq!(*seen.borrow(), [true], "moving inside says nothing");
     outside.focus();
     let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
     assert_eq!(*seen.borrow(), [true, false]);
-    assert!(!row.states().contains(remedy_ui_style::States::FOCUS_WITHIN));
+    assert!(!row.states().contains(remedy_ui_core::style::States::FOCUS_WITHIN));
 }
 
 #[test]
@@ -630,7 +630,7 @@ fn truncated_text_is_cut_short_to_its_box_and_keeps_its_words() {
             ui.el("box")
                 .row()
                 .width(120.0)
-                .child(label.clone().grow(1.0).layout(|l| l.min_width = remedy_ui_layout::Length::Px(0.0))),
+                .child(label.clone().grow(1.0).layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(0.0))),
         )
         .child(ui.el("box").row().child(free.clone()));
     let _ = ui.frame(Size::new(600.0, 200.0), 1.0);
@@ -810,7 +810,7 @@ fn mv(ui: &Ui, phase: PointerPhase, x: f32, y: f32, down: bool) {
 
 #[test]
 fn elements_drag_onto_targets_inside_the_app() {
-    use remedy_ui_host::{DragData, DropEffect};
+    use remedy_ui_core::host::{DragData, DropEffect};
     use remedy_ui_view::Drag;
     let ui = ui();
     let ended = Rc::new(Cell::new(None));
@@ -860,7 +860,7 @@ fn elements_drag_onto_targets_inside_the_app() {
 
 #[test]
 fn drags_leave_for_other_apps_and_come_in_from_them() {
-    use remedy_ui_host::{DragData, DragEvent, DropEffect};
+    use remedy_ui_core::host::{DragData, DragEvent, DropEffect};
     use remedy_ui_view::Drag;
     let ui = ui();
     let ended = Rc::new(Cell::new(None));
@@ -934,8 +934,8 @@ fn scroll_containers_inside_offset_elements_show_where_they_are() {
     let ui = ui();
     let list = ui.el("list").scroll().layout(|l| {
         l.height = Length::Px(60.0);
-        l.display = remedy_ui_layout::Display::Flex;
-        l.axis = remedy_ui_layout::Axis::Column;
+        l.display = remedy_ui_core::layout::Display::Flex;
+        l.axis = remedy_ui_core::layout::Axis::Column;
     });
     let list = list.child(button(&ui, Rc::new(Cell::new(0))));
     // Two levels of offset around the scroll container.
@@ -980,7 +980,7 @@ fn what_follows_a_scroll_container_paints_above_what_came_before_it() {
 
 #[test]
 fn hover_hints_hear_drags_come_and_go_even_when_refused() {
-    use remedy_ui_host::{DragData, DragEvent, DropEffect};
+    use remedy_ui_core::host::{DragData, DragEvent, DropEffect};
     let ui = ui();
     let heard: Rc<std::cell::RefCell<Vec<Option<usize>>>> = Rc::default();
     let h2 = heard.clone();
@@ -1109,7 +1109,7 @@ fn links_in_text_follow_from_any_line_by_keyboard_and_read_as_links() {
     }
     // Screen readers get each link by its words.
     let s = ask_link.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(s.role(), remedy_ui_a11y::Role::Link);
+    assert_eq!(s.role(), remedy_ui_core::a11y::Role::Link);
     assert_eq!(s.name(), Some("ask"));
     // New text, new links.
     let _ = para.clone().text(RichText::new().text("See ").styled("help", TextStylePatch::link(3)));
@@ -1308,7 +1308,7 @@ fn a_rich_field_formats_with_shortcuts_and_lists() {
     assert_eq!(doc.blocks, [Block::Paragraph, Block::Bullet(0), Block::Bullet(1)]);
     // Screen readers get the plain text.
     let s = f.el().info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(s.role(), remedy_ui_a11y::Role::MultilineTextInput);
+    assert_eq!(s.role(), remedy_ui_core::a11y::Role::MultilineTextInput);
     // Undo takes back the nesting, then the typing.
     ui.key(&ctrl("z"));
     ui.key(&ctrl("z"));
@@ -1411,8 +1411,8 @@ fn elements_hear_when_they_are_seen_scrolled_away_hidden_or_covered() {
         .on_visibility(move |s| h2.borrow_mut().push(s));
     let list = ui.el("list").scroll().layout(|l| {
         l.height = Length::Px(100.0);
-        l.display = remedy_ui_layout::Display::Flex;
-        l.axis = remedy_ui_layout::Axis::Column;
+        l.display = remedy_ui_core::layout::Display::Flex;
+        l.axis = remedy_ui_core::layout::Axis::Column;
     });
     let list = list.child(spacer).child(target.clone());
     ui.root().child(list.clone());
@@ -1448,7 +1448,7 @@ fn reduced_motion_is_tracked_so_what_reads_it_follows_the_setting() {
     let ui = ui();
     let seen: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
     let (u2, s2) = (ui.clone(), seen.clone());
-    let _fx = remedy_ui_reactive::Effect::new(move || s2.borrow_mut().push(u2.reduced_motion()));
+    let _fx = remedy_ui_core::reactive::Effect::new(move || s2.borrow_mut().push(u2.reduced_motion()));
     ui.set_reduced_motion(true);
     ui.set_reduced_motion(true);
     ui.set_reduced_motion(false);
@@ -1533,7 +1533,7 @@ fn painters_write_text_and_know_the_layout_direction() {
     assert!(white(b.min.x + 55.0, b.max.x - 55.0));
     assert!(!white(b.min.x, b.min.x + 20.0));
     // A right-to-left window says so to its painters and elements.
-    let _ = screen.ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = screen.ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
     screen.ui.root().child(screen.ui.el("canvas").width(10.0).height(10.0).paint(move |cx| assert!(cx.rtl)));
     assert!(screen.frame());
     assert!(el.is_rtl());
@@ -1677,8 +1677,8 @@ fn a_growing_text_area_stays_in_its_column_and_scrolls() {
     let ui = ui();
     let area = ui.text_field("text_area", FieldKind::Multi);
     let column = ui.el("column").layout(|l| {
-        l.display = remedy_ui_layout::Display::Flex;
-        l.axis = remedy_ui_layout::Axis::Column;
+        l.display = remedy_ui_core::layout::Display::Flex;
+        l.axis = remedy_ui_core::layout::Axis::Column;
         l.width = Length::Px(150.0);
         l.height = Length::Px(80.0);
     });
@@ -1690,7 +1690,7 @@ fn a_growing_text_area_stays_in_its_column_and_scrolls() {
     let b = area.el().bounds().unwrap_or_default();
     assert!(b.height() <= 80.5, "the area keeps to its column: {b:?}");
     let mid = Point::new(b.min.x + 20.0, b.min.y + 20.0);
-    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, 30.0))), "its text scrolls");
+    assert!(ui.wheel(&remedy_ui_core::input::WheelEvent::new(mid, Vec2::new(0.0, 30.0))), "its text scrolls");
 }
 
 #[test]
@@ -1726,14 +1726,14 @@ fn text_taller_or_wider_than_its_field_scrolls_inside_the_box() {
 
     // The wheel scrolls back up, and hands the scroll outward once at the top.
     let mid = Point::new(b.min.x + 20.0, b.min.y + 20.0);
-    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, -1000.0))));
+    assert!(ui.wheel(&remedy_ui_core::input::WheelEvent::new(mid, Vec2::new(0.0, -1000.0))));
     s.frame();
     assert_eq!(area.index_at(Point::new(b.min.x + 1.0, b.min.y + 2.0)), Some(0), "back at the first line");
     assert!(
-        !ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, -10.0))),
+        !ui.wheel(&remedy_ui_core::input::WheelEvent::new(mid, Vec2::new(0.0, -10.0))),
         "nothing above the top"
     );
-    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, 10.0))), "more text below");
+    assert!(ui.wheel(&remedy_ui_core::input::WheelEvent::new(mid, Vec2::new(0.0, 10.0))), "more text below");
 
     // Moving the caret brings it back into view.
     ui.key(&key(Key::End, None, end));
@@ -1768,7 +1768,7 @@ fn a_clean_up_that_changes_the_view_runs_when_its_element_is_removed() {
     let (d2, c2) = (dialog.clone(), closed.clone());
     let host = host.bind(move || {
         let (d, c) = (d2.clone(), c2.clone());
-        remedy_ui_reactive::on_cleanup(move || {
+        remedy_ui_core::reactive::on_cleanup(move || {
             d.remove();
             c.set(true);
         });
@@ -1793,7 +1793,7 @@ fn a_lifted_finger_hovers_nothing() {
     ui.root().child(button(&ui, clicks.clone()).on_hover(move |inside| h2.set(inside)));
     let mut s = Screen::new(ui.clone());
     s.frame();
-    let touch = |phase, down| pointer(phase, 10.0, 10.0, down).with_kind(remedy_ui_input::PointerKind::Touch);
+    let touch = |phase, down| pointer(phase, 10.0, 10.0, down).with_kind(remedy_ui_core::input::PointerKind::Touch);
     ui.pointer(&touch(PointerPhase::Down, true));
     s.frame();
     assert!(hovered.get(), "a finger on the button hovers it (a long press shows its tooltip)");
@@ -1821,7 +1821,7 @@ fn a_text_bound_inside_a_binding_stays_on_one_line_when_told_to() {
     ui.root().child(holder.clone());
     let made: Rc<std::cell::RefCell<Vec<remedy_ui_view::El>>> = Rc::default();
     let (u, h, m) = (ui.clone(), holder.clone(), made.clone());
-    let _bind = remedy_ui_reactive::Effect::new(move || {
+    let _bind = remedy_ui_core::reactive::Effect::new(move || {
         let cut = u.el("cut").text(move || words.get()).truncate();
         let one = u.el("one").text(move || words.get()).nowrap();
         let _ = h.clone().child(cut.clone()).child(one.clone());
@@ -1886,8 +1886,8 @@ fn fields_tell_input_methods_their_purpose() {
 
 #[test]
 fn pointer_caps_follow_the_pointer_used_unless_the_platform_reports_them() {
-    use remedy_ui_host::PointerCaps;
-    use remedy_ui_input::PointerKind;
+    use remedy_ui_core::host::PointerCaps;
+    use remedy_ui_core::input::PointerKind;
     let ui = ui();
     let caps = ui.pointer_caps();
     let at = |kind| ui.pointer(&pointer(PointerPhase::Move, 5.0, 5.0, false).with_kind(kind));
@@ -1929,8 +1929,8 @@ fn a_search_field_is_a_searchbox_to_assistive_technology() {
     s.frame();
     let role_of =
         |label: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(label)).map(|n| n.role);
-    assert_eq!(role_of("Search"), Some(remedy_ui_a11y::Role::SearchInput));
-    assert_eq!(role_of("Name"), Some(remedy_ui_a11y::Role::TextInput));
+    assert_eq!(role_of("Search"), Some(remedy_ui_core::a11y::Role::SearchInput));
+    assert_eq!(role_of("Name"), Some(remedy_ui_core::a11y::Role::TextInput));
 }
 
 #[test]
@@ -1961,8 +1961,8 @@ fn scrollbar_thumbs_can_be_dragged() {
         .layout(|l| {
             l.width = Length::Px(200.0);
             l.height = Length::Px(100.0);
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Column;
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Column;
         })
         .child(ui.el("tall").layout(|l| {
             l.width = Length::Px(200.0);

@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use remedy_ui_core::Color;
-use remedy_ui_host::{ForegroundKind, MemoryPressure, NotificationResponse, SystemSettings, TrayImage};
-use remedy_ui_input::Platform;
+use remedy_ui_core::host::{ForegroundKind, MemoryPressure, NotificationResponse, SystemSettings, TrayImage};
+use remedy_ui_core::input::Platform;
 
 /// `ComponentCallbacks2.onTrimMemory` levels.
 pub mod trim {
@@ -73,9 +73,9 @@ const SOURCE_STYLUS: i32 = 0x0000_4002;
 
 /// What the input devices with these sources can do as a pointer (a mouse or touchpad, a
 /// touch screen, a stylus).
-pub fn pointer_devices(sources: &[i32]) -> Option<remedy_ui_host::PointerCaps> {
+pub fn pointer_devices(sources: &[i32]) -> Option<remedy_ui_core::host::PointerCaps> {
     let any = |s: i32| sources.iter().any(|d| d & s == s);
-    remedy_ui_host::PointerCaps::of_devices(
+    remedy_ui_core::host::PointerCaps::of_devices(
         any(SOURCE_MOUSE) || any(SOURCE_TOUCHPAD),
         any(SOURCE_TOUCHSCREEN),
         any(SOURCE_STYLUS),
@@ -125,8 +125,8 @@ pub fn argb(c: i32) -> Color {
 }
 
 /// A field's purpose as the Java half's `TextInput.PURPOSE_*` code.
-pub fn purpose_code(p: remedy_ui_host::InputPurpose) -> i32 {
-    use remedy_ui_host::InputPurpose as P;
+pub fn purpose_code(p: remedy_ui_core::host::InputPurpose) -> i32 {
+    use remedy_ui_core::host::InputPurpose as P;
     match p {
         P::Digits => 1,
         P::Decimal => 2,
@@ -143,8 +143,8 @@ pub fn purpose_code(p: remedy_ui_host::InputPurpose) -> i32 {
 
 /// An Enter key as the `EditorInfo.IME_ACTION_*` the keyboard's action key shows
 /// (`IME_ACTION_NONE`, 1: a line break).
-pub fn ime_action(k: remedy_ui_host::EnterKey) -> i32 {
-    use remedy_ui_host::EnterKey as K;
+pub fn ime_action(k: remedy_ui_core::host::EnterKey) -> i32 {
+    use remedy_ui_core::host::EnterKey as K;
     match k {
         K::Go => 2,
         K::Search => 3,
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn enter_keys_are_androids_ime_actions() {
-        use remedy_ui_host::{EnterKey, InputPurpose, TextInputState};
+        use remedy_ui_core::host::{EnterKey, InputPurpose, TextInputState};
         let mut s = TextInputState::default();
         assert_eq!(ime_action(s.enter_key()), 6, "done");
         s.purpose = InputPurpose::Search;
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn input_sources_say_what_the_pointer_can_do() {
-        use remedy_ui_host::PointerCaps;
+        use remedy_ui_core::host::PointerCaps;
         // A keyboard (SOURCE_KEYBOARD) is no pointer.
         assert_eq!(pointer_devices(&[0x0000_0101]), None);
         assert_eq!(pointer_devices(&[SOURCE_TOUCHSCREEN]), Some(PointerCaps::TOUCH), "a phone");
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(s.double_click, Duration::from_millis(300));
         assert_eq!(s.caret_blink, Some(CARET_BLINK));
         assert!(s.spatial_navigation, "a TV moves focus with its d-pad");
-        assert_eq!(s.pointer_devices, Some(remedy_ui_host::PointerCaps::TOUCH), "its touch screen");
+        assert_eq!(s.pointer_devices, Some(remedy_ui_core::host::PointerCaps::TOUCH), "its touch screen");
     }
 
     #[test]

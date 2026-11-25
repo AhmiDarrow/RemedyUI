@@ -6,7 +6,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use remedy_ui_reactive::{Cancel, Resource, Signal, run_posted, untrack};
+use remedy_ui_core::reactive::{Cancel, Resource, Signal, run_posted, untrack};
 use remedy_ui_services_net::{Http, Multipart, NetError, Request};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;

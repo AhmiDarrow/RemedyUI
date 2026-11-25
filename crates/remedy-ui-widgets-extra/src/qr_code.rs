@@ -3,11 +3,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, Point, Rect, Vec2};
-use remedy_ui_layout::Length;
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, TextPaint, Ui};
 
 use crate::qr::{EncodeOptions, QrCode, QrError};
@@ -73,7 +73,7 @@ fn code_for(cache: &RefCell<Cache>, text: &str, options: &QrOptions) -> Rc<Resul
 
 /// The module and background colors: dark on light whatever the theme, so scanners read it.
 /// They are the theme's text and background colors, the darker one for the modules.
-fn colors(theme: &remedy_ui_style::Theme) -> (Color, Color) {
+fn colors(theme: &remedy_ui_core::style::Theme) -> (Color, Color) {
     let text = theme.derive().text;
     let bg = theme.colors.bg;
     if bg.luminance() >= text.luminance() { (text, bg) } else { (bg, text) }

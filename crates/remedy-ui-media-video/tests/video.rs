@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Size};
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_media_video::*;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 use remedy_ui_text::FontCollection;
@@ -41,7 +41,7 @@ impl Screen {
 
     /// Runs posted work (frames arriving), then a frame.
     fn frame(&mut self) {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let f = self.ui.frame(Size::new(200.0, 100.0), 1.0);
         if let Some(l) = f.layers {
             self.comp.commit(l);
@@ -144,7 +144,7 @@ fn malformed_pictures_are_refused_and_a_closed_surface_says_so() {
     assert_eq!(sink.stats().dropped, 1);
     // Screen readers get an image with the label.
     let sem = el.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(sem.role(), remedy_ui_a11y::Role::Image);
+    assert_eq!(sem.role(), remedy_ui_core::a11y::Role::Image);
     assert_eq!(sem.name(), Some("Alex's screen"));
     el.remove();
     s.frame();

@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Size};
-use remedy_ui_input::{Key, KeyEvent, Modifiers, ScrollPhysics};
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::{Key, KeyEvent, Modifiers, ScrollPhysics};
+use remedy_ui_core::layout::Length;
 use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{FieldKind, TextField, Ui};
 

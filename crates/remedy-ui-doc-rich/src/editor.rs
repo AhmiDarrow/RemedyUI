@@ -6,9 +6,9 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Live, Role, Semantics};
-use remedy_ui_input::Key;
-use remedy_ui_style::States;
+use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::style::States;
 use remedy_ui_text::{Block, Mark, RichEditor};
 use remedy_ui_view::{El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
@@ -162,7 +162,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
         });
     }
     let field_el =
-        field.el().fill_width().layout(|l| l.min_height = remedy_ui_layout::Length::Px(unit * 10.0));
+        field.el().fill_width().layout(|l| l.min_height = remedy_ui_core::layout::Length::Px(unit * 10.0));
     let root = ui.el("rich_editor").column().fill_width().gap(unit);
 
     // ---------- the toolbar ----------
@@ -337,7 +337,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     // Ctrl+K (Command+K) opens the link box.
     {
         let (open, anchor) = (open_link_box, link_button);
-        let platform_meta = ui.platform() == remedy_ui_input::Platform::Apple;
+        let platform_meta = ui.platform() == remedy_ui_core::input::Platform::Apple;
         let _ = field_el.on_key(move |e| {
             let cmd = if platform_meta { e.modifiers.meta } else { e.modifiers.ctrl };
             if e.pressed && cmd && matches!(&e.key, Key::Character(c) if c.eq_ignore_ascii_case("k")) {
@@ -407,7 +407,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                         .child(w::icon(&ui, Icon::At, ui.theme().type_scale.body))
                         .child(w::text(&ui, c.name.clone()).data_text())
                         .on_pointer(move |e| {
-                            if e.phase == remedy_ui_input::PointerPhase::Down {
+                            if e.phase == remedy_ui_core::input::PointerPhase::Down {
                                 ins(i);
                                 return true;
                             }

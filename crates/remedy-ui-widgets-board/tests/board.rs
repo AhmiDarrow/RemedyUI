@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_script_lua::LuaEngine;
 use remedy_ui_script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;

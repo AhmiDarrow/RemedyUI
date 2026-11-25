@@ -10,7 +10,7 @@ use std::time::Duration;
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
 use remedy_ui_doc_pages::*;
-use remedy_ui_input::{Buttons, Key, Modifiers, PointerKind, PointerPhase, ScrollPhysics};
+use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerKind, PointerPhase, ScrollPhysics};
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 
 mod common;

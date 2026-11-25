@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use remedy_ui_bridge_winit::winit::window::WindowId;
 use remedy_ui_core::Point;
-use remedy_ui_host::{DragData, DragEvent, DropEffect, Unsupported};
+use remedy_ui_core::host::{DragData, DragEvent, DropEffect, Unsupported};
 use wayland_client::backend::ObjectId;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_data_device::{self, WlDataDevice};

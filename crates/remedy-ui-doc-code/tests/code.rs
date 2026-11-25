@@ -3,7 +3,7 @@
 
 use remedy_ui_core::Size;
 use remedy_ui_doc_code::*;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
 
@@ -176,7 +176,7 @@ fn highlighting_after_an_edit_colors_only_what_changed() {
 
 #[test]
 fn the_code_editor_types_at_several_cursors_and_numbers_its_lines() {
-    use remedy_ui_input::{Key, KeyEvent, Modifiers};
+    use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
     let ui = ui();
     let (el, field) = code_editor(&ui, "main.rs", "let a = 1;\nlet b = 2;", {
         let mut v_ = CodeOptions::default();
