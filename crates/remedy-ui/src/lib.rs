@@ -65,9 +65,9 @@ pub use movable::{Movable, movable};
 /// Editions: which default behaviors the app follows ([`AppConfig::edition`]).
 pub use remedy_ui_core::Edition;
 pub use runner::{
-    App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window,
-    WindowSpec, bundled_fonts,
+    App, AppConfig, BackgroundJob, Cancelled, CloseReason, Completion, GPU_PROMOTE_FRAME_COST,
+    GPU_PROMOTE_FRAME_STALL, GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner,
+    SINGLE_INSTANCE_REPLY, Window, WindowSpec, bundled_fonts,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read

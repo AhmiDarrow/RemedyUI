@@ -51,6 +51,14 @@ pub struct ChordShape {
     pub barres: Vec<Barre>,
     /// How many fret rows to draw; `None` takes enough for the chord, at least four.
     pub rows: Option<u32>,
+    /// The strings that sound the chord's root: their dot (or their O) is drawn in the root
+    /// colour.
+    pub roots: Vec<usize>,
+    /// What each string's dot says in place of its finger number (a scale degree, "R"), by
+    /// string; `None`, or no entry, leaves the finger.
+    pub labels: Vec<Option<String>>,
+    /// A name under each string (the tuning, low to high); empty for no row.
+    pub string_names: Vec<String>,
 }
 
 impl ChordShape {
@@ -63,6 +71,9 @@ impl ChordShape {
             base_fret: 1,
             barres: Vec::new(),
             rows: None,
+            roots: Vec::new(),
+            labels: Vec::new(),
+            string_names: Vec::new(),
         };
         c.base_fret = c.suggested_base_fret();
         c
@@ -72,6 +83,24 @@ impl ChordShape {
     pub fn with_barre(mut self, barre: Barre) -> ChordShape {
         self.barres.push(barre);
         self.base_fret = self.suggested_base_fret();
+        self
+    }
+
+    /// Marks the strings that sound the root.
+    pub fn with_roots(mut self, strings: Vec<usize>) -> ChordShape {
+        self.roots = strings;
+        self
+    }
+
+    /// Writes `labels` on the dots, by string, in place of finger numbers.
+    pub fn with_labels(mut self, labels: Vec<Option<String>>) -> ChordShape {
+        self.labels = labels;
+        self
+    }
+
+    /// Names the strings under the box, lowest first.
+    pub fn with_string_names(mut self, names: Vec<String>) -> ChordShape {
+        self.string_names = names;
         self
     }
 
@@ -230,7 +259,8 @@ impl Metrics {
         // Room for the "5fr" label beside the first row.
         let side = if chord.base_fret > 1 { unit * 8.0 * s } else { pad };
         let width = pad + (n - 1) as f32 * cell_w + side;
-        let height = head + marks + rows as f32 * cell_h + pad;
+        let names = if chord.string_names.is_empty() { 0.0 } else { unit * 4.0 * s };
+        let height = head + marks + rows as f32 * cell_h + names + pad;
         Metrics { n, rows, cell_w, cell_h, pad, head, marks, width, height }
     }
 }
@@ -300,7 +330,14 @@ pub fn chord_diagram(
         let in_view = |fret: u32| fret >= ch.base_fret && fret < ch.base_fret + m.rows;
         let finger =
             |center: Point, f: Option<u8>| f.filter(|_| options.fingers).map(|f| (center, f.to_string()));
-        let mut labels: Vec<(Point, String)> = Vec::new();
+        // A string's own label goes before its finger number.
+        let said = |s: usize, center: Point, f: Option<u8>| match ch.labels.get(s).cloned().flatten() {
+            Some(text) => Some((center, text)),
+            None => finger(center, f),
+        };
+        let root_ink = remedy_ui_style::ensure_contrast(c.bg, c.warn, 4.5);
+        // The text on each dot, and whether the dot is a root (its ink differs).
+        let mut labels: Vec<(Point, String, bool)> = Vec::new();
         // Barres under the dots.
         for b in &ch.barres {
             if !in_view(b.fret) || b.from >= m.n || b.to >= m.n {
@@ -314,7 +351,7 @@ pub fn chord_diagram(
                 CornerRadii::all(r),
                 Brush::Solid(c.accent),
             );
-            labels.extend(finger(Point::new((x0 + x1) / 2.0, y), b.finger));
+            labels.extend(finger(Point::new((x0 + x1) / 2.0, y), b.finger).map(|(at, t)| (at, t, false)));
         }
         // Per-string marks.
         for (s, st) in ch.strings.iter().enumerate() {
@@ -335,7 +372,8 @@ pub fn chord_diagram(
                 StringState::Open => {
                     let y = top - m.marks / 2.0;
                     let q = r * 0.6;
-                    cx.list.border(Rect::new(x - q, y - q, x + q, y + q), CornerRadii::all(q), 1.5, d.muted);
+                    let ring = if ch.roots.contains(&s) { c.warn } else { d.muted };
+                    cx.list.border(Rect::new(x - q, y - q, x + q, y + q), CornerRadii::all(q), 1.5, ring);
                 }
                 StringState::Fretted { fret, finger: f } => {
                     if !in_view(*fret) {
@@ -346,23 +384,38 @@ pub fn chord_diagram(
                         .barres
                         .iter()
                         .any(|b| b.fret == *fret && (b.from.min(b.to)..=b.from.max(b.to)).contains(&s));
-                    if !covered {
+                    let root = ch.roots.contains(&s);
+                    let own = ch.labels.get(s).is_some_and(Option::is_some);
+                    // A root, or a string with its own label, shows its dot over a barre too.
+                    if !covered || root || own {
                         cx.list.fill_rounded(
                             Rect::new(center.x - r, center.y - r, center.x + r, center.y + r),
                             CornerRadii::all(r),
-                            Brush::Solid(c.accent),
+                            Brush::Solid(if root { c.warn } else { c.accent }),
                         );
-                        labels.extend(finger(center, *f));
+                        labels.extend(said(s, center, *f).map(|(at, t)| (at, t, root)));
                     }
                 }
             }
         }
-        for (at, text) in labels {
+        for (at, text, root) in labels {
+            // Two characters ("b3", "R5") still fit the dot.
+            let size = (r * if text.chars().count() > 1 { 1.15 } else { 1.5 }).max(8.0);
+            let color = if root { root_ink } else { d.on_accent };
+            cx.text(&text, at, Vec2::new(0.5, 0.5), TextPaint { size, weight: 600.0, color, mono: false });
+        }
+        // The strings' names under the box.
+        for (s, name) in ch.string_names.iter().enumerate().take(m.n) {
             cx.text(
-                &text,
-                at,
+                name,
+                Point::new(x_of(s), bottom + unit * 2.4 * options.scale.max(0.25)),
                 Vec2::new(0.5, 0.5),
-                TextPaint { size: (r * 1.5).max(8.0), weight: 600.0, color: d.on_accent, mono: false },
+                TextPaint {
+                    size: cx.theme.type_scale.small * options.scale.clamp(0.6, 2.0),
+                    weight: 400.0,
+                    color: d.muted,
+                    mono: false,
+                },
             );
         }
         // Where the diagram starts.

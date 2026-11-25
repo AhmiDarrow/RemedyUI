@@ -75,6 +75,7 @@ mod capture;
 mod cue_layout;
 pub mod deps;
 mod engine;
+mod feed;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
 // shortcut: macOS only refuses playlists (no `Elementary` there yet); a page reads HLS through
@@ -92,11 +93,13 @@ mod mkv;
 mod mp4;
 #[allow(unsafe_code)]
 mod os;
+mod pcm;
 mod player;
 #[cfg(feature = "media-session")]
 mod session;
 mod stretch;
 mod subtitles;
+pub mod synth;
 mod widget;
 
 use std::sync::Arc;
@@ -104,13 +107,17 @@ use std::sync::Arc;
 pub use capture::{Microphone, MicrophoneOptions, MicrophoneState};
 pub use deps::{DependencyState, MissingDependency};
 pub use engine::{PlaybackState, PlaybackStats};
+pub use feed::AudioFeed;
 pub use host::{
-    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, MediaError, MediaHost, MediaInfo,
-    MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource, ScreenStream,
-    TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder,
-    YuvMatrix, merge_ranges,
+    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaBytes, MediaError, MediaHost,
+    MediaInfo, MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource,
+    ScreenStream, TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder,
+    VideoStreamEncoder, YuvMatrix, merge_ranges, open_source,
 };
 pub use limits::{MediaLimits, media_limits, set_media_limits};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub use pcm::decode_pcm_blocking;
+pub use pcm::{decode_pcm, resample, to_mono};
 pub use player::{
     CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, PipWindowOpener, Player, PlayerOptions,
     Remote, RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,

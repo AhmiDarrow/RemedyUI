@@ -208,6 +208,12 @@ impl Host for WebHost<'_> {
         }
     }
 
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+        if let Some(w) = self.win(window) {
+            w.set_cursor(cursor);
+        }
+    }
+
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
         let _ = window;
         if on {

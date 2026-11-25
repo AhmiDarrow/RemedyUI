@@ -174,7 +174,10 @@ mod hooks {
             if let Some(name) = &dialog.file_name {
                 d = d.set_file_name(name);
             }
-            for (name, exts) in &dialog.filters {
+            // The panel allows the union of its filters and has no list to pick one from,
+            // so a filter for every file (an extension of `*`) means no filter at all.
+            let everything = dialog.filters.iter().any(|(_, exts)| exts.iter().any(|e| e == "*"));
+            for (name, exts) in dialog.filters.iter().filter(|_| !everything) {
                 d = d.add_filter(name, exts);
             }
             if let Some(w) = window {

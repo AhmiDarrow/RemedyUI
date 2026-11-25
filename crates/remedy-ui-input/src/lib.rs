@@ -16,12 +16,14 @@
 //! See `docs/design/06-input-and-motion.md`.
 
 mod commands;
+mod cursor;
 pub mod events;
 pub mod gamepad;
 mod gesture;
 mod scroll;
 
 pub use commands::{Chord, ChordError, Clash, Command, CommandTable, Conflict, Scope};
+pub use cursor::Cursor;
 pub use events::{
     Buttons, Key, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind,
     PointerPhase, WheelEvent,

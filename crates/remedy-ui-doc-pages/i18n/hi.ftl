@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] दीर्घवृत्त
     [line] रेखा
     [arrow] तीर
+    [image] चित्र
    *[annotation] एनोटेशन
 }
 annotation-quoting = { $what }: “{ $text }”
@@ -38,6 +39,7 @@ undo-add = { $kind ->
     [ellipse] दीर्घवृत्त जोड़ें
     [line] रेखा जोड़ें
     [arrow] तीर जोड़ें
+    [image] चित्र जोड़ें
    *[annotation] एनोटेशन जोड़ें
 }
 undo-change = { $kind ->
@@ -52,6 +54,7 @@ undo-change = { $kind ->
     [ellipse] दीर्घवृत्त बदलें
     [line] रेखा बदलें
     [arrow] तीर बदलें
+    [image] चित्र बदलें
    *[annotation] एनोटेशन बदलें
 }
 undo-delete = { $kind ->
@@ -66,6 +69,7 @@ undo-delete = { $kind ->
     [ellipse] दीर्घवृत्त हटाएँ
     [line] रेखा हटाएँ
     [arrow] तीर हटाएँ
+    [image] चित्र हटाएँ
    *[annotation] एनोटेशन हटाएँ
 }
 undo-move = { $kind ->
@@ -80,5 +84,6 @@ undo-move = { $kind ->
     [ellipse] दीर्घवृत्त खिसकाएँ
     [line] रेखा खिसकाएँ
     [arrow] तीर खिसकाएँ
+    [image] चित्र ले जाएँ
    *[annotation] एनोटेशन खिसकाएँ
 }

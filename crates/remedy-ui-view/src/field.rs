@@ -1649,7 +1649,7 @@ impl Ui {
     /// A text field element of `kind`, styled as `widget`.
     #[track_caller]
     pub fn text_field(&self, widget: &'static str, kind: FieldKind) -> TextField {
-        let el = self.el(widget).focusable(true);
+        let el = self.el(widget).focusable(true).cursor(remedy_ui_input::Cursor::Text);
         let scale = self.0.borrow().scale;
         let look = rich_look(&self.0.borrow().theme);
         // The style the element has now: a frame restyles a field only when its style changes,

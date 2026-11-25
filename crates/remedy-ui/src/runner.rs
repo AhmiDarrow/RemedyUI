@@ -732,6 +732,7 @@ impl Cancelled {
 enum Cmd {
     Open(u64, WindowSpec, Build),
     Close(u64),
+    QuitNow,
     Visible(u64, bool),
     Focus(u64),
     OnTop(u64, bool),
@@ -850,6 +851,10 @@ struct Shared {
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told when the app may be ended without another word ([`App::on_leaving`]).
     on_leaving: Option<Rc<dyn Fn(Leaving)>>,
+    /// Asked before a window closes ([`Window::on_close_request`]), by window key.
+    close_asks: HashMap<u64, CloseAsk>,
+    /// Told when the app is back after [`Leaving::Hidden`] or [`Leaving::Frozen`].
+    on_return: Option<Rc<dyn Fn()>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
     /// Hears the app's language (its own, or the system's) when it changes.
@@ -881,6 +886,20 @@ struct Shared {
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
     #[cfg(feature = "agents")]
     agents: HashMap<u64, remedy_ui_automation::Agents>,
+}
+
+/// Asked before a window closes; false keeps it open.
+type CloseAsk = Rc<dyn Fn(CloseReason) -> bool>;
+
+/// Why a window is asked to close ([`Window::on_close_request`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CloseReason {
+    /// The person asked to close this window: its close button, Alt+F4 or the platform's
+    /// own shortcut, or a back action nothing took.
+    Window,
+    /// The app was asked to quit ([`App::quit`]).
+    Quit,
 }
 
 /// Why the app may be ended ([`App::on_leave`]).
@@ -1040,6 +1059,15 @@ impl App {
     /// [`Leaving::Quitting`] only. A second call replaces `f`.
     pub fn on_leave(&self, f: impl Fn(Leaving) + 'static) {
         self.0.borrow_mut().on_leaving = Some(Rc::new(f));
+    }
+
+    /// Calls `f` when the app is back in front of the person after [`on_leave`](Self::on_leave)
+    /// reported [`Leaving::Hidden`] or [`Leaving::Frozen`]: a window is in sight again, the
+    /// page's tab is shown again, a phone app returns to the foreground. Work stopped on
+    /// leaving (playback, a microphone, polling) starts again here. Not called at launch.
+    /// A second call replaces `f`.
+    pub fn on_return(&self, f: impl Fn() + 'static) {
+        self.0.borrow_mut().on_return = Some(Rc::new(f));
     }
 
     /// Calls `f(prefers_dark, high_contrast)` with the system's appearance now (once the
@@ -1278,9 +1306,17 @@ impl App {
         }
     }
 
-    /// Quits.
+    /// Quits, after asking every window that has a close-request handler
+    /// ([`Window::on_close_request`], with [`CloseReason::Quit`]). The first that refuses
+    /// stops the quit; the windows after it are not asked.
     pub fn quit(&self) {
         self.push(Cmd::Quit);
+    }
+
+    /// Quits without asking any window: for after a Save or Discard answer to a prompt a
+    /// close-request handler opened.
+    pub fn quit_now(&self) {
+        self.push(Cmd::QuitNow);
     }
 
     /// True while a tray icon asked for with [`App::set_tray`] or [`App::tray_dyn`] is shown;
@@ -1828,9 +1864,25 @@ impl Window {
         self.app.0.borrow().visible.get(&self.key).copied().unwrap_or(false)
     }
 
-    /// Closes the window.
+    /// Closes the window, without asking its close-request handler: the app has decided.
     pub fn close(&self) {
         self.app.push(Cmd::Close(self.key));
+    }
+
+    /// Asks `f` before this window closes because the person asked (its close button,
+    /// Alt+F4, a back action nothing took) or because the app was told to quit
+    /// ([`App::quit`]). `f` returns true to let it close and false to keep it open: an
+    /// editor with unsaved work returns false, opens its Save / Discard / Cancel prompt, and
+    /// on Save or Discard calls [`Window::close`] (or [`App::quit_now`] when the reason was
+    /// [`CloseReason::Quit`]), neither of which asks again. A window that hides or minimizes
+    /// on close is not closing and is not asked. A second call replaces `f`.
+    pub fn on_close_request(&self, f: impl Fn(CloseReason) -> bool + 'static) {
+        self.app.0.borrow_mut().close_asks.insert(self.key, Rc::new(f));
+    }
+
+    /// Removes the close-request handler: the window closes when asked to.
+    pub fn clear_close_request(&self) {
+        self.app.0.borrow_mut().close_asks.remove(&self.key);
     }
 
     /// Shows or hides. Where the platform cannot hide an open window ([`Window::can_hide`]
@@ -2220,6 +2272,8 @@ struct Win {
     pan: Option<TouchPan>,
     /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
     cursor_hidden: bool,
+    /// The pointer shape the host was last told ([`Ui::cursor`]).
+    cursor: remedy_ui_view::Cursor,
     /// Middle-button autoscroll in progress ([`Autoscroll`]).
     autoscroll: Option<Autoscroll>,
 }
@@ -2264,6 +2318,9 @@ struct TouchPan {
     last: Point,
     scrolling: bool,
     layer: Option<LayerId>,
+    /// The view scrolls under the finger itself (an element that takes the wheel: a page
+    /// view, a text area), so the drag reaches it as wheel movement.
+    by_view: bool,
     velocity: VelocityTracker,
     /// Fires when the finger has rested long enough to be a long press.
     hold: Option<TimerId>,
@@ -2310,10 +2367,20 @@ impl Win {
                     down: e,
                     scrolling: false,
                     layer: None,
+                    by_view: false,
                     velocity,
                     hold: None,
                 });
                 return Vec::new();
+            }
+            // A second finger: the view has both from here on (a pinch, a two-finger pan),
+            // the first from where it is now. Held back, it would leave the view one finger.
+            if e.phase == PointerPhase::Down
+                && let Some(first) = self.pan.take()
+            {
+                let mut down = first.down;
+                down.position = first.last;
+                return vec![down, e];
             }
             return vec![e];
         };
@@ -2325,16 +2392,24 @@ impl Win {
                     return Vec::new();
                 }
                 p.scrolling = true;
-                let d = Vec2::new((p.last.x - e.position.x) * s, (p.last.y - e.position.y) * s);
+                let moved = Vec2::new(p.last.x - e.position.x, p.last.y - e.position.y);
+                let d = Vec2::new(moved.x * s, moved.y * s);
                 p.last = e.position;
                 let at = Point::new(e.position.x * s, e.position.y * s);
                 match self.comp.as_mut().and_then(|c| c.scroll_at(at, d)) {
                     Some(l) => p.layer = Some(l),
-                    // Nothing under the finger scrolls sideways: a sideways drag is the view's
-                    // (a slider, a drag and drop).
-                    None if p.layer.is_none() && dx.abs() > dy.abs() => {
-                        let down = self.pan.take().map(|p| p.down);
-                        return down.into_iter().chain([e]).collect();
+                    None if p.layer.is_none() => {
+                        // No scroll container under the finger. An element that scrolls
+                        // itself takes the drag as it takes the wheel.
+                        let wheel = remedy_ui_input::WheelEvent::new(e.position, moved).with_precise(true);
+                        if self.ui.wheel(&wheel) {
+                            p.by_view = true;
+                        } else if !p.by_view && dx.abs() > dy.abs() {
+                            // Nothing scrolls sideways here: a sideways drag is the view's
+                            // (a slider, a drag and drop).
+                            let down = self.pan.take().map(|p| p.down);
+                            return down.into_iter().chain([e]).collect();
+                        }
                     }
                     None => {}
                 }
@@ -2406,6 +2481,8 @@ pub struct Runner {
     midnight_timer: Option<TimerId>,
     /// Between `Suspended` and the next `Resumed`: the windows have no surfaces to draw in.
     suspended: bool,
+    /// The app was told it is hidden or frozen and has not been told it is back.
+    away: bool,
     /// File dialogs the platform answers later, and what to call with the choice.
     dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
     /// Permission requests the platform answers later, and what to call with the answer.
@@ -2538,6 +2615,7 @@ impl Runner {
             idle_timer: None,
             midnight_timer: None,
             suspended: false,
+            away: false,
             dialogs: HashMap::new(),
             permissions: HashMap::new(),
             shares: HashMap::new(),
@@ -2668,6 +2746,7 @@ impl Runner {
                         held: None,
                         pan: None,
                         cursor_hidden: false,
+                        cursor: remedy_ui_view::Cursor::Default,
                         autoscroll: None,
                         host: id,
                         ui: ui.clone(),
@@ -2948,6 +3027,15 @@ impl Runner {
                 self.schedule_save(host);
             }
             Cmd::Quit => {
+                // In the order the windows were opened; the first refusal stops the quit.
+                let mut keys: Vec<u64> = self.wins.keys().copied().collect();
+                keys.sort_unstable();
+                if keys.into_iter().all(|key| self.may_close(key, CloseReason::Quit)) {
+                    self.save_now(host, Leaving::Quitting);
+                    host.exit();
+                }
+            }
+            Cmd::QuitNow => {
                 self.save_now(host, Leaving::Quitting);
                 host.exit();
             }
@@ -2975,6 +3063,13 @@ impl Runner {
             host.set_cursor_hidden(h, hide);
             if let Some(w) = self.wins.get_mut(&key) {
                 w.cursor_hidden = hide;
+            }
+        }
+        let shape = ui.cursor();
+        if self.wins.get(&key).is_some_and(|w| w.cursor != shape) {
+            host.set_cursor(h, shape);
+            if let Some(w) = self.wins.get_mut(&key) {
+                w.cursor = shape;
             }
         }
         for r in ui.take_requests() {
@@ -3137,9 +3232,16 @@ impl Runner {
         } else if hide {
             host.set_visible(window, false);
             self.app.note_visible(key, false);
-        } else {
+        } else if self.may_close(key, CloseReason::Window) {
             host.close_window(window);
         }
+    }
+
+    /// Asks the window's close-request handler, if it has one. The handler is called with no
+    /// borrow held, so it may open a prompt, close windows or quit.
+    fn may_close(&self, key: u64, why: CloseReason) -> bool {
+        let ask = self.app.0.borrow().close_asks.get(&key).cloned();
+        ask.is_none_or(|f| f(why))
     }
 
     /// Writes window geometry and persisted state now: before the app quits, and when it may
@@ -3148,6 +3250,7 @@ impl Runner {
     /// Geometry is written when a write is due (or `always`, when the app quits).
     fn save_now(&mut self, host: &mut dyn Host, why: Leaving) {
         let always = why == Leaving::Quitting;
+        self.away |= matches!(why, Leaving::Hidden | Leaving::Frozen);
         self.leaving(why);
         let due = self.save_timer.take().inspect(|t| host.cancel_timer(*t)).is_some();
         if due || always {
@@ -3156,6 +3259,16 @@ impl Runner {
         let store = self.app.0.borrow().persist.clone();
         if let Some(s) = store {
             let _ = s.flush();
+        }
+    }
+
+    /// Tells the app it is back, once, after it was told it was hidden or frozen.
+    fn returned(&mut self) {
+        if std::mem::take(&mut self.away) {
+            let f = self.app.0.borrow().on_return.clone();
+            if let Some(f) = f {
+                f();
+            }
         }
     }
 
@@ -3694,6 +3807,7 @@ impl remedy_ui_host::App for Runner {
         match event {
             HostEvent::Resumed => {
                 self.suspended = false;
+                self.returned();
                 remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
                     #[cfg(all(
@@ -3790,6 +3904,8 @@ impl remedy_ui_host::App for Runner {
                 // system may end the app from here on, so what it keeps is written now.
                 if covered && self.wins.values().all(|w| w.ui.is_occluded()) {
                     self.save_now(host, Leaving::Hidden);
+                } else if !covered {
+                    self.returned();
                 }
             }
             HostEvent::Moved(window, _) => {
@@ -4032,6 +4148,7 @@ impl remedy_ui_host::App for Runner {
                         s.open.remove(&key);
                         let ui = s.uis.remove(&key);
                         s.visible.remove(&key);
+                        s.close_asks.remove(&key);
                         s.unhideable.remove(&key);
                         s.on_geometry.remove(&key);
                         s.on_visibility.remove(&key);

@@ -56,6 +56,84 @@ pub fn markdown(ui: &Ui, source: impl IntoProp<String>, open: impl Fn(&str) + 's
     }
 }
 
+/// A heading's id, as web renderers make it: its text in lower case, letters and digits
+/// kept, spaces and hyphens as hyphens, everything else dropped ("What's new?" is
+/// `whats-new`). It is what a link to `#whats-new` names.
+pub fn heading_id(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.trim().chars() {
+        if c.is_alphanumeric() || c == '_' {
+            out.extend(c.to_lowercase());
+        } else if c.is_whitespace() || c == '-' {
+            out.push('-');
+        }
+    }
+    out
+}
+
+/// The ids of headings in order, with a second "Setup" as `setup-1` and a third as
+/// `setup-2`, so every heading has its own.
+fn unique_ids<'a>(texts: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    texts
+        .map(|t| {
+            let id = heading_id(t);
+            let n = seen.entry(id.clone()).or_insert(0);
+            *n += 1;
+            if *n == 1 { id } else { format!("{id}-{}", *n - 1) }
+        })
+        .collect()
+}
+
+/// The headings of Markdown `source` in order: level (1 to 6), text and id, for a table of
+/// contents whose entries call [`scroll_to_heading`].
+pub fn headings(source: &str) -> Vec<(u8, String, String)> {
+    let mut found: Vec<(u8, String)> = Vec::new();
+    let mut open: Option<(u8, String)> = None;
+    for ev in Parser::new_ext(source, options()) {
+        match ev {
+            Event::Start(Tag::Heading { level, .. }) => open = Some((level as u8, String::new())),
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((_, text)) = open.as_mut() {
+                    text.push_str(&t);
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => found.extend(open.take()),
+            _ => {}
+        }
+    }
+    let ids = unique_ids(found.iter().map(|(_, t)| t.as_str()));
+    found.into_iter().zip(ids).map(|((level, text), id)| (level, text, id)).collect()
+}
+
+/// Scrolls the heading with `id` ([`heading_id`]; a leading `#` is fine) of a [`markdown`]
+/// element into view, in whatever scrolls around it. `false` when it has no such heading.
+/// Links inside the document to `#an-id` do this themselves.
+pub fn scroll_to_heading(markdown: &El, id: &str) -> bool {
+    let id = id.trim_start_matches('#');
+    let mut found = Vec::new();
+    let mut stack = vec![markdown.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_some_and(|i| i.widget == "heading") {
+            found.push(e.clone());
+        }
+        let mut kids = e.child_elements();
+        kids.reverse();
+        stack.extend(kids);
+    }
+    let texts: Vec<String> = found.iter().map(|e| e.text_content().unwrap_or_default()).collect();
+    let ids = unique_ids(texts.iter().map(String::as_str));
+    match ids.iter().position(|have| have == id) {
+        Some(at) => {
+            if let Some(e) = found.get(at) {
+                e.scroll_into_view();
+            }
+            true
+        }
+        None => false,
+    }
+}
+
 /// The plain text of Markdown `source`, as it reads: for previews, notifications and
 /// search.
 pub fn plain_text(source: &str) -> String {
@@ -197,9 +275,18 @@ impl Builder<'_> {
         }
         let links = Rc::new(inl.links);
         let open = self.open_link.clone();
+        let root = match self.stack.first() {
+            Some(Open::Blocks(root)) => Some(root.clone()),
+            _ => None,
+        };
         let follow = move |id: u64| {
             if let Some(dest) = usize::try_from(id).ok().and_then(|i| links.get(i)) {
-                open(dest);
+                // A link to a heading of this document goes there; anything else is the app's.
+                let here =
+                    dest.strip_prefix('#').zip(root.as_ref()).is_some_and(|(a, r)| scroll_to_heading(r, a));
+                if !here {
+                    open(dest);
+                }
             }
         };
         let el = match (self.heading, self.cell) {

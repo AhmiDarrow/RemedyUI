@@ -414,3 +414,35 @@ fn screen_readers_and_undo_hear_the_windows_language() {
     assert!(w.view.remove_annotation(id));
     assert_eq!(w.ui.next_undo().map(|h| h.label).as_deref(), Some("Hervorhebung löschen"));
 }
+
+#[test]
+fn an_image_is_placed_moved_resized_by_a_corner_and_undone() {
+    let mut w = win();
+    let pixels: std::sync::Arc<[u8]> = vec![255u8; 4 * 2 * 2].into();
+    let image = remedy_ui_paint::Image::new(2, 2, pixels);
+    let rect = Rect::new(100.0, 200.0, 200.0, 250.0);
+    let id = w.view.add_annotation(Annotation::new(0, AnnotationKind::Image { rect, image }, Color::WHITE));
+    assert_eq!(first(&w).kind_name(), "Image");
+    w.view.set_tool(Tool::Select);
+    // A click inside selects it; then its bottom-right corner pulls it larger, in shape.
+    let inside = at(&w, 150.0, 225.0);
+    click(&mut w, inside);
+    assert_eq!(w.view.selected_annotation().get(), Some(id));
+    let (corner, to) = (at(&w, 200.0, 250.0), at(&w, 300.0, 260.0));
+    drag(&mut w, corner, to);
+    let r = w.view.annotation(id).and_then(|a| a.rect()).unwrap_or(Rect::ZERO);
+    assert_eq!(r.min, rect.min, "the opposite corner stays");
+    assert!(
+        (r.width() - 200.0).abs() < 2.0 && (r.height() - 100.0).abs() < 1.0,
+        "twice the size, same shape: {r:?}"
+    );
+    assert_eq!(w.ui.next_undo().map(|h| h.label).as_deref(), Some("Change image"));
+    assert!(w.ui.undo_change());
+    assert_eq!(w.view.annotation(id).and_then(|a| a.rect()), Some(rect));
+    // Dragging its middle moves it.
+    let (from, to) = (at(&w, 150.0, 225.0), at(&w, 160.0, 245.0));
+    drag(&mut w, from, to);
+    let moved = w.view.annotation(id).and_then(|a| a.rect()).unwrap_or(Rect::ZERO);
+    assert!((moved.min.x - 110.0).abs() < 1.0 && (moved.min.y - 220.0).abs() < 1.0, "{moved:?}");
+    assert_eq!(w.ui.next_undo().map(|h| h.label).as_deref(), Some("Move image"));
+}

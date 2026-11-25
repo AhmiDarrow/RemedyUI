@@ -35,6 +35,7 @@ pub struct HeadlessWindow {
     maximized: bool,
     fullscreen: bool,
     cursor_hidden: bool,
+    cursor: remedy_ui_host::Cursor,
     centered: bool,
 }
 
@@ -77,6 +78,11 @@ impl HeadlessWindow {
     /// True while it fills the screen.
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen
+    }
+
+    /// The shape the mouse pointer has over it ([`Host::set_cursor`]).
+    pub fn cursor(&self) -> remedy_ui_host::Cursor {
+        self.cursor
     }
 
     /// True while the mouse pointer is hidden over it ([`Host::set_cursor_hidden`]).
@@ -612,6 +618,7 @@ impl Host for HeadlessHost {
             maximized: false,
             fullscreen: false,
             cursor_hidden: false,
+            cursor: remedy_ui_host::Cursor::Default,
             centered: false,
         };
         Self::apply_size(&mut w, options.size);
@@ -756,6 +763,12 @@ impl Host for HeadlessHost {
     fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
         if let Some(w) = self.window_mut(window) {
             w.cursor_hidden = hidden;
+        }
+    }
+
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+        if let Some(w) = self.window_mut(window) {
+            w.cursor = cursor;
         }
     }
 

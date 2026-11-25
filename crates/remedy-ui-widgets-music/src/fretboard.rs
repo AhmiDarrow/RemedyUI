@@ -46,12 +46,36 @@ pub struct FretMark {
     pub label: Option<String>,
     /// How it looks.
     pub kind: MarkKind,
+    /// How solid it is drawn, 0 to 1: under 1 for a note that is there but not the point
+    /// (the rest of a scale around the phrase being played).
+    pub opacity: f32,
+    /// Draw it breathing (the note to play next). Still when the window asks for reduced
+    /// motion.
+    pub pulse: bool,
 }
 
 impl FretMark {
     /// A plain mark with no text.
     pub fn at(string: usize, fret: u32) -> FretMark {
-        FretMark { pos: FretPos { string, fret }, label: None, kind: MarkKind::Normal }
+        FretMark {
+            pos: FretPos { string, fret },
+            label: None,
+            kind: MarkKind::Normal,
+            opacity: 1.0,
+            pulse: false,
+        }
+    }
+
+    /// The same mark drawn faint: `opacity` from 0 to 1.
+    pub fn dimmed(mut self, opacity: f32) -> FretMark {
+        self.opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 1.0 };
+        self
+    }
+
+    /// The same mark, breathing or not.
+    pub fn pulsing(mut self, pulse: bool) -> FretMark {
+        self.pulse = pulse;
+        self
     }
 
     /// The same mark saying `text`.
@@ -133,13 +157,58 @@ pub struct FretboardOptions {
     /// A sounding pitch (a tuner's note, as a MIDI number): every place that makes it gets a
     /// ring. Updating it many times a second is fine; it repaints only when it changes.
     pub sounding: Option<Signal<Option<i32>>>,
+    /// Pitch classes sounding (0 is C, 11 is B; a chord heard, a scale): every place that
+    /// makes one of them gets a ring, in every octave.
+    pub sounding_classes: Option<Signal<Vec<u8>>>,
+    /// Frets shaded across the neck, first to last (the position to play in).
+    pub shaded: Option<Signal<Option<(u32, u32)>>>,
+    /// For a left-handed player's own view, turn the strings over too: the lowest string
+    /// at the top.
+    pub reverse_strings: bool,
+    /// Hears every press on the neck and every Enter or Space on the cursor, the same place
+    /// again included (a note to sound each time); dragging tells each new place once.
+    pub on_pick: Option<PickHandler>,
     /// Show the neck without letting people pick: it is an image, not a control.
     pub read_only: bool,
     /// Spell black keys with flats in names.
     pub flats: bool,
 }
 
+/// The app's handler for a press on the neck ([`FretboardOptions::on_pick`]).
+#[derive(Clone)]
+pub struct PickHandler(Rc<dyn Fn(FretPos)>);
+
+impl std::fmt::Debug for PickHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PickHandler")
+    }
+}
+
 impl FretboardOptions {
+    /// Sets `sounding_classes`: the pitch classes ringed wherever they can be played.
+    pub fn sounding_classes(mut self, value: Signal<Vec<u8>>) -> Self {
+        self.sounding_classes = Some(value);
+        self
+    }
+
+    /// Sets `shaded`: the frets shaded across the neck.
+    pub fn shaded(mut self, value: Signal<Option<(u32, u32)>>) -> Self {
+        self.shaded = Some(value);
+        self
+    }
+
+    /// Sets `reverse_strings`: the lowest string at the top.
+    pub fn reverse_strings(mut self, value: bool) -> Self {
+        self.reverse_strings = value;
+        self
+    }
+
+    /// Sets `on_pick`: hears every press on the neck, the same place again included.
+    pub fn on_pick(mut self, f: impl Fn(FretPos) + 'static) -> Self {
+        self.on_pick = Some(PickHandler(Rc::new(f)));
+        self
+    }
+
     /// Sets `tuning`: the open strings as MIDI notes, from the bottom string (drawn lowest on screen) up.
     pub fn tuning(mut self, value: Vec<i32>) -> Self {
         self.tuning = value;
@@ -226,6 +295,10 @@ impl Default for FretboardOptions {
             marks: None,
             name_notes: false,
             sounding: None,
+            sounding_classes: None,
+            shaded: None,
+            reverse_strings: false,
+            on_pick: None,
             read_only: false,
             flats: false,
         }
@@ -250,6 +323,8 @@ pub struct FretboardLayout {
     pub frets: u32,
     /// Mirrored for a left-handed player.
     pub left_handed: bool,
+    /// The lowest string at the top.
+    pub reverse_strings: bool,
     /// The whole width.
     pub width: f32,
     /// The whole height.
@@ -284,6 +359,7 @@ impl FretboardLayout {
             first_fret: options.first_fret,
             frets: options.frets.max(1),
             left_handed: options.left_handed,
+            reverse_strings: options.reverse_strings,
             width,
             height,
             string_gap,
@@ -320,7 +396,13 @@ impl FretboardLayout {
 
     /// The y of string `s` (0 is the bottom string).
     pub fn string_y(&self, s: usize) -> f32 {
-        self.top + (self.strings - 1 - s.min(self.strings - 1)) as f32 * self.string_gap
+        self.top + self.row_of(s) as f32 * self.string_gap
+    }
+
+    /// The row a string is drawn on, from the top (and the string on a row).
+    fn row_of(&self, s: usize) -> usize {
+        let s = s.min(self.strings - 1);
+        if self.reverse_strings { s } else { self.strings - 1 - s }
     }
 
     /// The first and last fret that can be marked or picked.
@@ -336,7 +418,7 @@ impl FretboardLayout {
             return None;
         }
         let row = ((p.y - self.top) / self.string_gap).round().clamp(0.0, (self.strings - 1) as f32) as usize;
-        let string = self.strings - 1 - row;
+        let string = self.row_of(row);
         // The cell whose span holds x.
         let mut best: Option<(u32, f32)> = None;
         for f in lo..=hi {
@@ -432,11 +514,24 @@ pub fn fretboard(
                 let left = g.wire_x(g.first_fret);
                 let right = g.wire_x(g.first_fret + g.frets);
                 let (bx0, bx1) = (left.min(right), left.max(right));
-                let neck_top = g.string_y(g.strings - 1) - g.string_gap * 0.6;
-                let neck_bottom = g.string_y(0) + g.string_gap * 0.6;
+                let neck_top = g.top - g.string_gap * 0.6;
+                let neck_bottom = g.top + (g.strings - 1) as f32 * g.string_gap + g.string_gap * 0.6;
                 // The wood: a little lighter than the surface under it.
                 let neck = Rect::new(bx0, neck_top, bx1, neck_bottom);
                 cx.list.fill_rounded(neck, CornerRadii::all(cx.theme.radii.small), Brush::Solid(c.card));
+                // The shaded frets, under everything on the neck.
+                if let Some((a, b)) = o.shaded.as_ref().and_then(|s| s.get()) {
+                    let (a, b) = (a.min(b).max(flo), a.max(b).min(fhi));
+                    if a <= b {
+                        let x0 = if a == 0 { g.cell_x(0) - g.string_gap * 0.5 } else { g.wire_x(a - 1) };
+                        let x0 = if a == 0 && g.left_handed { g.cell_x(0) + g.string_gap * 0.5 } else { x0 };
+                        let x1 = g.wire_x(b.max(g.first_fret));
+                        cx.list.fill_rect(
+                            Rect::new(x0.min(x1), neck_top, x0.max(x1), neck_bottom),
+                            Brush::Solid(c.accent.with_alpha(0.16)),
+                        );
+                    }
+                }
                 // Inlays between the wires.
                 let dot = (g.string_gap * 0.2).min((bx1 - bx0) / g.frets as f32 * 0.25);
                 let mid_y = (g.string_y(0) + g.string_y(g.strings - 1)) / 2.0;
@@ -494,7 +589,7 @@ pub fn fretboard(
                     }
                 }
                 if o.fret_numbers {
-                    let y = g.string_y(0) + g.string_gap * 0.6 + g.numbers / 2.0;
+                    let y = neck_bottom + g.numbers / 2.0;
                     for f in flo.max(1)..=fhi {
                         cx.text(&f.to_string(), Point::new(g.cell_x(f), y), Vec2::new(0.5, 0.5), small);
                     }
@@ -522,8 +617,40 @@ pub fn fretboard(
                         }
                     }
                 }
+                // Sounding pitch classes: rings in every octave.
+                let classes = o.sounding_classes.as_ref().map(|s| s.get()).unwrap_or_default();
+                if !classes.is_empty() {
+                    for (s, open) in o.tuning.iter().enumerate() {
+                        for f in flo..=fhi {
+                            let class = (open + f as i32).rem_euclid(12) as u8;
+                            if classes.contains(&class) {
+                                let center = Point::new(g.cell_x(f), g.string_y(s));
+                                cx.list.border(
+                                    Rect::new(
+                                        center.x - r - 3.0,
+                                        center.y - r - 3.0,
+                                        center.x + r + 3.0,
+                                        center.y + r + 3.0,
+                                    ),
+                                    CornerRadii::all(r + 3.0),
+                                    2.0,
+                                    c.ok,
+                                );
+                            }
+                        }
+                    }
+                }
                 // Marks.
                 let marks = o.marks.as_ref().map(|m| m.get()).unwrap_or_default();
+                // A breath every 1.2 seconds, between 55% and 100%.
+                let breath = if cx.reduced_motion {
+                    1.0
+                } else {
+                    0.775 + 0.225 * (cx.time.as_secs_f32() * std::f32::consts::TAU / 1.2).cos()
+                };
+                if !cx.reduced_motion && marks.iter().any(|m| m.pulse) {
+                    cx.request_next_frame();
+                }
                 let label_style = |color| TextPaint {
                     size: cx.theme.type_scale.small - 1.0,
                     weight: 600.0,
@@ -544,15 +671,17 @@ pub fn fretboard(
                         MarkKind::Root => (Some(c.warn), ensure_contrast(c.bg, c.warn, 4.5)),
                         MarkKind::Ghost => (None, d.muted),
                     };
+                    let solid = m.opacity.clamp(0.0, 1.0) * if m.pulse { breath } else { 1.0 };
+                    let faint = |color: remedy_ui_core::Color| color.with_alpha(color.a * solid);
                     match fill {
-                        Some(f) => cx.list.fill_rounded(disc, CornerRadii::all(r), Brush::Solid(f)),
+                        Some(f) => cx.list.fill_rounded(disc, CornerRadii::all(r), Brush::Solid(faint(f))),
                         None => {
-                            cx.list.fill_rounded(disc, CornerRadii::all(r), Brush::Solid(c.card));
-                            cx.list.border(disc, CornerRadii::all(r), 1.5, d.muted);
+                            cx.list.fill_rounded(disc, CornerRadii::all(r), Brush::Solid(faint(c.card)));
+                            cx.list.border(disc, CornerRadii::all(r), 1.5, faint(d.muted));
                         }
                     }
                     if let Some(t) = text {
-                        cx.text(&t, center, Vec2::new(0.5, 0.5), label_style(ink));
+                        cx.text(&t, center, Vec2::new(0.5, 0.5), label_style(faint(ink)));
                     }
                 }
                 // The picked position.
@@ -607,13 +736,19 @@ pub fn fretboard(
         }
     };
     let down = Rc::new(Cell::new(false));
+    // The place last told while the button is down: a drag tells each new place once.
+    let told: Rc<Cell<Option<FretPos>>> = Rc::default();
+    let (pick, key_pick) = (options.on_pick.clone(), options.on_pick.clone());
     let key_opts = options.clone();
     let (sem_opts, u) = (options.clone(), ui.clone());
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
             match e.phase {
-                PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => down.set(true),
+                PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => {
+                    down.set(true);
+                    told.set(None);
+                }
                 PointerPhase::Move if down.get() => {}
                 PointerPhase::Up | PointerPhase::Cancel => return down.replace(false),
                 _ => return false,
@@ -621,6 +756,11 @@ pub fn fretboard(
             if let Some(pos) = hit(e.position) {
                 selected.set_if_changed(Some(pos));
                 cursor.set_if_changed(pos);
+                if told.replace(Some(pos)) != Some(pos)
+                    && let Some(PickHandler(f)) = &pick
+                {
+                    f(pos);
+                }
             }
             true
         })
@@ -637,14 +777,25 @@ pub fn fretboard(
                 ..cur
             };
             let next = match e.key {
-                Key::ArrowUp => FretPos { string: (cur.string + 1).min(g.strings - 1), ..cur },
-                Key::ArrowDown => FretPos { string: cur.string.saturating_sub(1), ..cur },
+                // Up is up on screen, whichever string is there.
+                Key::ArrowUp | Key::ArrowDown => {
+                    let higher = (e.key == Key::ArrowUp) != g.reverse_strings;
+                    let string = if higher {
+                        (cur.string + 1).min(g.strings - 1)
+                    } else {
+                        cur.string.saturating_sub(1)
+                    };
+                    FretPos { string, ..cur }
+                }
                 Key::ArrowRight => by_fret(toward_bridge),
                 Key::ArrowLeft => by_fret(-toward_bridge),
                 Key::Home => FretPos { fret: lo, ..cur },
                 Key::End => FretPos { fret: hi, ..cur },
                 Key::Enter | Key::Space => {
                     selected.set_if_changed(Some(cur));
+                    if let Some(PickHandler(f)) = &key_pick {
+                        f(cur);
+                    }
                     return true;
                 }
                 Key::Escape => {

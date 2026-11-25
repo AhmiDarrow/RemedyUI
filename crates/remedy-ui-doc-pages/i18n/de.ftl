@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] Ellipse
     [line] Linie
     [arrow] Pfeil
+    [image] Bild
    *[annotation] Anmerkung
 }
 annotation-quoting = { $what }: „{ $text }“
@@ -38,6 +39,7 @@ undo-add = { $kind ->
     [ellipse] Ellipse hinzufügen
     [line] Linie hinzufügen
     [arrow] Pfeil hinzufügen
+    [image] Bild hinzufügen
    *[annotation] Anmerkung hinzufügen
 }
 undo-change = { $kind ->
@@ -52,6 +54,7 @@ undo-change = { $kind ->
     [ellipse] Ellipse ändern
     [line] Linie ändern
     [arrow] Pfeil ändern
+    [image] Bild ändern
    *[annotation] Anmerkung ändern
 }
 undo-delete = { $kind ->
@@ -66,6 +69,7 @@ undo-delete = { $kind ->
     [ellipse] Ellipse löschen
     [line] Linie löschen
     [arrow] Pfeil löschen
+    [image] Bild löschen
    *[annotation] Anmerkung löschen
 }
 undo-move = { $kind ->
@@ -80,5 +84,6 @@ undo-move = { $kind ->
     [ellipse] Ellipse verschieben
     [line] Linie verschieben
     [arrow] Pfeil verschieben
+    [image] Bild verschieben
    *[annotation] Anmerkung verschieben
 }
