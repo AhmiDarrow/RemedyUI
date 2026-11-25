@@ -30,10 +30,10 @@ Rules that come from the Remedy tenets:
 Crates form a strict layered graph. A crate may depend only on crates in lower layers, plus the few sideways edges listed below, and never upward. CI checks the graph against this list.
 
 ```
-L7  tools:        remedy-tools (the developer tools' logic) · remedy-templates (app templates)
+L7  tools:        cargo-remedy::devkit (the developer tools' logic) · cargo-remedy::templates (app templates)
                   remedy-ui-build (build scripts: the Windows executable's icon and version)
                   cargo-remedy (CLI) · remedy-mcp (MCP server for AI agents); none linked into apps
-L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup compiler and runtime) · remedy-ui-test
+L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-widgets::rui (markup compiler and runtime) · remedy-ui-core::testing
 L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools · customize
 L4  host:          view (elements, the frame pipeline, input routing) · render-gpu · render-cpu · bridge-winit (shared desktop core) · bridge-windows · bridge-macos · bridge-linux
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless

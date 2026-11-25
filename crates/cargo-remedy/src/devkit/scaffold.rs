@@ -1,4 +1,4 @@
-//! New apps from RemedyUI's app templates (`remedy-templates`, the same ones `cargo remedy
+//! New apps from RemedyUI's app templates (`cargo-remedy::templates`, the same ones `cargo remedy
 //! new` uses), written into a folder inside the workspace.
 
 use crate::templates::{Dependency, TEMPLATES, title};

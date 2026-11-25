@@ -12,7 +12,7 @@
 //! wgpu's lock, and the acquire's semaphore is waited on by wgpu's *next* submission,
 //! whichever thread makes it. So every submission to the device's queue must come from the
 //! thread that presents windows. In this workspace it does: the runner, embedded GPU
-//! content (`remedy-ui-embed-gpu`), effects (`remedy-ui-media-effects`) and video all submit
+//! content (`remedy-ui-platform::embed_gpu`), effects (`remedy-ui-engine::media_effects`) and video all submit
 //! on the UI thread, and no other thread touches the GPU ([`GpuContext::queue`] says so to
 //! apps). wgpu's own swapchain, which RemedyUI uses everywhere else, has no such rule.
 //!

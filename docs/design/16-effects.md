@@ -22,9 +22,9 @@ particles, starfields, grain, CRT screens, raymarched 3D objects and volumes, de
 
 | Crate | Layer | What |
 |---|---|---|
-| `remedy-ui-effects` | 3 | The language (lexer, parser), the compiler, the IR, the limits and cost model, the CPU interpreter and renderer, the frame logic both renderers share (per-frame values, particle simulation, buffer sizes), the built-in library |
-| `remedy-ui-render-gpu::effects` | 4 | `GpuEffect`: the kernel (one WGSL interpreter), the blur and particle pipelines, buffers per effect |
-| `remedy-ui-media-effects` | 5 | `effect_view`: the element. Picks the renderer, ticks under the ambient policy, keeps the still frame, runs the CPU quality ladder |
+| `remedy-ui-engine::effects` | 3 | The language (lexer, parser), the compiler, the IR, the limits and cost model, the CPU interpreter and renderer, the frame logic both renderers share (per-frame values, particle simulation, buffer sizes), the built-in library |
+| `remedy-ui-engine::render_gpu::effects` | 4 | `GpuEffect`: the kernel (one WGSL interpreter), the blur and particle pipelines, buffers per effect |
+| `remedy-ui-engine::media_effects` | 5 | `effect_view`: the element. Picks the renderer, ticks under the ambient policy, keeps the still frame, runs the CPU quality ladder |
 | `remedy-ui` | 6 | `remedy_ui::effects` (feature `effects`, in `full`) |
 
 ## The pipeline

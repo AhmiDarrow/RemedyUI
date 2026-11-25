@@ -5,9 +5,9 @@
 //!
 //! - [`helper_main`]: call it first thing in `main`. The helper is the app's own executable
 //!   started again in helper mode, so an app ships one binary.
-//! - [`enable`]: routes the image loader (`remedy-ui-media-image`: [`image()`], `load`,
+//! - [`enable`]: routes the image loader (`remedy-ui-media::media_image`: [`image()`], `load`,
 //!   `probe`, `decode_for_box`) and, with the `anim` feature (on by default), animations
-//!   (`remedy-ui-media-anim`) through helpers from then on, and says how they are
+//!   (`remedy-ui-media::media_anim`) through helpers from then on, and says how they are
 //!   sandboxed; [`disable`] decodes in the app again.
 //! - [`stats`]: how many helpers started, and how many were stopped and why.
 //!
@@ -48,7 +48,7 @@
 //! with a budget sized from the frame. When a helper is stopped, the animation whose request
 //! it was fails and every other animation it held opens again on a fresh helper and reads
 //! forward to where it was. Memory policy, shared playheads and pausing stay
-//! `remedy-ui-media-anim`'s.
+//! `remedy-ui-media::media_anim`'s.
 //!
 //! [`image()`]: crate::media_image::image
 

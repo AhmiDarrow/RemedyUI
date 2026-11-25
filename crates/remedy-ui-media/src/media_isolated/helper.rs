@@ -1,6 +1,6 @@
 //! The helper: shuts itself in before it reads anything, says so, then decodes what it is
-//! sent until the app goes. It decodes with `remedy-ui-media-image` (and, for animations,
-//! `remedy-ui-media-anim`) in this process (no router or opener is ever set here), and the
+//! sent until the app goes. It decodes with `remedy-ui-media::media_image` (and, for animations,
+//! `remedy-ui-media::media_anim`) in this process (no router or opener is ever set here), and the
 //! formats the app registered before `helper_main`.
 //!
 //! It keeps each open animation's decoder (with its own copy of the file's bytes) under a

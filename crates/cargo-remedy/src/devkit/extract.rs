@@ -99,7 +99,7 @@ pub struct Page {
 /// The rustdoc pages of every engine crate in the checkout (files with no docs are left out).
 pub fn rustdoc(root: &Path) -> Vec<Page> {
     let mut out = Vec::new();
-    // The engine's crates; the tools' own (remedy-tools, remedy-mcp, cargo-remedy) are
+    // The engine's crates; the tools' own (cargo-remedy::devkit, remedy-mcp, cargo-remedy) are
     // documented in docs/MCP.md and docs/CLI.md.
     for (name, dir) in crates(root).into_iter().filter(|(n, _)| n.starts_with("remedy-ui")) {
         for file in sources(&dir) {
@@ -560,8 +560,11 @@ pub fn widgets(root: &Path) -> Vec<Widget> {
     for (krate, part, module, feature) in facade_modules(root) {
         let dir = root.join("crates").join(&krate);
         // A part's root is its `mod.rs`; a whole crate's, its `lib.rs`.
-        let (base, root_file) =
-            if part.is_empty() { (dir.join("src"), "lib.rs") } else { (dir.join("src").join(&part), "mod.rs") };
+        let (base, root_file) = if part.is_empty() {
+            (dir.join("src"), "lib.rs")
+        } else {
+            (dir.join("src").join(&part), "mod.rs")
+        };
         let lib = std::fs::read_to_string(base.join(root_file)).unwrap_or_default();
         let ex = exports(&lib);
         let mut files = Vec::new();

@@ -1,4 +1,4 @@
-// The isolated service images are decoded in (remedy-ui-media-isolated): declared in the
+// The isolated service images are decoded in (remedy-ui-media::media_isolated): declared in the
 // manifest with android:isolatedProcess="true", so each instance runs in a process of its own
 // under a fresh user id with no permissions: no network, none of the app's files, no other
 // apps' services.
@@ -7,7 +7,7 @@
 // two descriptors through the binder: one end of a Unix socket requests and replies go over
 // (shared memory travels on it as descriptors), and the write end of a pipe for its standard
 // error. The service loads the app's native library and runs the helper on a thread of its
-// own (run, in remedy-ui-media-isolated), which ends the process when the app closes the
+// own (run, in remedy-ui-media::media_isolated), which ends the process when the app closes the
 // socket. Stopping a helper is unbinding it: the system kills an isolated process nobody is
 // bound to.
 

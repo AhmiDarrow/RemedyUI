@@ -1,5 +1,5 @@
 //! Element animation: a property, style value or offset moves to a target with a spring or
-//! an easing curve from `remedy-ui-motion`, sampled at each frame's time.
+//! an easing curve from `remedy-ui-core::motion`, sampled at each frame's time.
 //!
 //! [`El::animate`] starts a move. A new target for the same property starts from the value
 //! and velocity it has, so an interrupted move turns smoothly instead of jumping. When the

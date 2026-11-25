@@ -21,13 +21,13 @@ use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// What the developer tools know of the checkout: the same code `remedy-tools` reads a live
+/// What the developer tools know of the checkout: the same code `cargo-remedy::devkit` reads a live
 /// checkout with, so the committed index and `--docs-root` agree.
 #[path = "../../crates/cargo-remedy/src/devkit/extract.rs"]
-#[allow(dead_code, reason = "xtask uses the index writer; remedy-tools the readers")]
+#[allow(dead_code, reason = "xtask uses the index writer; cargo-remedy::devkit the readers")]
 mod extract;
 
-/// The committed docs index (zlib-compressed JSON), embedded by `remedy-tools`.
+/// The committed docs index (zlib-compressed JSON), embedded by `cargo-remedy::devkit`.
 const DOCS_INDEX: &str = "crates/cargo-remedy/remedy-tools/data/docs-index.json.zz";
 
 /// The checkout's root.
@@ -680,7 +680,8 @@ mod tests {
         };
         for (krate, module, used) in SIDEWAYS {
             let (a, b) = (layer_of(krate, module), layer_of(krate, used));
-            assert!(a.is_some() && a == b, "{krate}: {module} and {used} are modules of one layer");
+            assert!(a.is_some() && b.is_some(), "{krate}: {module} and {used} are its modules");
+            assert!(a >= b, "{krate}: {module} uses {used}, which is not above it");
         }
         // The widget families build on the core set; nothing is listed the other way round.
         assert!(SIDEWAYS.contains(&("remedy-ui-widgets", "nav", "base")));

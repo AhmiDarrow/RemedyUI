@@ -1,5 +1,5 @@
 //! Icons: reading a PNG, resampling it and writing Windows `.ico` files. The default icon new
-//! apps start with is drawn by `remedy-templates`. An app's icon is an [`IconSet`]: one
+//! apps start with is drawn by `cargo-remedy::templates`. An app's icon is an [`IconSet`]: one
 //! drawing that is resampled to every size, or several drawn sizes (pixel art, or small sizes
 //! simplified by hand) that are used as they are.
 

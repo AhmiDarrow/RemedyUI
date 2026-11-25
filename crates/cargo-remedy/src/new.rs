@@ -1,4 +1,4 @@
-//! `cargo remedy new`: an app from a template. The templates live in `remedy-templates`,
+//! `cargo remedy new`: an app from a template. The templates live in `cargo-remedy::templates`,
 //! shared with the developer tools' `new_app`.
 
 use std::path::PathBuf;

@@ -7,7 +7,7 @@
 //!   reactions), the app's own kinds, and [`ScriptKind`]s that people write, in any language
 //!   the board accepts: a widget [`Package`] names its language, and the board's
 //!   [`Context::engines`] are the script engines it accepts (RemedyLua with
-//!   `remedy-ui-script-lua`, WebAssembly with `remedy-ui-script-wasm`). Scripts run
+//!   `remedy-ui-engine::script_lua`, WebAssembly with `remedy-ui-engine::script_wasm`). Scripts run
 //!   sandboxed with operation, time, stack and memory limits, and are built as ordinary
 //!   elements.
 //! - [`board`] and [`BoardState`]: one renderer for visitors and for the person arranging

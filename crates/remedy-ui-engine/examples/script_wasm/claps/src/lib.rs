@@ -1,7 +1,7 @@
 //! Claps, a RemedyUI widget written in Rust and compiled to WebAssembly: it counts claps
 //! toward a goal and greets whoever is looking. It is the same widget as
 //! `crates/remedy-ui-engine/examples/script_lua/claps.lua`, through the WebAssembly widget ABI
-//! (`remedy-ui-script-wasm`'s crate docs): it exports `memory`, `remedy_alloc`,
+//! (`remedy-ui-engine::script_wasm`'s crate docs): it exports `memory`, `remedy_alloc`,
 //! `remedy_describe`, `remedy_render` and `remedy_act`, and imports `remedy::fail` to report
 //! a panic.
 //!

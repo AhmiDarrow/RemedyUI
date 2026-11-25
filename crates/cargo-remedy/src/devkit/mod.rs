@@ -8,7 +8,7 @@
 //! | `docs` | [`docs`] | Search and read the guides, design docs and rustdoc; the widget catalog |
 //! | `markup` | [`markup`] | Check `.rui` markup and compile it to Rust |
 //! | `effects` | [`effects`] | Check Prism `.rfx` effects and what they cost; render a frame to PNG |
-//! | `scaffold` | [`scaffold`] | Create an app from the app templates (`remedy-templates`) |
+//! | `scaffold` | [`scaffold`] | Create an app from the app templates (`cargo-remedy::templates`) |
 //! | `preview` | [`preview`] | Render an app's UI headlessly: a PNG, the accessibility tree, the audit |
 //! | `testing` | [`testing`] | Run an app's tests and the engine's budget scenes, summarized |
 //! | `live` | [`live`] | Operate a running app through its agents listener, under consent |

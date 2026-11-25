@@ -2,7 +2,7 @@
 //!
 //! An app runs in a native activity (`dev.remedyui.android.RemedyActivity`, the bridge's own
 //! `NativeActivity`, in APKs `cargo remedy package` makes; a plain `android.app.NativeActivity`
-//! also works, with the limits below) on the shared winit core (`remedy-ui-bridge-winit`), which provides the window, touch and
+//! also works, with the limits below) on the shared winit core (`remedy-ui-platform::bridge_winit`), which provides the window, touch and
 //! key input, frames, timers, wakes, CPU presents into the `ANativeWindow`'s buffers, the
 //! native handles wgpu draws on with Vulkan or GLES, and the lifecycle: surfaces are dropped
 //! when the activity goes to the background and the window is announced again, with its new

@@ -10,7 +10,7 @@
 //! - [`Form`]: validation as values change, dirty tracking against the last save, and a
 //!   submit state ([`form_field`], [`form_view`], [`submit_button`], [`form_status`])
 //!
-//! Values and locale data (numbers, dates, times, names) come from `remedy-ui-services-i18n`,
+//! Values and locale data (numbers, dates, times, names) come from `remedy-ui-platform::services_i18n`,
 //! which reads ICU4X compiled data; what an app does not use is not linked in.
 //! See `docs/design/15-widgets-and-media.md`.
 

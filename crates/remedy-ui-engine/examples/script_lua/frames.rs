@@ -2,7 +2,7 @@
 //! drives it the way a window's frame loop does (render, then `advance` when it asks for a
 //! frame) and prints what it shows. A theme change halfway through shows tokens following.
 //!
-//! `cargo run -p remedy-ui-script-lua --example frames`
+//! `cargo run -p remedy-ui-engine --features script-lua --example frames`
 
 use std::time::Duration;
 

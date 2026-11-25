@@ -1,7 +1,7 @@
 //! RemedyUI's desktop Linux bridge, for Wayland and X11 alike (winit picks the session's
 //! display server at run time).
 //!
-//! The shared winit core (`remedy-ui-bridge-winit`) provides windows, input, frames, input
+//! The shared winit core (`remedy-ui-platform::bridge_winit`) provides windows, input, frames, input
 //! methods, CPU presents and GPU surface handles. This crate adds:
 //! - the clipboard (Wayland data-control or X11 selections), with sensitive copies marked
 //!   with the password-manager hint so clipboard managers keep them out of history;

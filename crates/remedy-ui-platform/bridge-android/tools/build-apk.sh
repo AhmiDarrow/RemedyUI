@@ -18,7 +18,7 @@
 #                    runs in dev.remedyui.android.RemedyActivity, with the notification alias
 #                    and a foreground service (microphone and media playback), as `cargo remedy
 #                    package` makes it, the SharedFiles provider App::share serves files
-#                    through, and the isolated Decoder service remedy-ui-media-isolated's
+#                    through, and the isolated Decoder service remedy-ui-media::media_isolated's
 #                    helpers run in; native: a plain android.app.NativeActivity with no code in the
 #                    APK, the bridge loading its Java from memory (no provider: shares carry
 #                    their title and text only)
@@ -68,7 +68,7 @@ export "CC_${lower}=$clang"
 export "CXX_${lower}=$clangxx"
 export "AR_${lower}=$ar"
 
-(cd "$root" && cargo build -p remedy-ui-bridge-android --example "$example" --target "$target" --profile "$profile")
+(cd "$root" && cargo build -p remedy-ui-platform --features bridge-android --example "$example" --target "$target" --profile "$profile")
 dir="$profile"
 [ "$profile" = dev ] && dir=debug
 lib_name=$(echo "$example" | tr '-' '_')
@@ -100,7 +100,7 @@ case "$activity_mode" in
             android:exported="false"
             android:grantUriPermissions="true" />
         <!-- Decodes images in processes of their own with no permissions
-             (remedy-ui-media-isolated). -->
+             (remedy-ui-media::media_isolated). -->
         <service android:name="dev.remedyui.android.Decoder"
             android:isolatedProcess="true"
             android:exported="false" />'

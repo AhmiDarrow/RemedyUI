@@ -36,7 +36,7 @@ final class TextInput extends View {
     private boolean active;
     private boolean secret;
     private boolean multiline;
-    /** What the field holds: the order of remedy_ui_host::InputPurpose (see PURPOSE_*). */
+    /** What the field holds: the order of remedy_ui_core::host::InputPurpose (see PURPOSE_*). */
     private int purpose;
     /** The Enter key's action: an EditorInfo.IME_ACTION_* (IME_ACTION_NONE: a line break). */
     private int action = EditorInfo.IME_ACTION_DONE;

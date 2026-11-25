@@ -2,7 +2,7 @@
 //! and operate running RemedyUI apps.
 //!
 //! The tools' logic lives in [`crate::devkit`] (shared with `cargo remedy`'s commands); this
-//! crate adapts it to MCP. Each tool group is a [`ToolGroup`], one per `remedy-tools`
+//! crate adapts it to MCP. Each tool group is a [`ToolGroup`], one per `cargo-remedy::devkit`
 //! feature, and a [`Server`] serves the groups a [`ServerBuilder`] composed, so a build can
 //! hold a few groups (cargo features) and a run can offer fewer still (`--tools docs,live`).
 //!

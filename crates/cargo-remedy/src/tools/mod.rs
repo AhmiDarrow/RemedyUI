@@ -1,4 +1,4 @@
-//! The developer-tool commands over `remedy-tools`: everything the `remedy-mcp` server offers
+//! The developer-tool commands over `cargo-remedy::devkit`: everything the `remedy-mcp` server offers
 //! agents, for people and scripts. Readable output by default, `--json` for scripts.
 //!
 //! - `cargo remedy docs <query>` / `docs read <path>` / `docs list`

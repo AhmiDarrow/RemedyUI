@@ -56,7 +56,7 @@ Secret handling is needed by SecretFolder, SecretSticky, Hearth and FreeSpeak. I
 
 ## One look
 
-Most of these apps already share the Dark Forest look and the theme set defined in RemedyAI's `desktop/src/themes.ts`, mirrored in Portal and Hearth and copied into FreeSpeak's skins. That set, including the deutan, protan and tritan palettes, is now `remedy-ui-themes`: one source for every app and the RemedyOS desktop ([design/13](design/13-design-language.md)).
+Most of these apps already share the Dark Forest look and the theme set defined in RemedyAI's `desktop/src/themes.ts`, mirrored in Portal and Hearth and copied into FreeSpeak's skins. That set, including the deutan, protan and tritan palettes, is now `remedy-ui-widgets::themes`: one source for every app and the RemedyOS desktop ([design/13](design/13-design-language.md)).
 
 ## Moving order
 

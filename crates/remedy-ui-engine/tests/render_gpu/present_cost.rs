@@ -1,7 +1,7 @@
 //! What presenting a small change costs on a large window: a dot moves over a full-window
 //! background, presented without vsync so the GPU's work shows in the time each present
 //! takes. Prints the median, p95 and total; run by hand to compare present paths:
-//! `cargo test --release -p remedy-ui-render-gpu --test present_cost -- --ignored --nocapture`.
+//! `cargo test --release -p remedy-ui-engine --features render-gpu --test present_cost -- --ignored --nocapture`.
 #![cfg(windows)]
 
 use std::time::{Duration, Instant};

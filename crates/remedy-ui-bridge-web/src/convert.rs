@@ -684,7 +684,7 @@ pub fn clamp_range(text: &str, r: &Range<usize>) -> Range<usize> {
 /// What a floating window's close button is called for screen readers, in the page's
 /// language (`navigator.language`, BCP 47). The bridge sits below the view and its message
 /// catalogs, so it keeps these few words itself: the same as the core widgets' close icon
-/// (`icon-close` in `remedy-ui-widgets-core`), for the languages the engine ships; English
+/// (`icon-close` in `remedy-ui-widgets::base`), for the languages the engine ships; English
 /// for any other.
 pub fn close_label(language: &str) -> &'static str {
     let primary = language.split(['-', '_']).next().unwrap_or_default().to_ascii_lowercase();

@@ -1,4 +1,4 @@
-// The system's media controls for remedy-ui-services-desktop's MediaSession: an Android
+// The system's media controls for remedy-ui-platform::services_desktop's MediaSession: an Android
 // MediaSession (the lock screen, the quick settings' media player, headsets, Bluetooth and the
 // media keys) and its media notification. Rust binds `command` when it loads this class
 // through the app's class loader, so the APK must carry the bridge's dex (cargo remedy package
