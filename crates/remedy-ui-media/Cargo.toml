@@ -1,0 +1,151 @@
+[package]
+name = "remedy-ui-media"
+description = "RemedyUI media: images, animated images, video surfaces and isolated decoding."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+media-anim = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image"]
+media-anim-apng = ["dep:png"]
+media-anim-gif = ["dep:gif"]
+media-anim-webp = ["dep:image-webp"]
+media-image = ["dep:image", "dep:js-sys", "dep:moxcms", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-webp"]
+media-image-bmp = ["image/bmp"]
+media-image-gif = ["image/gif"]
+media-image-http = ["remedy-ui-platform/services-net"]
+media-image-ico = ["image/ico"]
+media-image-jpeg = ["image/jpeg"]
+media-image-png = ["image/png"]
+media-image-svg = ["dep:resvg"]
+media-image-svg-raster-images = ["media-image-svg", "resvg?/raster-images"]
+media-image-svg-text = ["media-image-svg", "resvg?/system-fonts", "resvg?/text"]
+media-image-svgz = ["media-image-svg", "resvg?/svgz"]
+media-image-tiff = ["image/tiff"]
+media-image-webp = ["image/webp"]
+media-isolated = ["dep:image", "dep:jni", "dep:libc", "dep:ndk-context", "dep:remedy-ui-engine", "dep:windows-sys", "media-image", "media-isolated-anim"]
+media-isolated-anim = ["media-anim"]
+media-video = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
+
+[dependencies]
+gif = { version = "=0.14.2", default-features = false, features = ["std"], optional = true }
+image = { version = "=0.25.10", default-features = false, optional = true }
+image-webp = { version = "=0.2.4", optional = true }
+moxcms = { version = "=0.8.1", optional = true }
+png = { version = "=0.18.1", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"], optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-net"], optional = true }
+resvg = { version = "=0.50.0", default-features = false, optional = true }
+
+[dev-dependencies]
+gif = { version = "=0.14.2" }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png"] }
+image-webp = { version = "=0.2.4" }
+png = { version = "=0.18.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans", "remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
+remedy-ui-media = { path = ".", features = ["media-anim", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz", "media-image-tiff", "media-image-webp", "media-isolated", "media-isolated-anim", "media-video"] }
+
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
+image = { version = "=0.25.10", default-features = false, features = ["png"], optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.107", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+wasm-bindgen-futures = { version = "=0.4.80", optional = true }
+web-sys = { version = "=0.3.107", features = ["Blob", "ImageBitmap", "ImageBitmapOptions", "ImageData", "ImageOrientation", "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "ResizeQuality", "Window"], optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "=0.21.1", optional = true }
+ndk-context = { version = "=0.1.1", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "=0.2.191", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Isolation", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_ProcessStatus", "Win32_System_Console", "Win32_System_SystemInformation"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = { version = "=0.3.107" }
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+wasm-bindgen-test = { version = "=0.3.80" }
+web-sys = { version = "=0.3.107", features = ["console", "Response", "Window"] }
+
+[[test]]
+name = "image"
+path = "tests/media_image/image.rs"
+required-features = ["media-image"]
+
+[[test]]
+name = "svg"
+path = "tests/media_image/svg.rs"
+required-features = ["media-image-svg", "media-image"]
+
+[[test]]
+name = "text"
+path = "tests/media_image/text.rs"
+required-features = ["media-image-svg", "media-image-svg-text", "media-image"]
+
+[[test]]
+name = "url"
+path = "tests/media_image/url.rs"
+required-features = ["media-image"]
+
+[[test]]
+name = "url_fetcher"
+path = "tests/media_image/url_fetcher.rs"
+required-features = ["media-image"]
+
+[[test]]
+name = "web"
+path = "tests/media_image/web.rs"
+required-features = ["media-image"]
+
+[[test]]
+name = "anim"
+path = "tests/media_anim/anim.rs"
+required-features = ["media-anim"]
+
+[[test]]
+name = "budget"
+path = "tests/media_anim/budget.rs"
+required-features = ["media-anim"]
+
+[[test]]
+name = "still"
+path = "tests/media_anim/still.rs"
+required-features = ["media-anim"]
+
+[[test]]
+name = "video"
+path = "tests/media_video/video.rs"
+required-features = ["media-video"]
+
+[[test]]
+name = "isolated"
+path = "tests/media_isolated/isolated.rs"
+harness = false
+required-features = ["media-isolated"]
+
+[[example]]
+name = "android-isolated-check"
+path = "examples/media_isolated/android-isolated-check/main.rs"
+crate-type = ["cdylib"]
+required-features = ["media-isolated"]
+
+[lints]
+workspace = true

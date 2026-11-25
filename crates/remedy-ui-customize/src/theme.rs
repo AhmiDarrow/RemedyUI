@@ -756,7 +756,7 @@ pub(crate) struct ThemeArea {
     pub(crate) current: remedy_ui_core::reactive::Signal<Theme>,
     /// The theme's fonts, checked, and its background image.
     pub(crate) fonts: Vec<crate::assets::LoadedFont>,
-    pub(crate) background: Option<(String, remedy_ui_media_image::Source)>,
+    pub(crate) background: Option<(String, remedy_ui_media::media_image::Source)>,
     /// What each window was given of them.
     pub(crate) windows: Vec<crate::assets::WindowAssets>,
 }

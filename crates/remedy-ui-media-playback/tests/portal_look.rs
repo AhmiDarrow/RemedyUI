@@ -12,7 +12,7 @@ use remedy_ui_core::{Point, Size};
 use remedy_ui_devtools::Snapshot;
 use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_media_playback::*;
-use remedy_ui_media_video::{Picture, PixelFormat};
+use remedy_ui_media::media_video::{Picture, PixelFormat};
 use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
@@ -62,7 +62,7 @@ fn svg(ui: &Ui, body: &str, size: f32) -> El {
     let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">{body}</svg>"#
     );
-    remedy_ui_media_image::svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
+    remedy_ui_media::media_image::svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
 }
 
 /// What a Portal app hands the player for its glyphs.
@@ -157,7 +157,7 @@ impl Window {
         SVG_FONTS.call_once(|| {
             remedy_ui_fonts::all()
                 .into_iter()
-                .for_each(|f| remedy_ui_media_image::svg::add_font(f.data.to_vec()))
+                .for_each(|f| remedy_ui_media::media_image::svg::add_font(f.data.to_vec()))
         });
         let ui = Ui::new(theme.clone(), remedy_ui_themes::portal_sheet(&theme), fonts);
         ui.set_reduced_motion(true);

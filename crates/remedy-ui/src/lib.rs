@@ -176,19 +176,19 @@ pub use remedy_ui_core::layout as layout;
 #[cfg(feature = "macros")]
 pub use remedy_ui_macros::Store;
 #[cfg(feature = "anim")]
-pub use remedy_ui_media_anim as anim;
+pub use remedy_ui_media::media_anim as anim;
 #[cfg(feature = "image")]
-pub use remedy_ui_media_image as image;
+pub use remedy_ui_media::media_image as image;
 #[cfg(feature = "svg")]
-pub use remedy_ui_media_image::svg;
+pub use remedy_ui_media::media_image::svg;
 /// Decoding in a sandboxed helper process: images and animations whose decoder crashes,
 /// hangs or runs away with memory take down only the helper.
 #[cfg(feature = "isolated")]
-pub use remedy_ui_media_isolated as isolated;
+pub use remedy_ui_media::media_isolated as isolated;
 #[cfg(feature = "playback")]
 pub use remedy_ui_media_playback as playback;
 #[cfg(feature = "video")]
-pub use remedy_ui_media_video as video;
+pub use remedy_ui_media::media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
 /// (`El::paint`), canvases and page sources.
 pub use remedy_ui_engine::paint as paint;
@@ -332,7 +332,7 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     remedy_ui_platform::bridge_android::set_held_grace(config.keepalive_grace);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
-    remedy_ui_media_image::svg::install();
+    remedy_ui_media::media_image::svg::install();
     let inbox = instance::SharedInbox::default();
     // A browser settles the instance across tabs asynchronously: the first tab starts the
     // app once the browser grants it the instance.

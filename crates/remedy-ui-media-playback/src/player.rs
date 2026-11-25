@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use remedy_ui_media_video::VideoSink;
+use remedy_ui_media::media_video::VideoSink;
 use remedy_ui_core::reactive::{Memo, Signal};
 use remedy_ui_engine::view::{El, Ui};
 

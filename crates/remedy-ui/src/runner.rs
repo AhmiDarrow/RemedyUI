@@ -2541,7 +2541,7 @@ impl Runner {
         // Images fetched from addresses are kept across runs in the app's cache folder (its
         // own data folder's `cache` when the app names one).
         #[cfg(feature = "image")]
-        remedy_ui_media_image::set_cache_dir(
+        remedy_ui_media::media_image::set_cache_dir(
             config
                 .data_dir
                 .as_ref()

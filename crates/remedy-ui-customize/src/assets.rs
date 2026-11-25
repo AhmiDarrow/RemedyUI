@@ -18,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use remedy_ui_media_image::{Fit, Source};
+use remedy_ui_media::media_image::{Fit, Source};
 use remedy_ui_core::style::Theme;
 use remedy_ui_engine::view::{El, Ui, WeakUi};
 use serde_json::{Map, Value, json};
@@ -172,7 +172,7 @@ pub(crate) fn check_font(bytes: &[u8]) -> Result<Vec<String>, Words> {
 
 /// An image's size, read from its header.
 pub(crate) fn check_image(bytes: &[u8]) -> Result<(u32, u32), Words> {
-    remedy_ui_media_image::dimensions(bytes)
+    remedy_ui_media::media_image::dimensions(bytes)
         .map_err(|e| Words::msg("not-an-image", vec![("detail", format!("{e:?}").into())]))
 }
 
@@ -408,7 +408,7 @@ impl Customizations {
                 el.remove();
             }
             if let Some((reference, source)) = background {
-                let el = remedy_ui_widgets_core::fill_window(remedy_ui_media_image::image(
+                let el = remedy_ui_widgets_core::fill_window(remedy_ui_media::media_image::image(
                     ui,
                     source,
                     "",
