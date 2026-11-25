@@ -1688,6 +1688,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- Layout no longer slows with depth. A growing container (`grow`) inside a row or column takes the room left and has no automatic minimum along that axis; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
+- A held shortcut runs its command once. `Commands::set_repeats(id, true)` makes a command run again while its shortcut is held (undo, redo, zoom, next and previous).
+- A disabled menu in a menu bar takes keyboard focus like a disabled entry in a menu, and stays shut.
+- Custom color names from gradient CSS (`var(--name)`) are bounded: at most 4096 distinct names of at most 128 bytes are kept; a gradient naming more does not parse.
+- Linux web view: `NavigationRequest::frame` is true for a frame's own loading (WebKitGTK 2.40 and later). WebKitGTK names the frame only with the response, so a load the page started by itself is asked about then.
 - A second review pass closed the larger items the first left: the accessibility tree sends only nodes that changed; `hidden`, `disabled` and `pass_through` no longer undo one another's hit testing; an element keeps every `on_resize` and `on_hover` handler it is given; a move's completion runs when it is cut short; live HLS playlists slide instead of growing and read on after a server restart; the updater has no total time limit on a download, bounds it by the published size (`Release::size`) and never follows https to http; cookies follow RFC 6265bis limits and prefixes (`CookieJar::max_per_host`); a web view's page frames cannot reach the app's message handler on Linux; Linux settings are read once and followed by signal instead of on every focus.
 - A hovered or pressed primary button keeps its text contrast: the accent now moves away from the text on it.
 - A split-flap display is read once by a screen reader, and its flaps hold whole characters (grapheme clusters).
@@ -1697,7 +1702,6 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - A script's time limit no longer counts one coarse step of the Windows thread clock as work, so a fair call is not stopped on a busy machine (`WorkClock::proven`).
 - The updater takes plain `http` only from the loopback host itself (not a name that starts like it), and refuses an installer whose signature Windows could not check.
 - `cargo remedy package --target web --out <dir>` no longer empties a folder that is not an earlier page; the Android keystore password goes to `apksigner` through the environment, not its command line.
-- Markdown nests quotes and lists 12 deep as elements; deeper ones keep their words in the last of those.
 - **Cut text fills its line.** Text cut with "…" (`truncate`, `max_lines`) was cut only
   inside the last line as wrapping left it, so a path or a long file name, which has few
   places to wrap, showed as little as `C:…` in a wide box. The cut now also tries the start

@@ -38,9 +38,13 @@ const GTK_WINDOW_POPUP: c_int = 1;
 /// `WebKitPolicyDecisionType`.
 const DECISION_NAVIGATION: c_int = 0;
 const DECISION_NEW_WINDOW: c_int = 1;
+const DECISION_RESPONSE: c_int = 2;
 /// `WebKitNavigationType`: back or forward in the history, and a reload.
 const NAVIGATION_BACK_FORWARD: c_int = 2;
 const NAVIGATION_RELOAD: c_int = 3;
+const NAVIGATION_OTHER: c_int = 5;
+/// Navigations waiting for their response to say which frame they are in, at most.
+const WAITING_KEPT: usize = 64;
 /// `WebKitLoadEvent`.
 const LOAD_STARTED: c_int = 0;
 const LOAD_FINISHED: c_int = 3;
@@ -142,6 +146,9 @@ struct Api {
     webkit_navigation_action_is_user_gesture: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_navigation_action_is_redirect: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_navigation_action_get_navigation_type: unsafe extern "C" fn(Ptr) -> c_int,
+    webkit_response_policy_decision_get_request: unsafe extern "C" fn(Ptr) -> Ptr,
+    /// WebKitGTK 2.40: the one place it says whether a load is the page's own or a frame's.
+    webkit_response_policy_decision_is_main_frame_main_resource: Option<unsafe extern "C" fn(Ptr) -> c_int>,
     webkit_uri_request_get_uri: unsafe extern "C" fn(Ptr) -> *const c_char,
     webkit_permission_request_deny: unsafe extern "C" fn(Ptr),
     webkit_download_get_request: unsafe extern "C" fn(Ptr) -> Ptr,
@@ -276,6 +283,15 @@ impl Api {
                     lib,
                     "webkit_navigation_action_get_navigation_type",
                 )?,
+                webkit_response_policy_decision_get_request: sym(
+                    lib,
+                    "webkit_response_policy_decision_get_request",
+                )?,
+                webkit_response_policy_decision_is_main_frame_main_resource: sym(
+                    lib,
+                    "webkit_response_policy_decision_is_main_frame_main_resource",
+                )
+                .ok(),
                 webkit_uri_request_get_uri: sym(lib, "webkit_uri_request_get_uri")?,
                 webkit_permission_request_deny: sym(lib, "webkit_permission_request_deny")?,
                 webkit_download_get_request: sym(lib, "webkit_download_get_request")?,
@@ -339,6 +355,8 @@ struct Inner {
     view: Ptr,
     layout: RefCell<Option<Layout>>,
     closed: std::cell::Cell<bool>,
+    /// Addresses let through to their response, where the frame is known and the app is asked.
+    waiting: RefCell<Vec<String>>,
 }
 
 /// A WebKitGTK web view in the app's X11 window.
@@ -377,7 +395,7 @@ unsafe extern "C" fn on_decide(view: Ptr, decision: Ptr, kind: c_int, data: Ptr)
             DECISION_NAVIGATION | DECISION_NEW_WINDOW => {
                 (api.webkit_navigation_policy_decision_get_navigation_action)(decision)
             }
-            // Responses: the default handling (a download goes to `download-started`).
+            DECISION_RESPONSE => return on_response(&inner, view, decision),
             _ => return 0,
         };
         let request = (api.webkit_navigation_action_get_request)(action);
@@ -389,12 +407,27 @@ unsafe extern "C" fn on_decide(view: Ptr, decision: Ptr, kind: c_int, data: Ptr)
         }
         let user = (api.webkit_navigation_action_is_user_gesture)(action) != 0;
         let redirect = (api.webkit_navigation_action_is_redirect)(action) != 0;
-        let history = matches!(
-            (api.webkit_navigation_action_get_navigation_type)(action),
-            NAVIGATION_BACK_FORWARD | NAVIGATION_RELOAD
-        );
-        // WebKitGTK's API does not say which frame navigates, so every one is decided as the
-        // page's own.
+        let how = (api.webkit_navigation_action_get_navigation_type)(action);
+        let history = matches!(how, NAVIGATION_BACK_FORWARD | NAVIGATION_RELOAD);
+        // WebKitGTK says which frame a load is in only once its response is there. What a
+        // frame's own loading looks like (the page started it, no one pressed anything, no
+        // link, form or history move) goes as far as its response and is decided there. That
+        // sends the request first, which gives a page nothing: it can fetch any address.
+        if how == NAVIGATION_OTHER
+            && !user
+            && !redirect
+            && api.webkit_response_policy_decision_is_main_frame_main_resource.is_some()
+            && !inner.hub.expects(&url, Some(false))
+        {
+            let mut waiting = inner.waiting.borrow_mut();
+            if waiting.len() >= WAITING_KEPT {
+                waiting.remove(0);
+            }
+            waiting.push(url);
+            (api.webkit_policy_decision_use)(decision);
+            return 1;
+        }
+        // Everything else is decided now, as the page's own: the stricter reading.
         let allowed = inner.hub.decide(url, user, redirect, false, Some(history));
         // A frame's navigation starts no page load: what the view says holds, not the guess.
         inner.hub.set_loading((api.webkit_web_view_is_loading)(view) != 0);
@@ -403,6 +436,38 @@ unsafe extern "C" fn on_decide(view: Ptr, decision: Ptr, kind: c_int, data: Ptr)
         } else {
             (api.webkit_policy_decision_ignore)(decision);
         }
+        1
+    }
+}
+
+/// A response: for a navigation that waited for it, the app is asked now that the frame is
+/// known. Everything else has the default handling (a download goes to `download-started`).
+///
+/// # Safety
+/// `decision` is the live `WebKitResponsePolicyDecision` of a `decide-policy` signal, and
+/// `view` its web view, on the UI thread.
+unsafe fn on_response(inner: &Inner, view: Ptr, decision: Ptr) -> c_int {
+    let api = inner.api;
+    // SAFETY: as the caller promises; the function is in the library when the option is set.
+    unsafe {
+        let Some(is_main) = api.webkit_response_policy_decision_is_main_frame_main_resource else { return 0 };
+        let request = (api.webkit_response_policy_decision_get_request)(decision);
+        let url = text((api.webkit_uri_request_get_uri)(request)).unwrap_or_default();
+        let waited = {
+            let mut waiting = inner.waiting.borrow_mut();
+            waiting.iter().position(|w| *w == url).map(|i| waiting.remove(i))
+        };
+        if waited.is_none() {
+            return 0;
+        }
+        let frame = is_main(decision) == 0;
+        let allowed = inner.hub.decide(url, false, false, frame, Some(false));
+        inner.hub.set_loading((api.webkit_web_view_is_loading)(view) != 0);
+        if allowed {
+            // The default goes on: shown when it can be, a download otherwise.
+            return 0;
+        }
+        (api.webkit_policy_decision_ignore)(decision);
         1
     }
 }
@@ -668,6 +733,7 @@ impl Native {
                 view,
                 layout: RefCell::new(None),
                 closed: std::cell::Cell::new(false),
+                waiting: RefCell::new(Vec::new()),
             });
             connect(api, view, c"decide-policy", on_decide as GCallback, &inner);
             connect(api, view, c"create", on_create as GCallback, &inner);

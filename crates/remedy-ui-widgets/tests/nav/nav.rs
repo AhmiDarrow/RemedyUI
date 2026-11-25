@@ -107,6 +107,14 @@ fn commands_run_from_shortcuts_toolbars_and_the_palette() {
     key(&ui, Key::Character("s".into()), CTRL);
     assert_eq!(saved.get(), 1, "disabled commands do not run");
     cmds.set_enabled("file.save", true);
+    // A held shortcut is the command's key but runs it once, unless the command repeats.
+    let held = KeyEvent::press(Key::Character("s".into())).with_modifiers(CTRL).with_repeat(true);
+    assert!(ui.key(&held), "taken, so it reaches nothing else");
+    assert_eq!(saved.get(), 1);
+    cmds.set_repeats("file.save", true);
+    assert!(ui.key(&held));
+    assert_eq!(saved.get(), 2, "a command that repeats runs again while held");
+    cmds.set_repeats("file.save", false);
     // Rebinding to a chord another command owns is refused.
     assert!(cmds.rebind("file.share", vec![Chord::new(CTRL, Key::Character(",".into()))]).is_err());
     assert!(cmds.rebind("file.share", vec![Chord::new(CTRL, Key::Character("h".into()))]).is_ok());

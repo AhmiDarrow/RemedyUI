@@ -166,7 +166,7 @@ fn options() -> Options {
 /// quotes and lists without end (a line of nothing but `>`), and a tree that deep is walked
 /// by everything that lays out, paints and reads the page: deeper blocks keep their words
 /// and lie in the last block that has an element.
-const MAX_NESTING: usize = 12;
+const MAX_NESTING: usize = 64;
 
 /// A block being built: where its children go and what kind it is.
 enum Open {

@@ -2409,7 +2409,10 @@ impl El {
         self
     }
 
-    /// Takes a share of the free space along the parent's axis.
+    /// Takes a share of the free space along the parent's axis. An element with children
+    /// that grows takes the room there is, however wide its content: set `min_width` or
+    /// `min_height` to hold it to more. Text and other measured content keeps to its
+    /// smallest size by itself.
     pub fn grow(self, g: f32) -> Self {
         self.layout(|l| l.grow = g)
     }
