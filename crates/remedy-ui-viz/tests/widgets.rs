@@ -8,7 +8,7 @@ use remedy_ui_core::a11y::Role;
 use remedy_ui_core::Point;
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::{
     BarsOptions, Clock, History, MeterOptions, Orientation, Range, RingOptions, SparklineOptions, bars,
     level_meter, sparkline, speaking_ring,
@@ -725,7 +725,7 @@ fn every_widget_is_named_for_screen_readers() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_viz::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_viz::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

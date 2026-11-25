@@ -6,7 +6,7 @@ use remedy_ui_core::a11y::Role;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{Request, Ui};
+use remedy_ui_engine::view::{Request, Ui};
 use remedy_ui_widgets_core as w;
 
 struct T {

@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
-use remedy_ui_paint::{Image, Item, Sampling};
+use remedy_ui_engine::paint::{Image, Item, Sampling};
 use remedy_ui_core::style::Theme;
-use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
 use crate::common::{Ink, Motion};

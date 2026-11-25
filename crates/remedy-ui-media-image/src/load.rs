@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 use remedy_ui_core::reactive::Signal;
 
 use crate::decode::{

@@ -48,7 +48,7 @@ impl DecimalError {
 
     /// What a number field tells the person, in the window's language (tracked: read inside a
     /// property closure, it follows the locale).
-    pub fn message(self, ui: &remedy_ui_view::Ui) -> String {
+    pub fn message(self, ui: &remedy_ui_engine::view::Ui) -> String {
         crate::STRINGS.get(ui, self.message_id())
     }
 

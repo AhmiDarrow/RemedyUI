@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use remedy_ui_core::{Point, Rect, Size};
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 /// A document's pages, supplied by the app. The engine never parses a document: a PDF app
 /// wraps its PDF library here, an e-book app its layout engine.

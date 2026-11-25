@@ -21,8 +21,8 @@ use std::time::Duration;
 
 use libloading::Library;
 use remedy_ui_core::{Color, CornerRadii, Rect};
-use remedy_ui_paint::{DisplayList, Item, VideoFrame};
-use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+use remedy_ui_engine::paint::{DisplayList, Item, VideoFrame};
+use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
 
 use super::{MAPPED, fns};
 use crate::host::{Decoder, MediaSource, Picture, Sample};
@@ -407,11 +407,11 @@ fn importing_renderer() -> Option<GpuRenderer> {
     let ctx = GpuContext::new(&LadderOptions::default()).ok()?;
     eprintln!("renderer on {:?}", ctx.adapter.get_info().name);
     let g = GpuRenderer::new(ctx, None);
-    let Some(remedy_ui_paint::GpuAdapter::Uuid(_)) = remedy_ui_paint::gpu_video_adapter() else {
+    let Some(remedy_ui_engine::paint::GpuAdapter::Uuid(_)) = remedy_ui_engine::paint::gpu_video_adapter() else {
         eprintln!("this GPU does not import DMA-BUFs, skipping");
         return None;
     };
-    eprintln!("it imports NV12 planes in modifiers {:x?}", remedy_ui_paint::gpu_video_dma_buf_modifiers());
+    eprintln!("it imports NV12 planes in modifiers {:x?}", remedy_ui_engine::paint::gpu_video_dma_buf_modifiers());
     Some(g)
 }
 
@@ -427,7 +427,7 @@ fn pictures_in_dma_bufs_match_pictures_in_cpu_memory() {
     let source = MediaSource::file(clip());
     let seek = Duration::from_millis(1500);
     // No renderer has said it takes pictures on the GPU yet: they come in CPU memory.
-    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    assert_eq!(remedy_ui_engine::paint::gpu_video_adapter(), None);
     let cpu = pictures(&source, false, seek);
     assert_eq!(cpu.len(), 75 + 12);
     assert!(cpu.iter().all(|(_, f)| f.gpu.is_none() && !f.data.is_empty()));
@@ -449,7 +449,7 @@ fn pictures_in_dma_bufs_match_pictures_in_cpu_memory() {
         assert_eq!(at_c, at_g, "at the same times");
         assert_eq!((c.width, c.height), (f.width, f.height));
         assert!(f.gpu.is_some() && f.data.is_empty(), "the picture at {at_g:?} came through CPU memory");
-        let Some(remedy_ui_paint::GpuTexture::DmaBuf { planes, plane_count: 2, .. }) =
+        let Some(remedy_ui_engine::paint::GpuTexture::DmaBuf { planes, plane_count: 2, .. }) =
             f.gpu.as_ref().map(|g| g.0.texture())
         else {
             unreachable!("at {at_g:?}: not two planes in DMA-BUFs")
@@ -494,8 +494,8 @@ fn drawn_in_place_like_the_copies(
     for ((at, c), (_, f)) in cpu.iter().zip(gpu).step_by(10) {
         let linear = matches!(
             f.gpu.as_ref().map(|g| g.0.texture()),
-            Some(remedy_ui_paint::GpuTexture::DmaBuf {
-                modifier: remedy_ui_paint::DRM_FORMAT_MOD_LINEAR,
+            Some(remedy_ui_engine::paint::GpuTexture::DmaBuf {
+                modifier: remedy_ui_engine::paint::DRM_FORMAT_MOD_LINEAR,
                 ..
             })
         );
@@ -519,7 +519,7 @@ fn hardware_decoder_pictures_match_pictures_in_cpu_memory() {
     let Ok(_) = gst() else { unreachable!("GStreamer did not load") };
     let source = MediaSource::file(clip());
     let seek = Duration::from_millis(1500);
-    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    assert_eq!(remedy_ui_engine::paint::gpu_video_adapter(), None);
     let cpu = pictures(&source, false, seek);
     assert_eq!(cpu.len(), 75 + 12);
     let Some(mut g) = importing_renderer() else {
@@ -540,7 +540,7 @@ fn hardware_decoder_pictures_match_pictures_in_cpu_memory() {
         assert_eq!((c.width, c.height), (f.width, f.height));
         assert!(f.data.is_empty());
     }
-    if let Some(remedy_ui_paint::GpuTexture::DmaBuf { planes, plane_count, modifier, .. }) =
+    if let Some(remedy_ui_engine::paint::GpuTexture::DmaBuf { planes, plane_count, modifier, .. }) =
         gpu.first().and_then(|(_, f)| f.gpu.as_ref()).map(|g| g.0.texture())
     {
         eprintln!(
@@ -574,7 +574,7 @@ fn measure_a_clip() {
     let Some(mut g) = importing_renderer() else { return };
     let dma = path == "dmabuf" || path == "hardware";
     if !dma {
-        remedy_ui_paint::set_gpu_video_adapter(None);
+        remedy_ui_engine::paint::set_gpu_video_adapter(None);
     }
     let producer = (path == "dmabuf").then(stand_in);
     let mut dec = GstDecoder::open_with(g_, &MediaSource::file(&clip), producer)
@@ -601,12 +601,12 @@ fn measure_a_clip() {
         let mut list = DisplayList::new();
         let f = frame(n as u64, &picture);
         list.push(Item::Video { frame: f.clone(), rect, radii: CornerRadii::ZERO });
-        g.draw(&list, remedy_ui_paint::Affine::IDENTITY, Color::BLACK, &target)
+        g.draw(&list, remedy_ui_engine::paint::Affine::IDENTITY, Color::BLACK, &target)
             .unwrap_or_else(|e| unreachable!("draw {n}: {e}"));
         draw_ns += thread_cpu_ns() - t1;
         // Held until the next one shows, as a video surface holds its current frame.
         shown = Some(f);
-        let _ = g.context().device.poll(remedy_ui_render_gpu::wgpu::PollType::wait_indefinitely());
+        let _ = g.context().device.poll(remedy_ui_engine::render_gpu::wgpu::PollType::wait_indefinitely());
         n += 1;
     }
     drop(shown);

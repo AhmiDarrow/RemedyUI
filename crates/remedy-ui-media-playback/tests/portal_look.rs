@@ -7,15 +7,15 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_devtools::Snapshot;
 use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_media_playback::*;
 use remedy_ui_media_video::{Picture, PixelFormat};
-use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::Icon;
 
 /// Portal's glyphs, as its page draws them: filled paths, and `.line` paths stroked 1.8 wide.
@@ -180,10 +180,10 @@ impl Window {
         }
         for r in self.ui.take_requests() {
             match r {
-                remedy_ui_view::Request::Timer { id, delay } => {
+                remedy_ui_engine::view::Request::Timer { id, delay } => {
                     self.timers.push((id, Instant::now() + delay))
                 }
-                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                remedy_ui_engine::view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
                 _ => {}
             }
         }

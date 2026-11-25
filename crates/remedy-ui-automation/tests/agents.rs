@@ -8,7 +8,7 @@ use remedy_ui_automation::*;
 use remedy_ui_core::Size;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request as ViewRequest, Ui};
+use remedy_ui_engine::view::{El, Request as ViewRequest, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::Commands;
 
@@ -97,7 +97,7 @@ fn trusted(ui: &Ui, name: &str) -> Option<El> {
     None
 }
 
-fn settings(t: &mut T) -> (Signal<bool>, remedy_ui_view::TextField, remedy_ui_view::TextField) {
+fn settings(t: &mut T) -> (Signal<bool>, remedy_ui_engine::view::TextField, remedy_ui_engine::view::TextField) {
     let noise = Signal::new(false);
     let name = w::text_input(&t.ui, "Display name");
     name.set_value("Sam");
@@ -403,6 +403,6 @@ fn agents_in_other_processes_connect_with_their_token_and_strangers_are_turned_a
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_automation::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_automation::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }

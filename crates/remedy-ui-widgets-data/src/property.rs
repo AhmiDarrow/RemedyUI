@@ -5,7 +5,7 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{Align, El, Ui};
+use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 /// One named value and the control that edits it.

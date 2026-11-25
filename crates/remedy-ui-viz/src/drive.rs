@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_view::{El, TickKind};
+use remedy_ui_engine::view::{El, TickKind};
 
 /// A value closer than this to its target counts as there.
 const SETTLE: f32 = 0.002;
@@ -195,7 +195,7 @@ struct Inner {
 /// away, hidden, its window minimized) or its kind may not run, it parks and costs nothing
 /// until it may go on ([`El::resume_when`]). A live ticker ([`Ticker::new`]) steps about 60
 /// times a second with focus and slower in the background; an ambient one
-/// ([`Ticker::ambient`]) at the window's ambient rate ([`remedy_ui_view::AmbientPolicy`]).
+/// ([`Ticker::ambient`]) at the window's ambient rate ([`remedy_ui_engine::view::AmbientPolicy`]).
 #[derive(Clone)]
 pub struct Ticker(Rc<Inner>);
 

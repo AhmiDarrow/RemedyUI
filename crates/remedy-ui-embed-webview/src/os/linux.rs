@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use remedy_ui_core::host::WindowHandles;
 use remedy_ui_core::host::raw_window_handle::RawWindowHandle;
-use remedy_ui_view::{Placement, WeakUi};
+use remedy_ui_engine::view::{Placement, WeakUi};
 
 use super::{Layout, PxRect};
 use crate::{BlockReason, Command, Expected, Hub, NativeView, WebViewStatus, json_eval};

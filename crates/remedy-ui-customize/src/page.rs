@@ -4,7 +4,7 @@
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_services_i18n::MessageEntry;
-use remedy_ui_view::{Align, El, Ui};
+use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::{Tab, fuzzy_score, tabs, toolbar, toolbar_editor};
 
@@ -197,7 +197,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
         f.set_value(now.value.as_deref().unwrap_or_default());
         f
     });
-    let attrs: Vec<(String, remedy_ui_view::TextField)> = app
+    let attrs: Vec<(String, remedy_ui_engine::view::TextField)> = app
         .attributes
         .iter()
         .map(|(name, _)| {
@@ -227,7 +227,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
     let mut col =
         w::column(ui).gap(unit).fill_width().semantics(Semantics::new(Role::Group).label(id.to_owned()));
     col = col.child(w::text(ui, id.to_owned()).variant("code").data_text());
-    let fields: Vec<remedy_ui_view::TextField> =
+    let fields: Vec<remedy_ui_engine::view::TextField> =
         value.iter().cloned().chain(attrs.iter().map(|(_, f)| f.clone())).collect();
     for f in &fields {
         let s2 = save.clone();

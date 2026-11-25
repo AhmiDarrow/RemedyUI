@@ -2,8 +2,8 @@
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Point;
-use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
-use remedy_ui_view::{El, PaintCx, Ui};
+use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::view::{El, PaintCx, Ui};
 
 /// The built-in icons. Each is drawn in the text color at any size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -827,10 +827,10 @@ fn strokes(icon: Icon) -> Path {
                 for (n, el) in b.elements().iter().enumerate() {
                     let flip = n <= 27;
                     match *el {
-                        remedy_ui_paint::PathEl::MoveTo(q) => {
+                        remedy_ui_engine::paint::PathEl::MoveTo(q) => {
                             s.move_to(if flip { p(24.0 - q.x, q.y) } else { q });
                         }
-                        remedy_ui_paint::PathEl::LineTo(q) => {
+                        remedy_ui_engine::paint::PathEl::LineTo(q) => {
                             s.line_to(if flip { p(24.0 - q.x, q.y) } else { q });
                         }
                         _ => {}
@@ -863,21 +863,21 @@ fn strokes_for(icon: Icon, rtl: bool) -> Path {
     // Lists keep their markers' shapes (a "1" or a check mark is not drawn backwards): each
     // marker moves to the other side whole, and only the lines beside it mirror.
     let keep_markers = matches!(icon, Icon::ListNumber | Icon::ListTask);
-    let mut subpaths: Vec<Vec<remedy_ui_paint::PathEl>> = Vec::new();
+    let mut subpaths: Vec<Vec<remedy_ui_engine::paint::PathEl>> = Vec::new();
     for el in path.elements() {
-        if matches!(el, remedy_ui_paint::PathEl::MoveTo(_)) || subpaths.is_empty() {
+        if matches!(el, remedy_ui_engine::paint::PathEl::MoveTo(_)) || subpaths.is_empty() {
             subpaths.push(Vec::new());
         }
         if let Some(last) = subpaths.last_mut() {
             last.push(*el);
         }
     }
-    let points = |el: &remedy_ui_paint::PathEl| -> Vec<Point> {
+    let points = |el: &remedy_ui_engine::paint::PathEl| -> Vec<Point> {
         match *el {
-            remedy_ui_paint::PathEl::MoveTo(a) | remedy_ui_paint::PathEl::LineTo(a) => vec![a],
-            remedy_ui_paint::PathEl::QuadTo(a, b) => vec![a, b],
-            remedy_ui_paint::PathEl::CubicTo(a, b, c) => vec![a, b, c],
-            remedy_ui_paint::PathEl::Close => Vec::new(),
+            remedy_ui_engine::paint::PathEl::MoveTo(a) | remedy_ui_engine::paint::PathEl::LineTo(a) => vec![a],
+            remedy_ui_engine::paint::PathEl::QuadTo(a, b) => vec![a, b],
+            remedy_ui_engine::paint::PathEl::CubicTo(a, b, c) => vec![a, b, c],
+            remedy_ui_engine::paint::PathEl::Close => Vec::new(),
         }
     };
     let mut out = Path::new();
@@ -887,19 +887,19 @@ fn strokes_for(icon: Icon, rtl: bool) -> Path {
         let t = |q: Point| if marker { p(q.x + 13.0, q.y) } else { p(24.0 - q.x, q.y) };
         for el in sub {
             match el {
-                remedy_ui_paint::PathEl::MoveTo(a) => {
+                remedy_ui_engine::paint::PathEl::MoveTo(a) => {
                     out.move_to(t(a));
                 }
-                remedy_ui_paint::PathEl::LineTo(a) => {
+                remedy_ui_engine::paint::PathEl::LineTo(a) => {
                     out.line_to(t(a));
                 }
-                remedy_ui_paint::PathEl::QuadTo(a, b) => {
+                remedy_ui_engine::paint::PathEl::QuadTo(a, b) => {
                     out.quad_to(t(a), t(b));
                 }
-                remedy_ui_paint::PathEl::CubicTo(a, b, c) => {
+                remedy_ui_engine::paint::PathEl::CubicTo(a, b, c) => {
                     out.cubic_to(t(a), t(b), t(c));
                 }
-                remedy_ui_paint::PathEl::Close => {
+                remedy_ui_engine::paint::PathEl::Close => {
                     out.close();
                 }
             }
@@ -918,19 +918,19 @@ pub(crate) fn draw(icon: Icon, cx: &mut PaintCx<'_>) {
     for el in path.elements() {
         let t = |q: Point| p(ox + q.x * k, oy + q.y * k);
         match *el {
-            remedy_ui_paint::PathEl::MoveTo(a) => {
+            remedy_ui_engine::paint::PathEl::MoveTo(a) => {
                 scaled.move_to(t(a));
             }
-            remedy_ui_paint::PathEl::LineTo(a) => {
+            remedy_ui_engine::paint::PathEl::LineTo(a) => {
                 scaled.line_to(t(a));
             }
-            remedy_ui_paint::PathEl::QuadTo(a, b) => {
+            remedy_ui_engine::paint::PathEl::QuadTo(a, b) => {
                 scaled.quad_to(t(a), t(b));
             }
-            remedy_ui_paint::PathEl::CubicTo(a, b, c) => {
+            remedy_ui_engine::paint::PathEl::CubicTo(a, b, c) => {
                 scaled.cubic_to(t(a), t(b), t(c));
             }
-            remedy_ui_paint::PathEl::Close => {
+            remedy_ui_engine::paint::PathEl::Close => {
                 scaled.close();
             }
         }
@@ -941,7 +941,7 @@ pub(crate) fn draw(icon: Icon, cx: &mut PaintCx<'_>) {
         join: StrokeJoin::Round,
         dashes: Vec::new(),
     };
-    cx.list.push(remedy_ui_paint::Item::StrokePath {
+    cx.list.push(remedy_ui_engine::paint::Item::StrokePath {
         path: scaled,
         stroke,
         brush: Brush::Solid(cx.style.foreground),
@@ -961,15 +961,15 @@ pub fn icon(ui: &Ui, icon: Icon, size: f32) -> El {
 
 /// An image (premultiplied RGBA), fitted into the element and described by `alt`.
 #[track_caller]
-pub fn image(ui: &Ui, image: remedy_ui_paint::Image, alt: impl Into<String>) -> El {
+pub fn image(ui: &Ui, image: remedy_ui_engine::paint::Image, alt: impl Into<String>) -> El {
     ui.el("image").image(image).semantics(Semantics::new(Role::Image).label(alt.into()))
 }
 
 /// [`image`] for pixel art: scaled up by repeating pixels, never blurred.
 #[track_caller]
-pub fn pixel_image(ui: &Ui, image: remedy_ui_paint::Image, alt: impl Into<String>) -> El {
+pub fn pixel_image(ui: &Ui, image: remedy_ui_engine::paint::Image, alt: impl Into<String>) -> El {
     ui.el("image")
-        .image_sampled(image, remedy_ui_paint::Sampling::Nearest)
+        .image_sampled(image, remedy_ui_engine::paint::Sampling::Nearest)
         .semantics(Semantics::new(Role::Image).label(alt.into()))
 }
 
@@ -993,7 +993,7 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
         // initials sit on.
         .style(remedy_ui_core::style::StylePatch::default().background(color).radius(size / 2.0))
         .child(
-            ui.el("avatar_initials").text(remedy_ui_view::RichText::plain(initials)).nowrap().style(
+            ui.el("avatar_initials").text(remedy_ui_engine::view::RichText::plain(initials)).nowrap().style(
                 remedy_ui_core::style::StylePatch::default().foreground(fg).weight(700.0).text_size(size * 0.4),
             ),
         )
@@ -1013,11 +1013,11 @@ mod tests {
 
     #[test]
     fn directional_icons_mirror_and_list_markers_keep_their_shape() {
-        let xs = |path: &remedy_ui_paint::Path| -> Vec<f32> {
+        let xs = |path: &remedy_ui_engine::paint::Path| -> Vec<f32> {
             path.elements()
                 .iter()
                 .filter_map(|e| match *e {
-                    remedy_ui_paint::PathEl::MoveTo(a) | remedy_ui_paint::PathEl::LineTo(a) => Some(a.x),
+                    remedy_ui_engine::paint::PathEl::MoveTo(a) | remedy_ui_engine::paint::PathEl::LineTo(a) => Some(a.x),
                     _ => None,
                 })
                 .collect()
@@ -1127,7 +1127,7 @@ mod tests {
             let path = strokes(icon);
             assert!(path.elements().len() > 1, "{icon:?} draws nothing");
             for el in path.elements() {
-                if let remedy_ui_paint::PathEl::MoveTo(q) | remedy_ui_paint::PathEl::LineTo(q) = *el {
+                if let remedy_ui_engine::paint::PathEl::MoveTo(q) | remedy_ui_engine::paint::PathEl::LineTo(q) = *el {
                     assert!(
                         (0.0..=24.0).contains(&q.x) && (0.0..=24.0).contains(&q.y),
                         "{icon:?} leaves the grid at {q:?}"

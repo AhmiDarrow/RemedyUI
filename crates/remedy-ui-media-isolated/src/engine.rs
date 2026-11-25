@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use remedy_ui_media_image::{DecodeError, Decoded, Router, fitted_scalable, set_router};
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 use crate::os::{Child, Killer, LIMITS_MEMORY, Shm, layers_from_bits};
 use crate::protocol::{Reply, Request};

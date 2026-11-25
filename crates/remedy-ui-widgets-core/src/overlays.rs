@@ -9,7 +9,7 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Insets, Point, Rect, Size};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 /// How long the pointer rests on an element before its tooltip shows.
 const TOOLTIP_DELAY: Duration = Duration::from_millis(600);
@@ -177,7 +177,7 @@ pub fn full_text_tooltip(target: &El) {
 
 /// Shows `text` near `target` after the pointer rests on it, until it leaves. A signal or
 /// closure gives the text as it is when the tip shows.
-pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
+pub fn tooltip(target: &El, text: impl remedy_ui_engine::view::IntoProp<String>) {
     let text = text.into_prop();
     let ui = target.ui().clone();
     let shown: Rc<RefCell<Option<El>>> = Rc::default();
@@ -205,7 +205,7 @@ pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
             let id = ui.after(TOOLTIP_DELAY, move || {
                 let Some(b) = t2.bounds() else { return };
                 // Long tips wrap: at most a readable width, never past the window.
-                let tip = ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text.get())).pass_through();
+                let tip = ui2.el("tooltip").text(remedy_ui_engine::view::RichText::plain(text.get())).pass_through();
                 let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
                 *shown.borrow_mut() = Some(tip);
             });
@@ -261,7 +261,7 @@ impl PartTooltip {
         let me = self.clone();
         let id = self.ui.after(TOOLTIP_DELAY, move || {
             me.pending.set(None);
-            let tip = me.ui.el("tooltip").text(remedy_ui_view::RichText::plain(text)).pass_through();
+            let tip = me.ui.el("tooltip").text(remedy_ui_engine::view::RichText::plain(text)).pass_through();
             let tip = me.ui.overlay(place_near_within(&me.ui, tip, rect, 4.0, TOOLTIP_WIDTH));
             *me.shown.borrow_mut() = Some(tip);
         });

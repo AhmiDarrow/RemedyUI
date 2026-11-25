@@ -9,7 +9,7 @@ use std::rc::{Rc, Weak};
 use std::time::{Duration, SystemTime};
 
 use remedy_ui_core::Insets;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 use crate::interp::{Scope, Widgets, build};
 use crate::rt::w;

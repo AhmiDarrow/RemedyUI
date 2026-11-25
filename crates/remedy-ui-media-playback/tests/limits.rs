@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 
 struct Nothing;
 

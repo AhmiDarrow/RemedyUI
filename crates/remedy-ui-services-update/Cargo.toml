@@ -19,7 +19,7 @@ serde_json = { version = "=1.0.154" }
 base64 = { version = "=0.23.1" }
 
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["view"] }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
 
 # HTTPS for the updater; a browser page has none (its service worker updates it).

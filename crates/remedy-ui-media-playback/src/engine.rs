@@ -741,7 +741,7 @@ impl Presenter {
                 // Decoded pictures may take a sixty-fourth of the machine's memory (a quarter
                 // GB on a 16 GB machine): far more than look-ahead needs, but room for files
                 // whose sound runs well ahead of their pictures. Never less than the look-ahead.
-                let machine = remedy_ui_view::device::total_memory()
+                let machine = remedy_ui_engine::view::device::total_memory()
                     .map(|m| usize::try_from(m / 64).unwrap_or(usize::MAX))
                     .unwrap_or(wanted.saturating_mul(8));
                 f.budget_bytes = machine.max(wanted.saturating_mul(2));

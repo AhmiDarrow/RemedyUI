@@ -256,11 +256,11 @@ fn language_names_in_every_language() {
 
 #[test]
 fn apps_add_language_names() {
-    remedy_ui_view::strings::add_messages("services-i18n", "en", "language-ko = Korean\n");
-    remedy_ui_view::strings::add_messages("services-i18n", "de", "language-ko = Koreanisch\n");
+    remedy_ui_engine::view::strings::add_messages("services-i18n", "en", "language-ko = Korean\n");
+    remedy_ui_engine::view::strings::add_messages("services-i18n", "de", "language-ko = Koreanisch\n");
     assert_eq!(language_name_in("en", "ko"), "Korean");
     // App names win over CLDR's.
-    remedy_ui_view::strings::add_messages("services-i18n", "en", "language-sv = Svenska");
+    remedy_ui_engine::view::strings::add_messages("services-i18n", "en", "language-sv = Svenska");
     assert_eq!(language_name_in("en", "sv"), "Svenska");
     if cfg!(feature = "language-names") {
         assert_eq!(language_name_in("de", "ko-KR"), "Koreanisch (Südkorea)");

@@ -7,8 +7,8 @@
 //! so a translation keeps the placeholders and may move them. Counts that need plural
 //! forms (reactions) take the catalog's plural message while the words are the catalog's.
 
-use remedy_ui_view::Ui;
-use remedy_ui_view::strings::StrArg;
+use remedy_ui_engine::view::Ui;
+use remedy_ui_engine::view::strings::StrArg;
 
 use crate::model::BoardError;
 
@@ -75,7 +75,7 @@ macro_rules! words {
             }
 
             /// Every word with the id of its catalog message (the one [`Self::localized`]
-            /// reads, and [`remedy_ui_view::strings::add_messages`] rewords), nested words
+            /// reads, and [`remedy_ui_engine::view::strings::add_messages`] rewords), nested words
             /// included, in field order.
             pub fn words(&self) -> Vec<(String, &str)> {
                 #[allow(unused_mut)]

@@ -30,7 +30,7 @@ use remedy_ui_core::a11y::{Action, ReaderNode, Role};
 use remedy_ui_bridge_headless::HeadlessHost;
 use remedy_ui_core::host::{HostEvent, WindowId};
 use remedy_ui_core::input::{Key, KeyEvent};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 use crate::{App, AppConfig, GeometryStore, Runner, Window, WindowSpec};
 
@@ -235,7 +235,7 @@ mod tests {
     fn find_type_and_press_like_a_person() {
         let saved = Signal::new(String::new());
         let mut app = TestApp::window(move |ui, _| {
-            let field = ui.text_field("text_input", remedy_ui_view::FieldKind::Single).label("Name");
+            let field = ui.text_field("text_input", remedy_ui_engine::view::FieldKind::Single).label("Name");
             let f2 = field.clone();
             let save = w::button(ui, "Save", move || saved.set(f2.value()));
             ui.root().child(field.el()).child(save);

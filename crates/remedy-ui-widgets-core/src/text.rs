@@ -1,13 +1,13 @@
 //! Text.
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_view::{El, IntoProp, RichText, Ui};
+use remedy_ui_engine::view::{El, IntoProp, RichText, Ui};
 
 /// Body text (wraps to its width): a string, or a signal or closure giving one. A variant of the style changes its look: `muted`, `small`,
 /// `error`, `strong` or `code` (monospace, in a box).
 ///
 /// ```
-/// # fn build(ui: &remedy_ui_view::Ui) {
+/// # fn build(ui: &remedy_ui_engine::view::Ui) {
 /// use remedy_ui_widgets_core::text;
 ///
 /// ui.root().child(text(ui, "Saved")).child(text(ui, "2 minutes ago").variant("muted"));
@@ -49,10 +49,10 @@ pub fn link(ui: &Ui, s: impl IntoProp<String>, on_activate: impl Fn() + 'static)
     let accent = ui.theme().colors.accent;
     let color = remedy_ui_core::style::ensure_contrast(accent, ui.theme().colors.bg, 4.5);
     crate::min_target(ui.el("link"))
-        .cursor(remedy_ui_view::Cursor::Pointer)
+        .cursor(remedy_ui_engine::view::Cursor::Pointer)
         .text(s.clone().map(move |s| {
             RichText::new().styled(&s, {
-                let mut v_ = remedy_ui_view::TextStylePatch::default();
+                let mut v_ = remedy_ui_engine::view::TextStylePatch::default();
                 v_.color = Some(color);
                 v_.underline = Some(true);
                 v_

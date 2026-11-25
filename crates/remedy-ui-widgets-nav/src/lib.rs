@@ -14,17 +14,17 @@
 
 /// The navigation widgets' own words (button names, tooltips, keyboard hints, the command
 /// palette) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add
-/// a language, with [`remedy_ui_view::strings::add_messages`] under the name `widgets-nav`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-nav");
+/// a language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-nav`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-nav");
 
 /// Message `id` of this pack in the window's locale, kept current as the locale changes
 /// when read inside a property closure or binding.
-pub(crate) fn tr(ui: &remedy_ui_view::Ui, id: &'static str) -> String {
+pub(crate) fn tr(ui: &remedy_ui_engine::view::Ui, id: &'static str) -> String {
     STRINGS.get(ui, id)
 }
 
 /// A closure for message `id`, for a label that follows the window's locale.
-pub(crate) fn tr_fn(ui: &remedy_ui_view::Ui, id: &'static str) -> impl Fn() -> String + 'static {
+pub(crate) fn tr_fn(ui: &remedy_ui_engine::view::Ui, id: &'static str) -> impl Fn() -> String + 'static {
     let ui = ui.clone();
     move || tr(&ui, id)
 }

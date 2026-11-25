@@ -17,13 +17,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
-use remedy_ui_paint::{Brush, Item};
-pub use remedy_ui_paint::{
+use remedy_ui_engine::paint::{Brush, Item};
+pub use remedy_ui_engine::paint::{
     CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuAdapter, GpuFrame, GpuPicture,
     GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter, gpu_video_dma_buf_modifiers,
 };
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 /// How the picture fills its element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -235,7 +235,7 @@ impl PageShown {
     /// Puts the element where the surface is now (or hides it while the surface is unseen).
     fn place(&self) {
         let Some(g) = self.picture.borrow().clone() else { return };
-        let at = self.at.get().map(|(bounds, visible)| remedy_ui_paint::PagePlacement {
+        let at = self.at.get().map(|(bounds, visible)| remedy_ui_engine::paint::PagePlacement {
             bounds,
             visible,
             background: self.background.get(),

@@ -4,10 +4,10 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, Point};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Display, Length, Track};
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use std::cell::Cell;
 use std::rc::Rc;
 

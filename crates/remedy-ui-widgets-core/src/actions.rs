@@ -4,7 +4,7 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::layout::Align;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, IntoProp, RichText, Ui};
+use remedy_ui_engine::view::{El, IntoProp, RichText, Ui};
 
 use crate::icons::{Icon, icon};
 use std::cell::RefCell;

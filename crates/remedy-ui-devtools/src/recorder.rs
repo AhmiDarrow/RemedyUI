@@ -37,7 +37,7 @@ impl std::error::Error for InstallError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FrameSample {
-    /// The window's view ([`remedy_ui_view::Ui::id`]), when the frame span named it.
+    /// The window's view ([`remedy_ui_engine::view::Ui::id`]), when the frame span named it.
     pub ui: Option<u64>,
     /// When the frame started, on the trace clock ([`remedy_ui_core::trace::now_ns`]).
     pub start_ns: u64,

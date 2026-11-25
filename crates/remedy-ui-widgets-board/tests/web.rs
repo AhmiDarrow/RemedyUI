@@ -6,7 +6,7 @@
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
-#[path = "../../remedy-ui-script-wasm/tests/hostile/mod.rs"]
+#[path = "../../remedy-ui-engine/tests/script_wasm/hostile/mod.rs"]
 mod hostile;
 
 use std::rc::Rc;
@@ -14,11 +14,11 @@ use std::time::Duration;
 
 use remedy_ui_core::Size;
 use remedy_ui_core::time::Instant;
-use remedy_ui_script::{Node, ScriptWidget, TextStyle};
-use remedy_ui_script_lua::LuaEngine;
-use remedy_ui_script_wasm::WasmEngine;
+use remedy_ui_engine::script::{Node, ScriptWidget, TextStyle};
+use remedy_ui_engine::script_lua::LuaEngine;
+use remedy_ui_engine::script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use remedy_ui_widgets_board::*;
 use wasm_bindgen_test::*;
 
@@ -40,8 +40,8 @@ impl<T, E: std::fmt::Debug> Must<T> for Result<T, E> {
     }
 }
 
-const CLAPS_LUA: &str = include_str!("../../remedy-ui-script-lua/examples/claps.lua");
-const CLAPS_WASM: &[u8] = include_bytes!("../../remedy-ui-script-wasm/examples/claps.wasm");
+const CLAPS_LUA: &str = include_str!("../../remedy-ui-engine/examples/script_lua/claps.lua");
+const CLAPS_WASM: &[u8] = include_bytes!("../../remedy-ui-engine/examples/script_wasm/claps.wasm");
 
 fn engines() -> Engines {
     Engines::new().with(Rc::new(LuaEngine::new())).with(Rc::new(WasmEngine::new()))
@@ -200,10 +200,10 @@ fn the_engines_measure_their_rates_in_the_page() {
     while remedy_ui_core::exec::run_pending(Duration::from_millis(50)) && turns < 100 {
         turns += 1;
     }
-    assert!(remedy_ui_script_lua::rate().is_calibrated(), "Lua calibrated in a slice");
-    assert!(remedy_ui_script_wasm::rate().is_calibrated(), "WebAssembly calibrated in a slice");
-    let lua = remedy_ui_script_lua::calibrate().must("Lua calibrates");
-    let wasm = remedy_ui_script_wasm::calibrate().must("WebAssembly calibrates");
+    assert!(remedy_ui_engine::script_lua::rate().is_calibrated(), "Lua calibrated in a slice");
+    assert!(remedy_ui_engine::script_wasm::rate().is_calibrated(), "WebAssembly calibrated in a slice");
+    let lua = remedy_ui_engine::script_lua::calibrate().must("Lua calibrates");
+    let wasm = remedy_ui_engine::script_wasm::calibrate().must("WebAssembly calibrates");
     assert!((100..100_000_000).contains(&lua), "{lua}");
     assert!((1_000..1_000_000_000).contains(&wasm), "{wasm}");
     // Budgets from the page's own rates still stop an endless loop in about its time.

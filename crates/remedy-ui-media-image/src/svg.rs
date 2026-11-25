@@ -17,8 +17,8 @@ use std::sync::{Arc, Once};
 use crate::{DecodeError, Decoded, Format, add_format};
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Rect};
-use remedy_ui_paint::{Image, Item, Sampling};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::paint::{Image, Item, Sampling};
+use remedy_ui_engine::view::{El, Ui};
 use resvg::{tiny_skia, usvg};
 
 fn options(color: Option<Color>) -> usvg::Options<'static> {

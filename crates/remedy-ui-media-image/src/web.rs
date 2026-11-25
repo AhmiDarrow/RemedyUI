@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{

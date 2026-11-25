@@ -15,9 +15,9 @@ use remedy_ui_core::input::{
     Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase,
     WheelEvent,
 };
-use remedy_ui_paint::{Affine, Brush, Filter, Item, Sampling};
+use remedy_ui_engine::paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{ElementId, PaintCx, WeakUi};
+use remedy_ui_engine::view::{ElementId, PaintCx, WeakUi};
 
 use crate::annot::{self, Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
 use crate::input::{PageCommand, PageHit, PageInput, PageMode, Swipe};
@@ -282,9 +282,9 @@ impl PageView {
                 }
             }));
             let w = weak.clone();
-            remedy_ui_view::device::on_memory_pressure(move |level| {
+            remedy_ui_engine::view::device::on_memory_pressure(move |level| {
                 if let Some(s) = w.upgrade()
-                    && level != remedy_ui_view::device::MemoryPressure::Normal
+                    && level != remedy_ui_engine::view::device::MemoryPressure::Normal
                 {
                     s.st.borrow_mut().tiles.release_unused();
                 }
@@ -416,7 +416,7 @@ impl PageView {
             .translate(Vec2::new(-st.scroll.x, -st.scroll.y))
     }
 
-    fn host(&self) -> Option<remedy_ui_view::El> {
+    fn host(&self) -> Option<remedy_ui_engine::view::El> {
         let h = self.0.host.borrow();
         let (ui, id) = h.as_ref()?;
         ui.upgrade().map(|ui| ui.element(*id))
@@ -2520,7 +2520,7 @@ impl State {
     }
 
     fn tile_edge(&self) -> u32 {
-        remedy_ui_compositor::tile_pixels(self.dpr)
+        remedy_ui_engine::compositor::tile_pixels(self.dpr)
     }
 
     /// Sets the zoom keeping what is at `anchor` (the view's own logical pixels; `None`: its
@@ -2666,7 +2666,7 @@ impl State {
         let screen = (w.max(t) * h.max(t) * 4.0) as u64;
         let floor = screen.saturating_mul(3);
         let share =
-            remedy_ui_view::device::total_memory().map_or(floor.saturating_mul(4), |m| m / MEMORY_SHARE);
+            remedy_ui_engine::view::device::total_memory().map_or(floor.saturating_mul(4), |m| m / MEMORY_SHARE);
         usize::try_from(floor.max(share)).unwrap_or(usize::MAX)
     }
 

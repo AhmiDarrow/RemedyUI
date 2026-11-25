@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
-use remedy_ui_paint::Affine;
+use remedy_ui_engine::paint::Affine;
 
 /// How pages sit side by side.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

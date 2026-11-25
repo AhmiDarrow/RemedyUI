@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use remedy_ui_core::Rect;
-use remedy_ui_paint::Image;
+use remedy_ui_engine::paint::Image;
 
 use crate::source::{Cancel, PageSource, PageText, RenderError, RenderRequest};
 

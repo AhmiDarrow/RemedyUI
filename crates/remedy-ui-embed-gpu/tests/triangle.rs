@@ -68,7 +68,7 @@ fn the_element_asks_for_the_gpu() {
     let (s, _el, _view, _angle, _seen) = triangle(false);
     // The first frame has gone; the request stays until the runner takes it.
     let requests = s.ui.take_requests();
-    assert!(requests.contains(&remedy_ui_view::Request::PreferGpu), "{requests:?}");
+    assert!(requests.contains(&remedy_ui_engine::view::Request::PreferGpu), "{requests:?}");
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn animating_renders_a_new_picture_every_frame_until_stopped() {
         s.frame();
     }
     assert_eq!(view.stats().rendered, 4, "one per frame");
-    assert!(s.ui.take_requests().contains(&remedy_ui_view::Request::Frame), "asks for the next frame");
+    assert!(s.ui.take_requests().contains(&remedy_ui_engine::view::Request::Frame), "asks for the next frame");
     view.set_animating(false);
     s.frame();
     let before = view.stats().rendered;

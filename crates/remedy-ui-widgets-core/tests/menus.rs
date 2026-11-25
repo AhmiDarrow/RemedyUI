@@ -9,7 +9,7 @@ use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, FieldKind, Request, Ui};
+use remedy_ui_engine::view::{El, FieldKind, Request, Ui};
 use remedy_ui_widgets_core::{self as w, MenuItem};
 
 struct T {
@@ -334,8 +334,8 @@ fn menus_near_the_edges_stay_inside_the_window() {
         w::column(&t.ui)
             .fill_width()
             .height(300.0)
-            .justify(remedy_ui_view::Justify::End)
-            .align(remedy_ui_view::Align::End)
+            .justify(remedy_ui_engine::view::Justify::End)
+            .align(remedy_ui_engine::view::Align::End)
             .child(anchor.clone()),
     );
     t.frame();

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use unic_langid::LanguageIdentifier;
 
 /// A user override file that could not be used.

@@ -6,7 +6,7 @@ mod common;
 use common::*;
 use remedy_ui_media_image::{decode, dimensions};
 
-fn pixel(img: &remedy_ui_paint::Image, x: u32, y: u32) -> [u8; 4] {
+fn pixel(img: &remedy_ui_engine::paint::Image, x: u32, y: u32) -> [u8; 4] {
     let i = ((y * img.width + x) * 4) as usize;
     img.pixels.get(i..i + 4).and_then(|s| s.try_into().ok()).unwrap_or([9; 4])
 }

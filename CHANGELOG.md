@@ -417,7 +417,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   alpha, as `color-mix(in srgb, var(--gold) 16%, transparent)`. `Gradient::parse` and
   `parse_layers` read CSS gradient text (`var(--role)`, `rgb()`, `#hex`, `color-mix` with
   `transparent`, `px`/`rem`/`%`, angles and `to <side>`); `Gradient::geometry` places one in a
-  box as CSS does, and `remedy_ui_view::gradient_brush` turns it into a brush. Portal's
+  box as CSS does, and `remedy_ui_engine::view::gradient_brush` turns it into a brush. Portal's
   gradients (page glow, poster art, cast screen, hero and info scrims, full-screen scrims,
   seek track) match Chrome drawing the same CSS to within 5 levels
   (`devtools/tests/portal_gradients.rs`); the GPU matches the CPU.
@@ -976,7 +976,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   dependency), and pictures follow the same clock, on the sound device or the wall. The
   widget gains a speed button (in all 11 languages) and Shift+> / Shift+<. The speed carries
   over to what plays next. At any speed the sound plays to the very end of the media.
-- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
+- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_engine::render_gpu::health`).
   Each rung of the backend ladder draws a small reference scene that must match the CPU
   renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves
   down. Every present is watched from a thread: one running past `PRESENT_HANG` (3 s) marks
@@ -1006,7 +1006,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `contrast`, `invert` (the CSS filter functions) and `Style::color_matrix` (SVG
   `feColorMatrix`), chained into one matrix (`StylePatch::color_matrix`,
   `ResolvedStyle::color_matrix`); `Filter::ColorMatrix` and `ColorMatrix` (in
-  `remedy_ui_core`, re-exported by `remedy_ui_paint`: presets, `then`, `limited`, `apply`,
+  `remedy_ui_core`, re-exported by `remedy_ui_engine::paint`: presets, `then`, `limited`, `apply`,
   `apply_premultiplied`). vello runs no colour matrices, so RemedyUI draws the group into a
   picture of its own and runs the matrix itself (unpremultiply, matrix, clamp, premultiply),
   on the CPU and in a GPU pass; it works inside display lists and on layers the compositor
@@ -1097,7 +1097,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   colour, 2D and 3D signed-distance shapes, cameras and GGX lighting), compiled with
   optimizations (inlining, unrolling, folding, shared work, per-frame hoisting) against
   `Limits` (`Limits::untrusted` for themes and scripts) into programs for one fixed GPU kernel
-  (`remedy_ui_render_gpu::effects::GpuEffect`, GL 3.3 and WebGL2 included) and the CPU
+  (`remedy_ui_engine::render_gpu::effects::GpuEffect`, GL 3.3 and WebGL2 included) and the CPU
   interpreter (`CpuEffect`), which match. `effect_view(ui, Instance)` draws one in an element
   under the ambient policy, with a still frame and a CPU quality ladder; parameters by name
   (`EffectView::set`). 30 built-in effects (`library`, `LIBRARY`): fire, embers, glow,
@@ -1114,7 +1114,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Every word the engine shows itself (widget labels, menus, keyboard hints, the media player,
   the board editor, the customization pages, the agent prompts, the update strip, what screen
   readers hear) is a Fluent message in its crate's `i18n/<locale>.ftl`, compiled in as that
-  crate's `STRINGS` (`remedy_ui_view::strings`: `Strings`, `engine_strings!`, `add_messages`,
+  crate's `STRINGS` (`remedy_ui_engine::view::strings`: `Strings`, `engine_strings!`, `add_messages`,
   `check`), following the window's locale live, with CLDR plurals, the locale's digits and
   isolated placeholders. Word structs gain `localized(locale)` (`BoardLabels`,
   `StepperLabels`, `spell::MenuLabels`, the update banner's `BannerText`). Windows lay out
@@ -2124,7 +2124,7 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
   Their time limit counts the work done on their own thread (new `remedy_ui_core::time`
   `ThreadTime` and `WorkClock`: over a budget only when both the thread's processor time and
   the monotonic clock say so), speed measurements last several ticks of the thread clock
-  (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_script::min_sample`), and
+  (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_engine::script::min_sample`), and
   until a device's speed is measured only the time limit applies (`Limits::step_budget`).
 - On a virtual machine whose host takes the processor away, a script's own thread clock counts
   that time as run: the time limit now stops a call only when it also made its steps at the

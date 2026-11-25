@@ -4,7 +4,7 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::{Align, El, FieldKind, InputPurpose, Ui};
+use remedy_ui_engine::view::{Align, El, FieldKind, InputPurpose, Ui};
 use remedy_ui_widgets_core as w;
 
 use remedy_ui_services_i18n::{Decimal, DecimalError, NumberSymbols};

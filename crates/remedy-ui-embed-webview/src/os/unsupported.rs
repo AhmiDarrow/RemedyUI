@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use remedy_ui_core::host::WindowHandles;
-use remedy_ui_view::{Placement, WeakUi};
+use remedy_ui_engine::view::{Placement, WeakUi};
 
 use crate::{Command, Hub, NativeView};
 

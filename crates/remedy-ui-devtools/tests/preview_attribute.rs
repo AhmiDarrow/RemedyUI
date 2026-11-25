@@ -9,7 +9,7 @@ mod gallery {
     use remedy_ui_core::Color;
     use remedy_ui_devtools::preview;
     use remedy_ui_core::style::StylePatch;
-    use remedy_ui_view::{El, Ui};
+    use remedy_ui_engine::view::{El, Ui};
 
     fn swatch_box(ui: &Ui, width: f32) -> El {
         ui.el("box")

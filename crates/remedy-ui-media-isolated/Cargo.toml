@@ -21,7 +21,7 @@ anim = ["dep:remedy-ui-media-anim"]
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1", default-features = false, optional = true }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", default-features = false }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint"] }
 # Encodes the picture the helper is timed on at start-up (how fast this machine decodes).
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
@@ -40,13 +40,12 @@ ndk-context = { version = "=0.1.1" }
 [dev-dependencies]
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1" }
 gif = { version = "=0.14.2" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 
 [[test]]

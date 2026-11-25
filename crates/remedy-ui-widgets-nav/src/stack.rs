@@ -9,7 +9,7 @@ use remedy_ui_core::Insets;
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{Align, El, Ui};
+use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 struct Page {
@@ -50,7 +50,7 @@ impl NavStack {
         let h2 = heading.clone();
         let heading = heading.bind(move || {
             let t = title_s.get();
-            let _ = h2.clone().text(remedy_ui_view::RichText::plain(t.clone()));
+            let _ = h2.clone().text(remedy_ui_engine::view::RichText::plain(t.clone()));
             let _ = h2.clone().semantics(Semantics::new(Role::Heading(2)).label(t).live(Live::Polite));
         });
         let header = w::row(ui)

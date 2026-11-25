@@ -7,10 +7,10 @@ use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerKind, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::motion::{Easing, Motion, Target};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::motion::{Easing, Motion, Target};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
 
 use crate::{CaptionPick, KeyScheme, MediaError, PlaybackState, Player};
@@ -433,7 +433,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let text = if s.busy && p.canceling() { tr(&mu, "playback-canceling") } else { s.text };
             let said = Semantics::new(Role::Status).label(text.clone()).live(Live::Polite);
             let _ = msg.clone().hidden(false).semantics(said);
-            let _ = msg.clone().text(remedy_ui_view::RichText::plain(text));
+            let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text));
             return;
         }
         let _ = msg.clone().semantics(Semantics::new(Role::Alert));
@@ -481,7 +481,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             },
         };
         let _ = msg.clone().hidden(text.is_none());
-        let _ = msg.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
+        let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text.unwrap_or_default()));
     });
     // A spinner centered over the picture while opening or waiting for data; clicks pass.
     let busy = ui
@@ -1144,8 +1144,8 @@ fn overlay(
                     start: remedy_ui_core::Point::new(0.0, 0.0),
                     end: remedy_ui_core::Point::new(0.0, cx.size.height),
                     stops: vec![
-                        remedy_ui_paint::Stop { offset: 0.0, color: from },
-                        remedy_ui_paint::Stop { offset: 1.0, color: to },
+                        remedy_ui_engine::paint::Stop { offset: 0.0, color: from },
+                        remedy_ui_engine::paint::Stop { offset: 1.0, color: to },
                     ],
                 },
             );
@@ -1474,7 +1474,7 @@ fn clock(ui: &Ui, player: &Player) -> El {
             let shown = !clean.is_empty() && clean.contains(pos.as_str());
             for (el, text) in [(&b, lead), (&n, if shown { pos.as_str() } else { "" }), (&a, trail)] {
                 let _ =
-                    el.clone().hidden(text.is_empty()).text(remedy_ui_view::RichText::plain(text.to_owned()));
+                    el.clone().hidden(text.is_empty()).text(remedy_ui_engine::view::RichText::plain(text.to_owned()));
             }
             let _ = b.parent().map(|c| c.semantics(Semantics::new(Role::Label).label(clean.clone())));
         })
@@ -1578,8 +1578,8 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
                 start: remedy_ui_core::Point::new(0.0, 0.0),
                 end: remedy_ui_core::Point::new(0.0, cx.size.height),
                 stops: vec![
-                    remedy_ui_paint::Stop { offset: 0.0, color: top },
-                    remedy_ui_paint::Stop { offset: 1.0, color: bottom },
+                    remedy_ui_engine::paint::Stop { offset: 0.0, color: top },
+                    remedy_ui_engine::paint::Stop { offset: 1.0, color: bottom },
                 ],
             },
         );
@@ -1637,7 +1637,7 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
         let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));
         for (line, s) in [(&before, lead.trim()), (&name_line, name.as_str()), (&after, trail.trim())] {
             let _ = line.clone().hidden(s.is_empty());
-            let _ = line.clone().text(remedy_ui_view::RichText::plain(s.to_owned()));
+            let _ = line.clone().text(remedy_ui_engine::view::RichText::plain(s.to_owned()));
         }
         let _ = text.clone().semantics(Semantics::new(Role::Status).label(said).live(Live::Polite));
         // The app's poster, put in when it changes.
@@ -1666,7 +1666,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     // Drawn in capitals, as a label above a title is set (casing follows the language's own
     // rules); read and copied as written.
     let label =
-        ui.el("player_next_label").nowrap().text_transform(remedy_ui_view::TextTransform::Upper).text({
+        ui.el("player_next_label").nowrap().text_transform(remedy_ui_engine::view::TextTransform::Upper).text({
             let u = ui.clone();
             move || tr(&u, "playback-next-up-label")
         });
@@ -1675,7 +1675,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let title = title.bind(move || {
         let title = p.next_up().map(|n| n.title).unwrap_or_default();
         let whole = crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.clone().into())]);
-        let _ = t.clone().text(remedy_ui_view::RichText::plain(title)).semantics(said(whole));
+        let _ = t.clone().text(remedy_ui_engine::view::RichText::plain(title)).semantics(said(whole));
     });
     let left = ui.el("label").nowrap();
     let (lb, p, tu) = (left.clone(), player.clone(), ui.clone());
@@ -1686,7 +1686,7 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
         let Some(d) = countdown else { return };
         let secs = d.as_secs() + u64::from(d.subsec_nanos() > 0);
         let text = crate::STRINGS.format(&tu, "playback-next-up-in", &[("count", secs.into())]);
-        let _ = lb.clone().text(remedy_ui_view::RichText::plain(text.clone())).semantics(said(text));
+        let _ = lb.clone().text(remedy_ui_engine::view::RichText::plain(text.clone())).semantics(said(text));
     });
     let p = player.clone();
     let now = w::button(
@@ -1767,7 +1767,7 @@ fn caption_line(ui: &Ui, line: &str) -> El {
             start: u * 1.5,
             end: u * 1.5,
         }))
-        .text(remedy_ui_view::RichText::plain(line.to_owned()))
+        .text(remedy_ui_engine::view::RichText::plain(line.to_owned()))
 }
 
 /// Draws cues laid out by WebVTT's rules on the picture shown at `aspect` in the stage,
@@ -1775,7 +1775,7 @@ fn caption_line(ui: &Ui, line: &str) -> El {
 /// draws one (light text on a dark box). Vertical cues follow CSS's `text-orientation:
 /// mixed`: CJK, kana, Hangul and other upright characters one under another, and runs of
 /// Latin and other sideways text turned a quarter clockwise, reading downward.
-fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
+fn paint_cues(cx: &mut remedy_ui_engine::view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
     use crate::cue_layout::vertical_runs;
     let theme = cx.theme;
     let u = theme.spacing.unit;
@@ -1789,7 +1789,7 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
         None => theme.metric("player-caption-size", theme.type_scale.body),
     };
     let token = |name: &str| theme.colors.custom.get(name).copied();
-    let text = remedy_ui_view::TextPaint {
+    let text = remedy_ui_engine::view::TextPaint {
         size,
         weight: 400.0,
         color: token("player-caption-text").unwrap_or(Color::WHITE),
@@ -1858,12 +1858,12 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
                 // Sideways: the run turned a quarter clockwise about its middle.
                 let w = cx.measure_text(&run, text).width;
                 let at = remedy_ui_core::Point::new(c.x, y + w / 2.0);
-                let turn = remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
-                    .then(remedy_ui_paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
-                    .then(remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(at.x, at.y)));
-                cx.list.push(remedy_ui_paint::Item::PushTransform(turn));
+                let turn = remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
+                    .then(remedy_ui_engine::paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
+                    .then(remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(at.x, at.y)));
+                cx.list.push(remedy_ui_engine::paint::Item::PushTransform(turn));
                 cx.text(&run, at, mid, text);
-                cx.list.push(remedy_ui_paint::Item::PopTransform);
+                cx.list.push(remedy_ui_engine::paint::Item::PopTransform);
                 y += w;
             }
         }
@@ -2175,7 +2175,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             return;
         };
         let Some(at) = time(x) else { return };
-        let _ = t2.clone().hidden(false).text(remedy_ui_view::RichText::plain(format_time(at)));
+        let _ = t2.clone().hidden(false).text(remedy_ui_engine::view::RichText::plain(format_time(at)));
         // Centered on the pointer, kept 4 px inside the bar's ends.
         let half = t2.bounds().map_or(0.0, |b| b.width() / 2.0);
         let x = (x - host.min.x).max(half + 4.0).min((host.width() - half - 4.0).max(half + 4.0));

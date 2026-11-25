@@ -24,8 +24,8 @@
 /// The board's own words (its editor, empty states, messages, setting editors, built-in
 /// widgets and reactions) in every language the engine ships, from `i18n/*.ftl`: what
 /// [`BoardLabels::localized`] reads. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-board`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-board");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-board`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-board");
 
 mod board;
 mod kinds;
@@ -42,6 +42,6 @@ pub use kinds::{
 pub use labels::{BoardLabels, ReactionLabels};
 pub use model::{Area, Board, BoardError, FORMAT, Placed};
 pub use reactions::{Reaction, reactions, reactions_in};
-pub use remedy_ui_script::{
+pub use remedy_ui_engine::script::{
     Engines, Language, Limits, Package, ScriptEngine, ScriptError, SettingKind, SettingSpec,
 };

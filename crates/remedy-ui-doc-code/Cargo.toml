@@ -22,7 +22,7 @@ syntaxes = ["syntect/default-syntaxes"]
 syntect = { version = "=5.3.0", default-features = false, features = ["parsing", "regex-fancy", "yaml-load"] }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["view"] }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
 
 [dev-dependencies]

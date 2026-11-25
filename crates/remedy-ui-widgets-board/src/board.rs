@@ -14,7 +14,7 @@ use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Display, Length, Track};
 use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::{Align, Drag, DragData, DropEffect, El, Ui};
+use remedy_ui_engine::view::{Align, Drag, DragData, DropEffect, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::{Property, PropertyGroup, property_grid};
 use serde_json::Value;
@@ -1030,7 +1030,7 @@ pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: Context) -
         let m = msg.get();
         let _ = m2
             .clone()
-            .text(remedy_ui_view::RichText::plain(m.clone().unwrap_or_default()))
+            .text(remedy_ui_engine::view::RichText::plain(m.clone().unwrap_or_default()))
             .hidden(m.is_none())
             .semantics(Semantics::new(Role::Alert).label(m.unwrap_or_default()));
     });

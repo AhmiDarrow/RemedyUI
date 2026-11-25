@@ -5,7 +5,7 @@ use remedy_ui_core::Size;
 use remedy_ui_doc_code::*;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 
 fn ui() -> Ui {
     let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
@@ -99,7 +99,7 @@ fn a_code_view_numbers_colors_and_folds() {
     let fold = find(&view, "icon_button").into_iter().next().unwrap_or_else(|| unreachable!("a fold button"));
     let name = fold.info().and_then(|i| i.semantics).and_then(|s| s.name().map(plain));
     assert_eq!(name.as_deref(), Some("Fold line 2"));
-    let _ = ui.tree().dispatch(fold.id(), &remedy_ui_view::Click { position: None });
+    let _ = ui.tree().dispatch(fold.id(), &remedy_ui_engine::view::Click { position: None });
     frame(&ui);
     let shown = texts(&view);
     assert!(shown.contains(&"fn main() {".to_owned()), "{shown:?}");
@@ -216,6 +216,6 @@ fn plain(s: &str) -> String {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_doc_code::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_doc_code::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }

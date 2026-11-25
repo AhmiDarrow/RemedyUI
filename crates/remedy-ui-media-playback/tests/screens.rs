@@ -4,7 +4,7 @@
 use remedy_ui_devtools::Preview;
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_media_playback::*;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 
 fn shot(name: &str, build: impl Fn(&Ui) -> El + 'static) {
     let Ok(dir) = std::env::var("REMEDY_SHOTS") else { return };

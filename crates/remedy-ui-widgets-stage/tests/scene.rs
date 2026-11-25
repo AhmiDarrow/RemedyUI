@@ -5,10 +5,10 @@ mod common;
 
 use common::*;
 use remedy_ui_core::{Color, Rect, Size};
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::ColorRole;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_stage::{
     Anchor, Fit, Ink, Layer, PixelArt, PixelScale, Place, SceneOptions, SpriteOptions, scene, sprite,
 };
@@ -237,7 +237,7 @@ fn parallax_follows_the_pointer_but_not_under_reduced_motion() {
 
 #[test]
 fn sprite_sheets_show_their_cells() {
-    use remedy_ui_paint::Image;
+    use remedy_ui_engine::paint::Image;
     use remedy_ui_widgets_stage::SpriteSheet;
     let ui = ui();
     // Two 1x1 cells side by side: red, then blue.

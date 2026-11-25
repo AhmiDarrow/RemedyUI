@@ -43,7 +43,7 @@ pub enum DocKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Doc {
-    /// Its path (`docs/DESIGN.md`, `rustdoc/remedy-ui-view/src/element.rs`).
+    /// Its path (`docs/DESIGN.md`, `rustdoc/remedy-ui-engine/src/view/element.rs`).
     pub path: String,
     /// Guide or rustdoc.
     pub kind: DocKind,
@@ -130,7 +130,7 @@ impl SearchInput {
 #[non_exhaustive]
 pub struct ReadInput {
     /// The document's path from a search hit or the listing (`docs/DESIGN.md`,
-    /// `rustdoc/remedy-ui-view/src/element.rs`). Empty lists every document.
+    /// `rustdoc/remedy-ui-engine/src/view/element.rs`). Empty lists every document.
     #[serde(default)]
     pub path: String,
     /// Read only the section with this heading (case-insensitive, may be part of it).
@@ -649,7 +649,7 @@ mod tests {
         let Ok(l) = Library::embedded() else { unreachable!("the committed index reads") };
         assert!(l.doc("docs/DESIGN.md").is_some(), "the design overview is embedded");
         assert!(l.doc("crates/remedy-ui/src/guide/getting_started.md").is_some(), "and the guides");
-        assert!(l.docs().iter().any(|d| d.path.starts_with("rustdoc/remedy-ui-view/")));
+        assert!(l.docs().iter().any(|d| d.path.starts_with("rustdoc/remedy-ui-engine/view")));
         let buttons =
             l.widgets(&CatalogInput { name: Some("button".into()), feature: Some("widgets".into()) });
         let Some(b) = buttons.iter().find(|w| w.name == "button") else {

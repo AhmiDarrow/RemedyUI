@@ -7,11 +7,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_compositor::Compositor;
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
 use remedy_ui_doc_pages::*;
 use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerKind, PointerPhase, ScrollPhysics};
-use remedy_ui_render_cpu::{CpuCompositor, Frame};
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 
 mod common;
 use common::*;
@@ -381,7 +381,7 @@ fn the_app_loads_and_reads_annotations_and_screen_readers_hear_them() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_doc_pages::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_doc_pages::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
@@ -419,7 +419,7 @@ fn screen_readers_and_undo_hear_the_windows_language() {
 fn an_image_is_placed_moved_resized_by_a_corner_and_undone() {
     let mut w = win();
     let pixels: std::sync::Arc<[u8]> = vec![255u8; 4 * 2 * 2].into();
-    let image = remedy_ui_paint::Image::new(2, 2, pixels);
+    let image = remedy_ui_engine::paint::Image::new(2, 2, pixels);
     let rect = Rect::new(100.0, 200.0, 200.0, 250.0);
     let id = w.view.add_annotation(Annotation::new(0, AnnotationKind::Image { rect, image }, Color::WHITE));
     assert_eq!(first(&w).kind_name(), "Image");

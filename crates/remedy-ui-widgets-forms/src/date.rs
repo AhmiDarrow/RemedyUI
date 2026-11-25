@@ -5,7 +5,7 @@ use remedy_ui_core::Insets;
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{Align, El, FieldKind, Justify, Ui};
+use remedy_ui_engine::view::{Align, El, FieldKind, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 use remedy_ui_services_i18n::{CalendarSymbols, Date, NumberSymbols, Time, month_grid};
@@ -43,7 +43,7 @@ pub fn calendar(
         let c = cursor.get();
         let sym = CalendarSymbols::for_locale(&u2.locale());
         let text = sym.month_year(c.year, c.month);
-        let _ = t2.clone().text(remedy_ui_view::RichText::plain(text.clone()));
+        let _ = t2.clone().text(remedy_ui_engine::view::RichText::plain(text.clone()));
         let _ = t2
             .clone()
             .semantics(Semantics::new(Role::Heading(3)).label(text).live(remedy_ui_core::a11y::Live::Polite));
@@ -234,7 +234,7 @@ pub fn date_picker(
         let d = value.get();
         let s = CalendarSymbols::for_locale(&u3.locale()).long_date(d);
         if let Some(t) = &text {
-            let _ = t.clone().text(remedy_ui_view::RichText::plain(s.clone()));
+            let _ = t.clone().text(remedy_ui_engine::view::RichText::plain(s.clone()));
         }
         let _ = b2.clone().semantics(
             Semantics::new(Role::DateInput).label(l3.clone()).value(s).expanded(false).action(Action::Click),

@@ -9,7 +9,7 @@ use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::layout::{Length, Position};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_view::{Align, El, Justify, Ui};
+use remedy_ui_engine::view::{Align, El, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 /// The window edge a panel comes from.
@@ -145,7 +145,7 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
     let t = w::text(ui, "").variant("strong").data_text().nowrap();
     let t2 = t.clone();
     let t = t.bind(move || {
-        let _ = t2.clone().text(remedy_ui_view::RichText::plain(title.get()));
+        let _ = t2.clone().text(remedy_ui_engine::view::RichText::plain(title.get()));
     });
     let (a1, a2, a3, a4) = (a.clone(), a.clone(), a.clone(), a.clone());
     let max = w::icon_button(ui, Icon::Maximize, crate::tr_fn(ui, "title-bar-maximize"), move || {

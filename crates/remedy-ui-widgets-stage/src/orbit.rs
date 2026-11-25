@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect, Size};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
 use crate::common::{LineStyle, Motion, Place, Slot, ellipse, layer};

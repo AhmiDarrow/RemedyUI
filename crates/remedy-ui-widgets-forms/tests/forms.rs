@@ -7,7 +7,7 @@ use remedy_ui_core::{Color, Size};
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_forms::*;
 
 fn d(s: &str) -> Decimal {
@@ -383,7 +383,7 @@ fn the_calendar_marks_today_on_the_local_calendar() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

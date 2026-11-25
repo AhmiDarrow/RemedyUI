@@ -3,7 +3,7 @@
 //! its color from the caller, so the theme decides how it looks.
 
 use remedy_ui_core::{Color, Point, Rect};
-use remedy_ui_paint::{Brush, DisplayList, Item, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, DisplayList, Item, Path, Stroke, StrokeCap, StrokeJoin};
 
 /// How long a note lasts, as a note value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

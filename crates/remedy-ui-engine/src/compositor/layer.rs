@@ -1,0 +1,425 @@
+//! The layer tree the UI thread commits.
+
+use std::sync::Arc;
+
+use remedy_ui_core::{CornerRadii, Rect, Size, Vec2};
+use crate::paint::{Affine, DisplayList};
+
+/// Frosted glass under a layer: what the window shows below its box, blurred, before its own
+/// content (CSS `backdrop-filter: blur()`). It sees every layer drawn before it, back to the
+/// innermost translucent group around it (its backdrop root, as on the web).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Backdrop {
+    /// The blur's standard deviation, in the layer's local units.
+    pub blur: f32,
+    /// The glass's corners (the layer's box is the glass).
+    pub radii: CornerRadii,
+}
+
+/// A layer's identity, stable across commits (usually the element id that owns it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LayerId(pub u64);
+
+/// One layer: a display list in its own coordinate space, with the properties the
+/// compositor can change on its own (transform, opacity, scroll offset).
+///
+/// A scroll container following another's offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollFollow {
+    /// The scroll container it follows.
+    pub leader: LayerId,
+    /// Follow the horizontal offset.
+    pub x: bool,
+    /// Follow the vertical offset.
+    pub y: bool,
+}
+
+/// One place a snapping scroll container can rest on an axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SnapPoint {
+    /// The scroll offset (content units) that lines the snap area up with the viewport.
+    pub offset: f32,
+    /// What the point belongs to (usually the element id), so a relayout keeps the same one.
+    pub key: u64,
+    /// A fling, wheel gesture or key step never passes it (CSS `scroll-snap-stop: always`).
+    pub always: bool,
+}
+
+/// Where a scroll container comes to rest after a fling, a wheel gesture, a drag release, a
+/// key step or a programmatic scroll (CSS scroll snapping).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScrollSnap {
+    /// Horizontal snap points (empty: the axis does not snap).
+    pub x: Vec<SnapPoint>,
+    /// Vertical snap points (empty: the axis does not snap).
+    pub y: Vec<SnapPoint>,
+    /// Always rest on a snap point (`mandatory`); otherwise only when one is near.
+    pub mandatory: bool,
+    /// How near a snap point must be to take a proximity snap, as a fraction of the viewport
+    /// on that axis. Default 0.3.
+    pub proximity: f32,
+    /// How the container moves onto the snap point. Default a 250 ms decelerating tween;
+    /// under reduced motion it jumps.
+    pub motion: remedy_ui_core::motion::Motion,
+    /// How long the wheel must be still before its gesture counts as ended and the container
+    /// settles. Default 150 ms.
+    pub wheel_idle: std::time::Duration,
+}
+
+impl Default for ScrollSnap {
+    fn default() -> Self {
+        ScrollSnap {
+            x: Vec::new(),
+            y: Vec::new(),
+            mandatory: false,
+            proximity: 0.3,
+            motion: remedy_ui_core::motion::Motion::Tween {
+                duration: std::time::Duration::from_millis(250),
+                easing: remedy_ui_core::motion::Easing::DECELERATE,
+            },
+            wheel_idle: std::time::Duration::from_millis(150),
+        }
+    }
+}
+
+/// A layer kept within its scroll container while that scrolls (CSS `position: sticky`). The
+/// boxes are in the scroll container's content space (the window's when `scroller` is `None`),
+/// where the layer was laid out; the compositor moves the layer by [`Sticky::offset`] at the
+/// container's scroll offset each frame, with no new commit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sticky {
+    /// The scroll container whose offset it follows; `None` for the window, which does not scroll.
+    pub scroller: Option<LayerId>,
+    /// The size of the container's viewport (the window's when `scroller` is `None`).
+    pub viewport: Size,
+    /// The sticky box where layout put it.
+    pub rect: Rect,
+    /// The box it never leaves: its parent's content box.
+    pub within: Rect,
+    /// How close it keeps to the viewport's top edge; `None` does not stick there.
+    pub top: Option<f32>,
+    /// How close it keeps to the right edge.
+    pub right: Option<f32>,
+    /// How close it keeps to the bottom edge.
+    pub bottom: Option<f32>,
+    /// How close it keeps to the left edge.
+    pub left: Option<f32>,
+}
+
+impl Sticky {
+    /// How far the box moves from where layout put it when the container is scrolled to
+    /// `scroll`: far enough to keep its inset from each sticking edge of the viewport, never
+    /// out of `within`. When both sides of an axis stick and cannot both hold, top and left win.
+    pub fn offset(&self, scroll: Vec2) -> Vec2 {
+        let view = Rect::from_origin_size(remedy_ui_core::Point::new(scroll.x, scroll.y), self.viewport);
+        let (r, c) = (self.rect, self.within);
+        let x = stick(r.min.x, r.max.x, view.min.x, view.max.x, c.min.x, c.max.x, self.left, self.right);
+        let y = stick(r.min.y, r.max.y, view.min.y, view.max.y, c.min.y, c.max.y, self.top, self.bottom);
+        Vec2::new(x, y)
+    }
+}
+
+/// One axis of [`Sticky::offset`]: the box `lo..hi` in the view `v0..v1`, held in `c0..c1`.
+#[allow(clippy::too_many_arguments, reason = "one axis of a box, a view and a limit")]
+fn stick(lo: f32, hi: f32, v0: f32, v1: f32, c0: f32, c1: f32, start: Option<f32>, end: Option<f32>) -> f32 {
+    let mut d = 0.0;
+    if let Some(e) = end {
+        // Below the far edge: pulled back up, but not above the start of its parent.
+        let over = hi - (v1 - e);
+        if over > 0.0 {
+            d = -over.min(lo - c0).max(0.0);
+        }
+    }
+    if let Some(s) = start {
+        // Scrolled past the near edge: pushed along, but not past the end of its parent.
+        let under = v0 + s - lo;
+        if under > 0.0 {
+            d = under.min(c1 - hi).max(0.0);
+        }
+    }
+    d
+}
+
+/// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
+/// has the origin at `bounds.min`. Its content (the display list and the child layers) is in
+/// content space, which is local space moved by the scroll offset. A clip applies in local
+/// space, so scrolled content slides under it.
+#[derive(Clone, Debug)]
+pub struct Layer {
+    /// Identity across commits.
+    pub id: LayerId,
+    /// Where the layer sits in its parent's content space; its size is the viewport of a
+    /// scrolling layer and the clip box of a clipping one.
+    pub bounds: Rect,
+    /// Applied in local space before placing at `bounds.min`.
+    pub transform: Affine,
+    /// Group opacity, 0 to 1.
+    pub opacity: f32,
+    /// Clips content and children to the local box with these corners.
+    pub clip: Option<CornerRadii>,
+    /// Makes the layer a scroll container whose content has this size.
+    pub scroll: Option<Size>,
+    /// The scroll offset at which a scroll container shows the start of its content: zero,
+    /// or in a right-to-left container whose content overflows to the left, how far it does.
+    /// The container opens there and stays anchored there as its content grows.
+    pub scroll_origin: Vec2,
+    /// A scroll container that moves with another one on some axes, in the same frame
+    /// (frozen table columns follow the body vertically; a header follows it horizontally).
+    pub scroll_follow: Option<ScrollFollow>,
+    /// Snap points of a scroll container.
+    pub scroll_snap: Option<ScrollSnap>,
+    /// Kept within its scroll container as that scrolls ([`Sticky`]).
+    pub sticky: Option<Sticky>,
+    /// What the layer draws, in content space.
+    pub content: Arc<DisplayList>,
+    /// Bumped by the UI thread whenever `content` changes; tiles re-raster on a new version.
+    pub content_version: u64,
+    /// Children, drawn after the content, in order.
+    pub children: Vec<Arc<Layer>>,
+    /// Endless transform and opacity loops the compositor runs on this layer at the window's
+    /// ambient rate, with no new commits ([`AmbientLoop`](crate::compositor::AmbientLoop)).
+    pub ambient: Vec<crate::compositor::AmbientLoop>,
+    /// Blurs what lies under the layer's box before its content draws.
+    pub backdrop: Option<Backdrop>,
+    /// Filters on the layer and every layer under it, drawn as one picture (a blur, a drop
+    /// shadow of its shape), outermost first: what an element with a filter becomes when
+    /// some of what it draws is in layers of its own.
+    pub filters: Vec<crate::paint::Filter>,
+    /// The scroll bars a scroll container draws over its content, over its children; `None`
+    /// for none.
+    pub scrollbars: Option<Scrollbars>,
+    /// Something under the window shows through the layer's box (a page's own `<video>`,
+    /// which the browser composites): the box, with the layer's clip corners, is cleared to
+    /// transparent in place of the layer's content, and what draws after it draws over.
+    pub hole: bool,
+}
+
+/// How a scroll container's scroll bars look and when they show (resolved from the
+/// element's `scrollbar-*` style). The compositor draws them, so they follow the scroll
+/// offset in the same frame as the content.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scrollbars {
+    /// The bar's thickness in logical pixels.
+    pub width: f32,
+    /// The thumb's color.
+    pub thumb: remedy_ui_core::Color,
+    /// The track's color (transparent: none).
+    pub track: remedy_ui_core::Color,
+    /// When they show.
+    pub visibility: remedy_ui_core::ScrollbarVisibility,
+}
+
+impl Scrollbars {
+    /// How long overlay bars ([`ScrollbarVisibility::Auto`](remedy_ui_core::ScrollbarVisibility::Auto))
+    /// stay after the content last moved, before they fade.
+    pub const LINGER: std::time::Duration = std::time::Duration::from_millis(1000);
+    /// How long they take to fade out.
+    pub const FADE: std::time::Duration = std::time::Duration::from_millis(300);
+
+    /// The track and thumb of each axis that overflows, in the local space of a `viewport`
+    /// showing `content` scrolled to `offset`: `(track, thumb)` for the vertical bar (along
+    /// the right edge), then the horizontal one (along the bottom).
+    ///
+    /// ```
+    /// use remedy_ui_engine::compositor::Scrollbars;
+    /// use remedy_ui_core::{Color, ScrollbarVisibility, Size, Vec2};
+    /// let bars = Scrollbars { width: 8.0, thumb: Color::WHITE, track: Color::TRANSPARENT, visibility: ScrollbarVisibility::Always };
+    /// let parts = bars.parts(Size::new(100.0, 200.0), Size::new(100.0, 800.0), Vec2::new(0.0, 600.0));
+    /// let (track, thumb) = parts[0].unwrap();
+    /// assert_eq!((track.min.x, track.max.x, track.height()), (92.0, 100.0, 200.0));
+    /// assert_eq!((thumb.height(), thumb.max.y), (50.0, 200.0), "a quarter of the track, at its end");
+    /// assert!(parts[1].is_none(), "no sideways overflow");
+    /// ```
+    pub fn parts(&self, viewport: Size, content: Size, offset: Vec2) -> [Option<(Rect, Rect)>; 2] {
+        let w = self.width;
+        if w.is_nan() || w <= 0.0 {
+            return [None, None];
+        }
+        let over_y = content.height - viewport.height > 0.5;
+        let over_x = content.width - viewport.width > 0.5;
+        // Each bar leaves the corner to the other when both show.
+        let len_y = viewport.height - if over_x { w } else { 0.0 };
+        let len_x = viewport.width - if over_y { w } else { 0.0 };
+        // The thumb is as long as the share of the content in view, never shorter than the
+        // bar is thick (twice, so it can be grabbed), and travels the rest of the track.
+        let thumb = |len: f32, view: f32, content: f32, at: f32| {
+            let size = (len * view / content).clamp((2.0 * w).min(len), len);
+            let travel = (content - view).max(f32::MIN_POSITIVE);
+            let pos = (len - size) * (at / travel).clamp(0.0, 1.0);
+            (pos, size)
+        };
+        let y = over_y.then(|| {
+            let track = Rect::new(viewport.width - w, 0.0, viewport.width, len_y);
+            let (pos, size) = thumb(len_y, viewport.height, content.height, offset.y);
+            (track, Rect::new(track.min.x, pos, track.max.x, pos + size))
+        });
+        let x = over_x.then(|| {
+            let track = Rect::new(0.0, viewport.height - w, len_x, viewport.height);
+            let (pos, size) = thumb(len_x, viewport.width, content.width, offset.x);
+            (track, Rect::new(pos, track.min.y, pos + size, track.max.y))
+        });
+        [y, x]
+    }
+
+    /// How opaque the bars are `since` the content last moved (`None`: it has not moved
+    /// since it showed): overlay bars show while it moves, linger, then fade.
+    pub fn alpha(&self, since: Option<std::time::Duration>) -> f32 {
+        use remedy_ui_core::ScrollbarVisibility as V;
+        match self.visibility {
+            V::Always => 1.0,
+            V::Never => 0.0,
+            _ => match since {
+                Some(t) if t <= Self::LINGER => 1.0,
+                Some(t) => 1.0 - ((t - Self::LINGER).as_secs_f32() / Self::FADE.as_secs_f32()).min(1.0),
+                None => 0.0,
+            },
+        }
+    }
+}
+
+impl Layer {
+    /// A layer at `bounds` drawing `content`, unclipped, opaque and untransformed.
+    pub fn new(id: LayerId, bounds: Rect, content: DisplayList) -> Self {
+        Layer {
+            id,
+            bounds,
+            transform: Affine::IDENTITY,
+            opacity: 1.0,
+            clip: None,
+            scroll: None,
+            scroll_origin: Vec2::ZERO,
+            scroll_follow: None,
+            scroll_snap: None,
+            sticky: None,
+            content: Arc::new(content),
+            content_version: 0,
+            children: Vec::new(),
+            ambient: Vec::new(),
+            backdrop: None,
+            filters: Vec::new(),
+            scrollbars: None,
+            hole: false,
+        }
+    }
+
+    /// Draws scroll bars over a scroll container ([`scrolling`](Self::scrolling)).
+    pub fn with_scrollbars(mut self, bars: Scrollbars) -> Self {
+        self.scrollbars = Some(bars);
+        self
+    }
+
+    /// Draws the layer and its children through `filters`, outermost first.
+    pub fn with_filters(mut self, filters: Vec<crate::paint::Filter>) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    /// Blurs what lies under the layer's box (rounded by `radii`) before its content.
+    pub fn with_backdrop(mut self, blur: f32, radii: CornerRadii) -> Self {
+        self.backdrop = Some(Backdrop { blur, radii });
+        self
+    }
+
+    /// Clips to the layer box with `radii`.
+    pub fn clipped(mut self, radii: CornerRadii) -> Self {
+        self.clip = Some(radii);
+        self
+    }
+
+    /// Makes the layer a clipped scroll container over content of `size`.
+    pub fn scrolling(mut self, content_size: Size) -> Self {
+        self.scroll = Some(content_size);
+        if self.clip.is_none() {
+            self.clip = Some(CornerRadii::ZERO);
+        }
+        self
+    }
+
+    /// Adds a child.
+    pub fn with_child(mut self, child: Layer) -> Self {
+        self.children.push(Arc::new(child));
+        self
+    }
+
+    /// The local box: origin at zero, the size of `bounds`.
+    pub fn local_box(&self) -> Rect {
+        Rect::from_origin_size(remedy_ui_core::Point::ZERO, self.bounds.size())
+    }
+
+    /// The largest scroll offset on each axis (zero when not scrolling).
+    pub fn max_scroll(&self) -> Vec2 {
+        match self.scroll {
+            Some(c) => Vec2::new(
+                (c.width - self.bounds.width()).max(0.0),
+                (c.height - self.bounds.height()).max(0.0),
+            ),
+            None => Vec2::ZERO,
+        }
+    }
+
+    /// The area content draws to, in content space: what tiles cover.
+    pub fn content_extent(&self) -> Option<Rect> {
+        let drawn = self.content.bounds();
+        let scrolled = self.scroll.map(|s| Rect::from_origin_size(remedy_ui_core::Point::ZERO, s));
+        match (drawn, scrolled) {
+            (Some(d), Some(s)) => d.intersect(s.union(self.local_box())),
+            (Some(d), None) if self.clip.is_some() => d.intersect(self.local_box()),
+            (Some(d), None) => Some(d),
+            (None, _) => None,
+        }
+        .filter(|r| !r.is_empty())
+    }
+}
+
+/// A committed snapshot: the root layers of one window. Unchanged layers are shared with the
+/// previous snapshot through `Arc`, so a commit costs as much as the change.
+#[derive(Clone, Debug, Default)]
+pub struct LayerTree {
+    /// Top-level layers, back to front.
+    pub roots: Vec<Arc<Layer>>,
+}
+
+impl LayerTree {
+    /// A tree of these roots.
+    pub fn new(roots: Vec<Layer>) -> Self {
+        LayerTree { roots: roots.into_iter().map(Arc::new).collect() }
+    }
+
+    /// Visits every layer, parents before children (each layer's children back to front).
+    pub fn for_each(&self, mut f: impl FnMut(&Layer)) {
+        // An explicit stack, not recursion: a tree any number of layers deep is walked on
+        // any thread's stack.
+        let mut stack: Vec<&Layer> = self.roots.iter().rev().map(|r| &**r).collect();
+        while let Some(l) = stack.pop() {
+            f(l);
+            stack.extend(l.children.iter().rev().map(|c| &**c));
+        }
+    }
+
+    /// The layer with `id`, if any (the first, parents before children).
+    pub fn find(&self, id: LayerId) -> Option<&Layer> {
+        let mut stack: Vec<&Layer> = self.roots.iter().rev().map(|r| &**r).collect();
+        while let Some(l) = stack.pop() {
+            if l.id == id {
+                return Some(l);
+            }
+            stack.extend(l.children.iter().rev().map(|c| &**c));
+        }
+        None
+    }
+}
+
+impl Drop for Layer {
+    /// Drops the layers under this one that nothing else shares one at a time, not each
+    /// inside its parent's drop: a tree any number of layers deep is dropped on any thread's
+    /// stack.
+    fn drop(&mut self) {
+        let mut orphans = std::mem::take(&mut self.children);
+        while let Some(child) = orphans.pop() {
+            // A layer still shared (by another snapshot) is not dropped here.
+            if let Some(mut layer) = Arc::into_inner(child) {
+                orphans.append(&mut layer.children);
+            }
+        }
+    }
+}

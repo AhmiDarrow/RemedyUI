@@ -65,7 +65,7 @@ fn a_slow_window_moves_from_the_cpu_to_the_gpu() {
                             cx.list.fill_rounded(
                                 Rect::new(x, y, x + 40.0, y + 24.0),
                                 CornerRadii::all(8.0),
-                                remedy_ui_paint::Brush::Solid(c),
+                                remedy_ui_engine::paint::Brush::Solid(c),
                             );
                         }
                     });

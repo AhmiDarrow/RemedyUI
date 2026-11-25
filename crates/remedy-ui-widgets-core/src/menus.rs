@@ -15,7 +15,7 @@ use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, PointerPhase};
 use remedy_ui_core::layout::Align;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, IntoProp, Prop, RichText, TextStylePatch, Ui};
+use remedy_ui_engine::view::{El, IntoProp, Prop, RichText, TextStylePatch, Ui};
 
 use crate::icons::{Icon, icon};
 use crate::menu_bar::Bar;
@@ -463,7 +463,7 @@ impl Chain {
         chain
     }
 
-    pub(crate) fn layer_id(&self) -> remedy_ui_view::ElementId {
+    pub(crate) fn layer_id(&self) -> remedy_ui_engine::view::ElementId {
         self.layer.id()
     }
 
@@ -930,7 +930,7 @@ impl Chain {
     }
 
     /// Pointer input that reached the layer: outside every menu of the chain.
-    fn layer_pointer(self: &Rc<Self>, e: &remedy_ui_view::PointerInput) -> bool {
+    fn layer_pointer(self: &Rc<Self>, e: &remedy_ui_engine::view::PointerInput) -> bool {
         let inside =
             self.levels.borrow().iter().any(|l| l.menu.bounds().is_some_and(|b| b.contains(e.position)));
         if inside || self.closed.get() {
@@ -1042,7 +1042,7 @@ pub(crate) fn open_menu(
 
 thread_local! {
     /// Open menus with the window and element they were opened from, for [`close_menus_in`].
-    static OPENED_FROM: RefCell<Vec<(u64, remedy_ui_view::ElementId, Weak<Chain>)>> =
+    static OPENED_FROM: RefCell<Vec<(u64, remedy_ui_engine::view::ElementId, Weak<Chain>)>> =
         const { RefCell::new(Vec::new()) };
 }
 

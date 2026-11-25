@@ -24,9 +24,9 @@ pub use syntax::{MAX_DEPTH, Markup, Pos, RuiError, max_depth, set_max_depth};
 
 /// The words a person's layout notice shows, in every language the engine ships, from
 /// `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `rui`.
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `rui`.
 #[cfg(feature = "runtime")]
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("rui");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("rui");
 
 #[cfg(feature = "runtime")]
 mod interp;

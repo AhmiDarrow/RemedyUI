@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::Size;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{Request, Ui};
+use remedy_ui_engine::view::{Request, Ui};
 use remedy_ui_widgets_term::*;
 
 const TOTAL: usize = 100 << 20;

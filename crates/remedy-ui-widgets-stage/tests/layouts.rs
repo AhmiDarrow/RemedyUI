@@ -9,7 +9,7 @@ use common::*;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::ColorRole;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_viz::Clock;
 use remedy_ui_widgets_stage::{LineStyle, OrbitOptions, PathOptions, Route, Spread, orbit, path_layout};
 

@@ -9,7 +9,7 @@ use remedy_ui_core::{Color, Rect};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_core::reactive::untrack;
 use remedy_ui_core::style::{ColorRole, Theme};
-use remedy_ui_view::{El, TickKind, Ui};
+use remedy_ui_engine::view::{El, TickKind, Ui};
 use remedy_ui_viz::{Clock, Moved, Ticker};
 
 /// A color for art and strokes: a theme role (which follows the theme) or a fixed color.
@@ -278,23 +278,23 @@ impl LineStyle {
     }
 
     /// Strokes `path` with this style under the painter's theme.
-    pub(crate) fn stroke(&self, cx: &mut remedy_ui_view::PaintCx<'_>, path: remedy_ui_paint::Path) {
+    pub(crate) fn stroke(&self, cx: &mut remedy_ui_engine::view::PaintCx<'_>, path: remedy_ui_engine::paint::Path) {
         let t = cx.theme;
-        let mut stroke = remedy_ui_paint::Stroke::new(self.width.unwrap_or(t.stroke.max(1.0)));
-        stroke.cap = remedy_ui_paint::StrokeCap::Round;
-        stroke.join = remedy_ui_paint::StrokeJoin::Round;
+        let mut stroke = remedy_ui_engine::paint::Stroke::new(self.width.unwrap_or(t.stroke.max(1.0)));
+        stroke.cap = remedy_ui_engine::paint::StrokeCap::Round;
+        stroke.join = remedy_ui_engine::paint::StrokeJoin::Round;
         stroke.dashes = self.dashes.iter().map(|d| d.max(0.0) * t.spacing.unit).collect();
-        let brush = remedy_ui_paint::Brush::Solid(self.ink.resolve(t));
-        cx.list.push(remedy_ui_paint::Item::StrokePath { path, stroke, brush });
+        let brush = remedy_ui_engine::paint::Brush::Solid(self.ink.resolve(t));
+        cx.list.push(remedy_ui_engine::paint::Item::StrokePath { path, stroke, brush });
     }
 }
 
 /// An ellipse centered on `c` with radii `rx` and `ry`, as four cubic arcs.
-pub(crate) fn ellipse(c: remedy_ui_core::Point, rx: f32, ry: f32) -> remedy_ui_paint::Path {
+pub(crate) fn ellipse(c: remedy_ui_core::Point, rx: f32, ry: f32) -> remedy_ui_engine::paint::Path {
     use remedy_ui_core::Point;
     const K: f32 = 0.552_284_8;
     let (kx, ky) = (rx * K, ry * K);
-    let mut p = remedy_ui_paint::Path::new();
+    let mut p = remedy_ui_engine::paint::Path::new();
     p.move_to(Point::new(c.x + rx, c.y));
     p.cubic_to(Point::new(c.x + rx, c.y + ky), Point::new(c.x + kx, c.y + ry), Point::new(c.x, c.y + ry));
     p.cubic_to(Point::new(c.x - kx, c.y + ry), Point::new(c.x - rx, c.y + ky), Point::new(c.x - rx, c.y));

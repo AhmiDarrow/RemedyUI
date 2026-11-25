@@ -9,9 +9,9 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::Length;
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, PaintCx, TextPaint, Ui};
+use remedy_ui_engine::view::{El, PaintCx, TextPaint, Ui};
 
 use crate::glyphs::{Arc, NoteValue, Staff, draw_arc, draw_beam, draw_dot, draw_flags, draw_rest, line};
 use crate::layout::{beam_runs, break_systems, ends, step_event, step_measure, stretch};

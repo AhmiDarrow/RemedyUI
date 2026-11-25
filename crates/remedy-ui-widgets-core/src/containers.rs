@@ -4,7 +4,7 @@ use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_core::layout::{Axis, Display, Length, Position};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, IntoProp, Ui};
+use remedy_ui_engine::view::{El, IntoProp, Ui};
 
 /// Children in a column.
 #[track_caller]
@@ -91,7 +91,7 @@ pub fn disclosure(ui: &Ui, title: impl IntoProp<String>, body: El, open: Signal<
         .gap(unit * 1.5)
         .child(closed_mark.clone())
         .child(open_mark.clone())
-        .child(ui.el("label").text(title.clone().map(remedy_ui_view::RichText::plain)))
+        .child(ui.el("label").text(title.clone().map(remedy_ui_engine::view::RichText::plain)))
         .on_click(move || open.update(|o| *o = !*o))
         .semantics(move || {
             Semantics::new(Role::Button)

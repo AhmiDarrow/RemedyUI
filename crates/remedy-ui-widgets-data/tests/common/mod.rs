@@ -6,7 +6,7 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 
 pub fn ui() -> Ui {
     let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);

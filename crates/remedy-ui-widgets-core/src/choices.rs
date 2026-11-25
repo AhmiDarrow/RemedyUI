@@ -4,10 +4,10 @@ use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Align;
-use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::{El, IntoProp, Prop, Ui};
+use remedy_ui_engine::view::{El, IntoProp, Prop, Ui};
 
 use crate::menus::{MenuItem, menu};
 
@@ -38,7 +38,7 @@ pub fn check(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
             join: StrokeJoin::Round,
             dashes: Vec::new(),
         };
-        cx.list.push(remedy_ui_paint::Item::StrokePath {
+        cx.list.push(remedy_ui_engine::paint::Item::StrokePath {
             path: p,
             stroke,
             brush: Brush::Solid(cx.style.foreground),
@@ -194,7 +194,7 @@ pub fn segmented_unavailable(
             .el("segment")
             .row()
             .align(Align::Center)
-            .child(ui.el("segment_label").text(remedy_ui_view::RichText::plain(text.clone())).nowrap())
+            .child(ui.el("segment_label").text(remedy_ui_engine::view::RichText::plain(text.clone())).nowrap())
             .on_key(move |e| arrows_skipping(e, selected, n, &sk));
         let seg = if off {
             seg.disabled(true)
@@ -270,7 +270,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
     b.bind(move || {
         let Ok(i) = selected.try_get() else { return };
         let v = opts2.get(i).cloned().unwrap_or_default();
-        let _ = shown.clone().text(remedy_ui_view::RichText::plain(v.clone()));
+        let _ = shown.clone().text(remedy_ui_engine::view::RichText::plain(v.clone()));
         let _ = b2.clone().semantics(
             Semantics::new(Role::ComboBox)
                 .label(label.get())
@@ -308,7 +308,7 @@ pub fn chip(ui: &Ui, text: impl IntoProp<String>, selected: Signal<bool>) -> El 
     let c = crate::min_target(ui.el("chip"))
         .row()
         .align(Align::Center)
-        .child(ui.el("chip_label").text(text.clone().map(remedy_ui_view::RichText::plain)).nowrap())
+        .child(ui.el("chip_label").text(text.clone().map(remedy_ui_engine::view::RichText::plain)).nowrap())
         .on_click(move || {
             let _ = selected.try_update(|v| *v = !*v);
         });

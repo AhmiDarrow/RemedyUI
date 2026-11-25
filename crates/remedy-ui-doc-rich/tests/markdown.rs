@@ -8,7 +8,7 @@ use std::time::Duration;
 use remedy_ui_core::a11y::Role;
 use remedy_ui_doc_rich::*;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::El;
+use remedy_ui_engine::view::El;
 
 mod common;
 use common::*;
@@ -46,7 +46,7 @@ fn main() { println!(\"hi\"); }
 Last line.
 ";
 
-fn shown(source: &str) -> (remedy_ui_view::Ui, El, Rc<RefCell<Vec<String>>>) {
+fn shown(source: &str) -> (remedy_ui_engine::view::Ui, El, Rc<RefCell<Vec<String>>>) {
     let ui = ui();
     let opened = Rc::new(RefCell::new(Vec::new()));
     let o = opened.clone();

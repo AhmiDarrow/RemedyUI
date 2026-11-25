@@ -1,5 +1,5 @@
 //! Linux: decoded pictures handed over in DMA-BUFs, never mapped on the CPU. When a renderer
-//! has announced a Vulkan device that imports them ([`remedy_ui_paint::GpuAdapter::Uuid`]),
+//! has announced a Vulkan device that imports them ([`remedy_ui_engine::paint::GpuAdapter::Uuid`]),
 //! the video app sink asks for `video/x-raw(memory:DMABuf)` NV12 in the layouts (DRM format
 //! modifiers) the renderer takes, before NV12 in CPU memory. A decoder that can (VA-API's,
 //! V4L2's) then hands over its own buffers; one that cannot negotiates CPU memory as before.
@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use libloading::Library;
-use remedy_ui_paint::{
+use remedy_ui_engine::paint::{
     CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuPicture, GpuTexture,
 };
 

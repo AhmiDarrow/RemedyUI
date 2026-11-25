@@ -8,7 +8,7 @@ use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 use remedy_ui_widgets_nav::*;
 
@@ -488,7 +488,7 @@ fn open_menus_pass_the_audit_in_narrow_windows_and_long_languages() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 

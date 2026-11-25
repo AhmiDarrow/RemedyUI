@@ -14,8 +14,7 @@ categories.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "1.0.0-rc.1" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
 remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version = "1.0.0-rc.1", optional = true }
 
@@ -96,7 +95,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dev-dependencies]
 # Pictures on the GPU drawn by the GPU renderer: tests/gpu_frames.rs (Windows, Android) and
 # the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
-remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["render-gpu"] }
 
 # The keep-awake test on Linux serves a stand-in for the session's screen saver
 # (org.freedesktop.ScreenSaver) on the session bus it runs under (dbus-run-session).
@@ -104,11 +103,10 @@ remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1
 zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
 
 [dev-dependencies]
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "render-cpu"] }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-pixel"] }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", features = ["svg", "svgz", "svg-raster-images", "svg-text"] }
-remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 

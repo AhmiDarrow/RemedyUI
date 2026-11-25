@@ -16,7 +16,7 @@
 //! - **Progressive zoom.** While a pinch, Ctrl+wheel, Ctrl+Plus/Minus or a scroll moves,
 //!   the view keeps its picture in a compositor layer of its own and the compositor scales
 //!   and moves it: tiles of the old scale stand in while the new scale rasters within the
-//!   compositor's per-frame budget (`remedy_ui_compositor::RasterBudget`), so the UI thread
+//!   compositor's per-frame budget (`remedy_ui_engine::compositor::RasterBudget`), so the UI thread
 //!   does almost nothing per frame and nothing renders. When the movement settles
 //!   ([`SETTLE`]), or the picture no longer covers the view, the view redraws at the new
 //!   zoom: page tiles already rendered at other scales are drawn scaled in place of missing
@@ -24,7 +24,7 @@
 //!   scale renders, so no tile shows blank once its preview exists.
 //! - **Memory.** The tile cache holds a share of the machine's memory and never less than
 //!   three screens of tiles; least recently drawn tiles go first, and memory pressure
-//!   (`remedy_ui_view::device`) drops everything not on screen.
+//!   (`remedy_ui_engine::view::device`) drops everything not on screen.
 //! - **Text.** Selection by dragging (Shift extends), Ctrl+A for the page, Ctrl+C to copy,
 //!   search across every page off the UI thread with hits highlighted
 //!   ([`PageView::find`]).
@@ -36,7 +36,7 @@
 //! ```no_run
 //! use std::sync::Arc;
 //! use remedy_ui_doc_pages::*;
-//! # fn demo(ui: &remedy_ui_view::Ui, source: Arc<dyn PageSource>) {
+//! # fn demo(ui: &remedy_ui_engine::view::Ui, source: Arc<dyn PageSource>) {
 //! let view = PageView::new(source);
 //! let shown = page_view(ui, &view, "Report.pdf");
 //! let rail = thumbnails(ui, &view);
@@ -68,13 +68,13 @@ use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Length, Position};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
-use remedy_ui_view::strings::StrArg;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::strings::StrArg;
+use remedy_ui_engine::view::{El, Ui};
 
 /// The pack's own words (page names, annotation kinds, undo names, what screen readers
 /// hear) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a
-/// language, with [`remedy_ui_view::strings::add_messages`] under the name `doc-pages`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("doc-pages");
+/// language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `doc-pages`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("doc-pages");
 
 /// Message `id` with placeholder values in `locale` (not tracked). What this pack says is
 /// read by screen readers or names an undo step, so the direction-isolation marks around

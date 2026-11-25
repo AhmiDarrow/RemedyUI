@@ -8,9 +8,9 @@ use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Point, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::{Align, Display, Justify, Length, Position, Track};
-use remedy_ui_paint::Brush;
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, RichText, Ui};
+use remedy_ui_engine::view::{El, RichText, Ui};
 use remedy_ui_viz::{Clock, Moved, Ticker};
 use remedy_ui_widgets_core as w;
 

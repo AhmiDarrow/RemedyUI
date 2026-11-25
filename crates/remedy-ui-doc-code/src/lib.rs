@@ -8,8 +8,8 @@
 
 /// The code views' own words (fold buttons, how diff lines are read) in every language the
 /// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `doc-code`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("doc-code");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `doc-code`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("doc-code");
 
 mod diff;
 mod editor;

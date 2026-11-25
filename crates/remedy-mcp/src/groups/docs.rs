@@ -24,7 +24,7 @@ impl ToolGroup for Docs {
             ),
             ToolDef::of::<ReadInput>(
                 "docs_read",
-                "Read a RemedyUI document by the path docs_search returned (such as docs/DESIGN.md or rustdoc/remedy-ui-view/src/element.rs): \
+                "Read a RemedyUI document by the path docs_search returned (such as docs/DESIGN.md or rustdoc/remedy-ui-engine/src/view/element.rs): \
                  all of it, the section under one heading, or a range of lines. An empty path lists every document.",
                 true,
             ),

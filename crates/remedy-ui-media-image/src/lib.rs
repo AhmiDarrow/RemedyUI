@@ -22,8 +22,8 @@
 
 /// The image view's own words (what screen readers hear when an image cannot be shown) in
 /// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
-/// with [`remedy_ui_view::strings::add_messages`] under the name `media-image`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-image");
+/// with [`remedy_ui_engine::view::strings::add_messages`] under the name `media-image`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("media-image");
 
 mod decode;
 mod load;
@@ -39,9 +39,9 @@ use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect};
-use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke};
+use remedy_ui_engine::paint::{Brush, Image, Item, Path, Sampling, Stroke};
 use remedy_ui_core::reactive::{Effect, Signal};
-use remedy_ui_view::{El, Ui, show};
+use remedy_ui_engine::view::{El, Ui, show};
 
 pub use decode::{
     DecodeError, Decoded, Format, Router, Srgb, add_format, decode, dimensions, finish_rgba, fitted,
@@ -197,7 +197,7 @@ impl std::fmt::Debug for ImageOptions {
 ///
 /// ```no_run
 /// # use remedy_ui_media_image::{image_ext, Fit, ImageOptions, ImageState, Source};
-/// # fn demo(ui: &remedy_ui_view::Ui) {
+/// # fn demo(ui: &remedy_ui_engine::view::Ui) {
 /// let ui2 = ui.clone();
 /// let poster = image_ext(
 ///     ui,

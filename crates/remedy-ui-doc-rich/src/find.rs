@@ -11,7 +11,7 @@ use std::rc::Rc;
 use remedy_ui_core::a11y::{Live, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
 /// A match: the text it is in and its bytes there.
@@ -243,7 +243,7 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
         .row()
         .fill_width()
         .gap(unit * 2.0)
-        .align(remedy_ui_view::Align::Center)
+        .align(remedy_ui_engine::view::Align::Center)
         .child(field.el().grow(1.0))
         .child(status)
         .child(prev)

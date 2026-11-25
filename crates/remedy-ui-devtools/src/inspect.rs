@@ -10,7 +10,7 @@ use remedy_ui_core::input::PointerPhase;
 use remedy_ui_core::layout::Position;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
-use remedy_ui_view::{El, ElementId, ElementInfo, Ui};
+use remedy_ui_engine::view::{El, ElementId, ElementInfo, Ui};
 use remedy_ui_widgets_core as w;
 
 /// Builds a style sheet for a theme (the app's own, so live edits restyle it correctly).
@@ -30,7 +30,7 @@ pub enum ProblemKind {
         needed: f32,
     },
     /// Pointer handling with no keyboard way to do the same (WCAG 2.1.1): not focusable and
-    /// no [`El::keyboard_alternative`](remedy_ui_view::El::keyboard_alternative).
+    /// no [`El::keyboard_alternative`](remedy_ui_engine::view::El::keyboard_alternative).
     PointerOnly,
     /// Focusable but with no size: keyboard focus lands on nothing visible.
     InvisibleFocus,
@@ -828,7 +828,7 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
     let pick = pick.bind(move || {
         let on = p2.get();
         if let Some(l) = &label {
-            let _ = l.clone().text(remedy_ui_view::RichText::plain(if on {
+            let _ = l.clone().text(remedy_ui_engine::view::RichText::plain(if on {
                 "Click an element in the window…"
             } else {
                 "Pick an element"
@@ -957,7 +957,7 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
         });
         let head = w::row(ui)
             .gap(unit * 2.0)
-            .align(remedy_ui_view::Align::Center)
+            .align(remedy_ui_engine::view::Align::Center)
             .child(swatch)
             .child(w::text(ui, role).grow(1.0))
             .child(w::text(ui, "").variant("muted").text(move || value.get().to_hex()))

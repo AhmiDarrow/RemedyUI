@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use remedy_ui_core::token::{TOKEN_LEN, random_token, same_secret};
 use remedy_ui_core::reactive::debug::NodeInfo;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use serde::{Deserialize, Serialize};
 
 use crate::recorder::{FrameFeed, FrameSample, Recorder};

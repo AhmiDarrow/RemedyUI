@@ -7,7 +7,7 @@ use remedy_ui_core::reactive::Signal;
 use remedy_ui_rui::spec::Kind;
 use remedy_ui_rui::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::{El, Request, Ui};
+use remedy_ui_engine::view::{El, Request, Ui};
 
 /// The settings screen from the design (docs/design/07), and the golden file it compiles to.
 const SETTINGS: &str = include_str!("ui/settings_voice.rui");
@@ -443,6 +443,6 @@ fn spacing_words_are_the_themes_scale_half_steps_included() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&remedy_ui_rui::STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&remedy_ui_rui::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }

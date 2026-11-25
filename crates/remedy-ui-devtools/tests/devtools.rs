@@ -5,7 +5,7 @@ use remedy_ui_devtools::*;
 use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
 use remedy_ui_core::style::StylePatch;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
+use remedy_ui_engine::view::Ui;
 use remedy_ui_widgets_core as w;
 
 fn ui() -> Ui {
@@ -132,13 +132,13 @@ fn the_audit_finds_what_reaches_past_the_window_but_not_what_scrolls() {
     let ui = ui();
     // An overlay placed with no room: 100 px wide at x 350 in a 400 px window.
     let off = remedy_ui_widgets_core::place_at(
-        ui.el("tooltip").text(remedy_ui_view::RichText::plain("Settings")).width(100.0),
+        ui.el("tooltip").text(remedy_ui_engine::view::RichText::plain("Settings")).width(100.0),
         Point::new(350.0, 10.0),
     );
     let _ = ui.overlay(off.clone());
     // Wide content in a scroll container is fine: it can be scrolled to.
     let scroll = ui.el("scroll").scroll().scroll_x().row().width(200.0).height(50.0);
-    let wide = ui.el("label").text(remedy_ui_view::RichText::plain("wide")).width(900.0);
+    let wide = ui.el("label").text(remedy_ui_engine::view::RichText::plain("wide")).width(900.0);
     ui.root().child(scroll.child(wide.clone()));
     frame(&ui);
     let found = remedy_ui_devtools::audit(&ui);

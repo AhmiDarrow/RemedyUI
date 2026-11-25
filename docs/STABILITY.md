@@ -78,7 +78,7 @@ Third-party types stay behind RemedyUI's own types, so a dependency upgrade does
 apps. The exceptions are deliberate interop, re-exported so apps name the exact version
 RemedyUI uses, and versioned with it:
 
-- `remedy_ui::gpu_embed::wgpu` (and `remedy_ui_render_gpu::wgpu`): an app's own GPU rendering
+- `remedy_ui::gpu_embed::wgpu` (and `remedy_ui_engine::render_gpu::wgpu`): an app's own GPU rendering
   is wgpu; a wgpu major upgrade is a RemedyUI major release.
 - `remedy_ui::webview::serde_json`: the one JSON message channel between an app and its page.
 - `remedy_ui::host::{accesskit, raw_window_handle}`: the accessibility tree and native window

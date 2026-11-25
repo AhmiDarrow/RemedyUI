@@ -11,7 +11,7 @@
 //! use remedy_ui_core::reactive::Signal;
 //! use remedy_ui_viz::{MeterOptions, level_meter};
 //!
-//! # fn demo(ui: &remedy_ui_view::Ui) {
+//! # fn demo(ui: &remedy_ui_engine::view::Ui) {
 //! let level = Signal::new(0.0f32);
 //! let threshold = Signal::new(0.2f32);
 //! let meter = level_meter(
@@ -27,8 +27,8 @@
 
 /// The crate's own words (screen reader values: levels, zones, states) in every language the
 /// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
-/// [`remedy_ui_view::strings::add_messages`] under the name `viz`.
-pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("viz");
+/// [`remedy_ui_engine::view::strings::add_messages`] under the name `viz`.
+pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("viz");
 
 mod bars;
 mod drive;

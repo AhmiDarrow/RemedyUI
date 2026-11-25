@@ -8,7 +8,7 @@ use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_core::{Color, Point};
 use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_music::*;
 
 const UNIT: f32 = 4.0;

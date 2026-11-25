@@ -10,7 +10,7 @@ use remedy_ui_core::time::Instant;
 
 use remedy_ui_media_image::{ImageState, Source};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{Ui, WeakUi};
+use remedy_ui_engine::view::{Ui, WeakUi};
 
 use crate::stream::{Event, Next, Shown, Step, Stream};
 

@@ -11,7 +11,7 @@ kernels.
 - Element: `effect_view(ui, Instance::new(effect))` (`remedy-ui-media-effects`); in `.rui`
   markup, `effect(name: "fire", param: "intensity", value: $heat) { … }` once the app calls
   `remedy_ui::effects::register_markup` (built-in effects only).
-- Library: 38 built-in effects in `crates/remedy-ui-effects/effects/*.rfx`, reachable by
+- Library: 38 built-in effects in `crates/remedy-ui-engine/effects/effects/*.rfx`, reachable by
   name with `library("fire")`. Read them as examples; anything they do, a theme can do too.
 - Design: [docs/design/16-effects.md](../design/16-effects.md).
 
@@ -281,5 +281,5 @@ effects all fit the untrusted limits.
 
 The GPU kernel and the CPU interpreter implement one specification; noise and hashing are
 integer-exact. The test suite holds every instruction family and every built-in effect on the
-GPU to the CPU reference (`crates/remedy-ui-render-gpu/tests/effects.rs`), and the CPU to golden
-images (`crates/remedy-ui-effects/tests/golden.rs`).
+GPU to the CPU reference (`crates/remedy-ui-engine/tests/render_gpu/effects.rs`), and the CPU to golden
+images (`crates/remedy-ui-engine/tests/effects/golden.rs`).

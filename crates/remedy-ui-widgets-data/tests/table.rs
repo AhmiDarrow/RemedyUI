@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use remedy_ui_core::{Point, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
 
@@ -385,7 +385,7 @@ fn the_fifty_thousand_file_explorer_meets_its_frame_budget() {
 
 #[test]
 fn rows_drag_onto_rows_and_files_drop_on_the_table() {
-    use remedy_ui_view::{Drag, DragData, DragEvent, DropEffect};
+    use remedy_ui_engine::view::{Drag, DragData, DragEvent, DropEffect};
     let ui = ui();
     let rows = Signal::new(files(10));
     let state: TableState<u64> = TableState::new(true);
@@ -443,7 +443,7 @@ fn rows_drag_onto_rows_and_files_drop_on_the_table() {
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {
-    let problems = remedy_ui_view::strings::check(&STRINGS);
+    let problems = remedy_ui_engine::view::strings::check(&STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
