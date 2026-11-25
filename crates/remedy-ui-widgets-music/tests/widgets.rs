@@ -1072,3 +1072,39 @@ fn the_playhead_lights_its_column_and_marks_recolour_notes() {
     });
     assert!(frame(&ui), "a coloured note and faint ones outside the range are drawn");
 }
+
+#[test]
+fn the_neck_tells_every_press_and_turns_its_strings_over() {
+    let picks = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let heard = picks.clone();
+    let b = board(FretboardOptions::default().on_pick(move |p| heard.borrow_mut().push((p.string, p.fret))));
+    let _ = frame(&b.ui);
+    let (a, c) = (b.at(2, 5), b.at(2, 7));
+    for _ in 0..2 {
+        pointer(&b.ui, a, PointerPhase::Down, Buttons::PRIMARY);
+        pointer(&b.ui, a, PointerPhase::Up, Buttons::default());
+    }
+    assert_eq!(*picks.borrow(), vec![(2, 5), (2, 5)], "the same fret twice is two picks");
+    // A drag tells each new place once.
+    pointer(&b.ui, a, PointerPhase::Down, Buttons::PRIMARY);
+    pointer(&b.ui, a, PointerPhase::Move, Buttons::PRIMARY);
+    pointer(&b.ui, c, PointerPhase::Move, Buttons::PRIMARY);
+    pointer(&b.ui, c, PointerPhase::Up, Buttons::default());
+    assert_eq!(picks.borrow().len(), 4);
+    assert_eq!(picks.borrow().last(), Some(&(2, 7)));
+    // Turned over, the lowest string is the top row, and a press there picks it.
+    let options = FretboardOptions::default().left_handed(true).reverse_strings(true);
+    let g = FretboardLayout::new(&options, 600.0, UNIT);
+    assert!(g.string_y(0) < g.string_y(5));
+    assert_eq!(g.hit(Point::new(g.cell_x(3), g.string_y(0))), Some(FretPos { string: 0, fret: 3 }));
+    // Faint and breathing marks, a shaded position and sounding pitch classes draw.
+    let marks = Signal::new(vec![FretMark::at(1, 3).dimmed(0.3), FretMark::at(2, 5).pulsing(true)]);
+    let board = board(
+        FretboardOptions::default()
+            .marks(marks)
+            .shaded(Signal::new(Some((3, 6))))
+            .sounding_classes(Signal::new(vec![0, 4, 7])),
+    );
+    assert!(frame(&board.ui));
+    assert!(frame(&board.ui), "a breathing mark keeps the frames coming");
+}
