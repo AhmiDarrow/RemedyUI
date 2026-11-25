@@ -292,14 +292,13 @@ fn number_row(
     };
     let to_dec = move |v: f64| Decimal::from_f64(v, precision).unwrap_or(Decimal::ZERO);
     let value = Signal::new(to_dec(read()));
-    let options = {
-        let mut v_ = NumberOptions::default();
-        v_.min = Some(Decimal::ZERO);
-        v_.max = None;
-        v_.step = Decimal::ONE;
-        v_.precision = precision;
-        v_.unit = Some(untrack(|| tr(ui, unit_name)));
-        v_
+    let options = NumberOptions {
+        min: Some(Decimal::ZERO),
+        max: None,
+        step: Decimal::ONE,
+        precision,
+        unit: Some(untrack(|| tr(ui, unit_name))),
+        ..Default::default()
     };
     let field = number_input(ui, untrack(|| token.localized_label(ui)), value, options);
     let read2 = Rc::new(read);

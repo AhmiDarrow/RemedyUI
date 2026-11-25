@@ -395,11 +395,7 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
     let unit = ui.theme().spacing.unit;
     let status = Signal::new(String::new());
     let source = c.layout_source(file).unwrap_or_default();
-    let options = {
-        let mut v_ = crate::doc_code::CodeOptions::default();
-        v_.language = "rui".into();
-        v_
-    };
+    let options = crate::doc_code::CodeOptions { language: "rui".into(), ..Default::default() };
     let editor_name = {
         let (u, f) = (ui.clone(), file.to_owned());
         move || trf(&u, "layout-named", &[("file", f.as_str().into())])
