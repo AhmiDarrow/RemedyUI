@@ -10,11 +10,11 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_input::{
     Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
-use remedy_ui_paint::{Affine, Brush, Item, Sampling};
+use remedy_ui_paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{ElementId, PaintCx, WeakUi};
 
@@ -179,6 +179,8 @@ struct State {
     last_tap: Option<(Instant, Point)>,
     /// Counts the times pages changed: text read before the latest change is not taken.
     epoch: u64,
+    /// The colour change on the pages' own pixels ([`PageView::set_page_filter`]).
+    filter: Option<ColorMatrix>,
 }
 
 /// The app's handler for opening an annotation (to read or edit its comment).
@@ -303,6 +305,7 @@ impl PageView {
                     press_seq: 0,
                     last_tap: None,
                     epoch: 0,
+                    filter: None,
                 }),
                 zoom: Signal::new(1.0),
                 fit: Signal::new(Fit::Width),
@@ -2095,7 +2098,7 @@ impl PageView {
                 spread: 0.0,
                 color: Color::rgba8(0, 0, 0, 60),
             });
-            cx.list.fill_rect(*r, Brush::Solid(Color::WHITE));
+            cx.list.fill_rect(*r, Brush::Solid(st.paper()));
         }
         let level = level_of(z * dpr);
         let settled = st.frozen.is_none() && st.moved_at.is_none_or(|t| t.elapsed() >= SETTLE);
@@ -2120,7 +2123,13 @@ impl PageView {
         }
         for (page, t, r) in &shown {
             cx.list.push(Item::PushTransform(*t));
-            for d in by_page.remove(page).unwrap_or_default() {
+            let tiles = by_page.remove(page).unwrap_or_default();
+            // The filter is on the page's pixels alone: what is drawn over them comes after.
+            let filtered = st.filter.filter(|_| !tiles.is_empty());
+            if let Some(matrix) = filtered {
+                cx.list.push(Item::PushFilter(Filter::ColorMatrix { matrix }));
+            }
+            for d in tiles {
                 if let Some(c) = d.clip {
                     cx.list.push_clip(c, CornerRadii::ZERO);
                 }
@@ -2133,6 +2142,9 @@ impl PageView {
                 if d.clip.is_some() {
                     cx.list.pop_clip();
                 }
+            }
+            if filtered.is_some() {
+                cx.list.push(Item::PopFilter);
             }
             // A page the source could not draw says so with the theme's danger color.
             if st.tiles.errors.contains_key(page) {
@@ -2248,7 +2260,8 @@ impl PageView {
         let (w, h) = (shown.width * fit, shown.height * fit);
         let at = Point::new((cx.size.width - w) / 2.0, (cx.size.height - h) / 2.0);
         let r = Rect::new(at.x, at.y, at.x + w, at.y + h);
-        cx.list.fill_rect(r, Brush::Solid(Color::WHITE));
+        cx.list.fill_rect(r, Brush::Solid(st.paper()));
+        let filter = st.filter;
         let level = level_of(raster::PREVIEW_PIXELS / size.width.max(size.height));
         let id = TileId { page, level, col: 0, row: 0 };
         let tile = st.tile_edge();
@@ -2260,12 +2273,18 @@ impl PageView {
                     .then(Affine::scale(fit, fit))
                     .then(Affine::translate(at.to_vec2()));
                 cx.list.push(Item::PushTransform(t));
+                if let Some(matrix) = filter {
+                    cx.list.push(Item::PushFilter(Filter::ColorMatrix { matrix }));
+                }
                 cx.list.push(Item::Image {
                     image,
                     rect: Rect::new(0.0, 0.0, size.width, size.height),
                     radii: CornerRadii::ZERO,
                     sampling: Sampling::Linear,
                 });
+                if filter.is_some() {
+                    cx.list.push(Item::PopFilter);
+                }
                 cx.list.push(Item::PopTransform);
             }
             None if !st.thumb_flight.contains_key(&page) => {
@@ -2314,6 +2333,25 @@ impl PageView {
     /// theme's danger color until a render succeeds).
     pub fn page_error(&self, page: usize) -> Option<String> {
         self.0.st.borrow().tiles.errors.get(&page).cloned()
+    }
+
+    /// The colour change on the pages.
+    pub fn page_filter(&self) -> Option<ColorMatrix> {
+        self.0.st.borrow().filter
+    }
+
+    /// Changes the colours of the pages themselves (their paper and what the source draws on
+    /// it, here and in the thumbnails) and of nothing else: the panel behind them, their
+    /// shadows, annotations, the selection, search hits and the scroll bars keep theirs.
+    /// [`ColorMatrix`] has the usual ones (invert, sepia, grayscale, warm, cool, brightness,
+    /// contrast, and ink and paper colours of your own), and
+    /// [`ColorMatrix::then`] joins them. `None`, or a matrix that changes nothing: the pages
+    /// as the source draws them.
+    pub fn set_page_filter(&self, filter: Option<ColorMatrix>) {
+        self.0.st.borrow_mut().filter = filter.map(|m| m.limited()).filter(|m| !m.is_identity());
+        self.thaw();
+        self.repaint();
+        self.repaint_thumbs();
     }
 
     /// The number of pages, as a signal: it changes when the document does
@@ -2398,6 +2436,13 @@ impl PageView {
 }
 
 impl State {
+    /// The colour of a page before its source has drawn on it: white, through the filter.
+    fn paper(&self) -> Color {
+        let Some(m) = self.filter else { return Color::WHITE };
+        let [r, g, b, a] = m.apply([1.0, 1.0, 1.0, 1.0]);
+        Color { r, g, b, a }
+    }
+
     /// The zoom drawn: the set zoom moved onto the nearest render level, so tiles land on
     /// whole device pixels (at most 0.14% away).
     fn eff_zoom(&self) -> f32 {

@@ -547,3 +547,23 @@ fn changed_pages_render_again_and_a_new_document_keeps_the_place() {
     assert_eq!(w.view.current_page().get_untracked().ok(), Some(2));
     assert!(w.view.is_sharp());
 }
+
+#[test]
+fn a_page_filter_recolours_the_pages_and_nothing_around_them() {
+    let mut w = Win::new(doc(300), WINDOW);
+    assert!(w.settle(LONG));
+    let plain = snapshot(&w);
+    // The panel shows in the margin left of the page; the header band is page pixels.
+    let (panel, header) = (plain.pixel(4, 300), plain.pixel(300, 100).unwrap_or([0; 4]));
+    w.view.set_page_filter(Some(remedy_ui_core::ColorMatrix::invert(1.0)));
+    w.frame();
+    assert!(w.settle(LONG));
+    let inverted = snapshot(&w);
+    assert_eq!(inverted.pixel(4, 300), panel, "the panel keeps its colour");
+    let now = inverted.pixel(300, 100).unwrap_or([0; 4]);
+    let d = |a: u8, b: u8| (i32::from(a) - (255 - i32::from(b))).abs();
+    assert!(d(now[0], header[0]) <= 3 && d(now[1], header[1]) <= 3 && d(now[2], header[2]) <= 3, "{header:?} → {now:?}");
+    // A matrix that changes nothing is no filter.
+    w.view.set_page_filter(Some(remedy_ui_core::ColorMatrix::IDENTITY));
+    assert_eq!(w.view.page_filter(), None);
+}
