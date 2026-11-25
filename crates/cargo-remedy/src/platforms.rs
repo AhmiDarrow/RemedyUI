@@ -366,7 +366,7 @@ pub fn android_manifest(
     <uses-sdk android:minSdkVersion="{min_api}" android:targetSdkVersion="{target_api}" />
 {permissions}    <application android:label="{label}" android:icon="@mipmap/ic_launcher" android:hasCode="true">
         <activity android:name="dev.remedyui.android.RemedyActivity"
-            android:exported="true"
+            android:exported="true"{single}
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
@@ -402,6 +402,9 @@ pub fn android_manifest(
         version = esc(&p.version),
         label = esc(&p.name),
         links = links,
+        // A link for an app that is already running goes to its one activity (onNewIntent),
+        // not to a second copy of it on top.
+        single = if links.is_empty() { "" } else { "\n            android:launchMode=\"singleTask\"" },
     )
 }
 
@@ -887,6 +890,8 @@ mod tests {
         assert!(activity.contains("android.intent.category.BROWSABLE"));
         assert!(activity.contains(r#"<data android:scheme="hearth" />"#));
         assert!(activity.contains("android.intent.category.LAUNCHER"), "still in the launcher");
+        assert!(activity.contains(r#"android:launchMode="singleTask""#), "one activity takes the link");
+        assert!(!plain.contains("launchMode"));
     }
 
     #[test]
