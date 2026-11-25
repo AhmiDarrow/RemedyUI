@@ -8,7 +8,7 @@ The hinted TrueType builds, copied from each family's own repository. To update 
 | Remedy Sans | https://github.com/AhmiDarrow/RemedySans | 023154e |
 | AhmiPrint | https://github.com/AhmiDarrow/AhmiPrint | dd5e94e |
 | AhmiPixel | https://github.com/AhmiDarrow/AhmiPixelFont | 620cb94 |
-| Remedy Emoji | https://github.com/AhmiDarrow/RemedyEmoji | c3a3fb3 |
+| Remedy Emoji | https://github.com/AhmiDarrow/RemedyEmoji | 66f2034 |
 
 Remedy Symbols is drawn in this repository: `symbols/build.py` builds `RemedySymbols-Regular.ttf` from geometry on Remedy Sans UI's metrics (`python build.py`, needs fontTools; `--preview` also writes a PNG of every glyph). To add a symbol, draw it there and rebuild.
 
@@ -16,4 +16,4 @@ The Noto script faces are the Google Fonts builds of Noto Sans Arabic 2.012, Not
 
 The text and symbol faces above are licensed under the SIL Open Font License 1.1 (`OFL-*.txt`).
 
-Remedy Emoji is our own emoji and sticker art, built as a COLRv1 color font in its own repository, https://github.com/AhmiDarrow/RemedyEmoji (commit `c3a3fb3`): `fonts/RemedyEmoji.ttf`, copied here unchanged. To update it, change the art there, rebuild (`python font/build.py && python font/check.py`), and copy the font here. It is MIT OR Apache-2.0, as this crate's code is.
+Remedy Emoji is our own emoji and sticker art, built as a COLRv1 color font in its own repository, https://github.com/AhmiDarrow/RemedyEmoji (commit `66f2034`): `fonts/RemedyEmoji.ttf`, copied here unchanged. To update it, change the art there, rebuild (`python font/build.py && python font/check.py`), and copy the font here. It is MIT OR Apache-2.0, as this crate's code is.
