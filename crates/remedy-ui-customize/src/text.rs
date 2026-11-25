@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use remedy_ui_services_i18n::{
+use remedy_ui_platform::services_i18n::{
     Catalog, MessageEntry, Messages, Problem, canonical_locale, read_entries, remove_entry, set_entry,
 };
 use remedy_ui_engine::view::Ui;

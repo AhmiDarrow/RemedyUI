@@ -78,9 +78,9 @@ pub use remedy_ui_core::a11y as a11y;
 pub use remedy_ui_automation as agents;
 /// The Android bridge: the app's entry point (`remedy_ui::android::main!`), the system log.
 #[cfg(target_os = "android")]
-pub use remedy_ui_bridge_android as android;
+pub use remedy_ui_platform::bridge_android as android;
 #[cfg(feature = "headless")]
-pub use remedy_ui_bridge_headless as headless;
+pub use remedy_ui_platform::bridge_headless as headless;
 /// The web bridge: where the app shows in the page ([`web::WebConfig`], [`web::Mount`], set
 /// with [`AppConfig::web`]), and the page's files (picked, dropped, downloaded). Its types
 /// are on every target, so app code sets them without `cfg`; starting an app in a page is
@@ -100,7 +100,7 @@ pub use remedy_ui_doc_pages as pages;
 #[cfg(feature = "rich")]
 pub use remedy_ui_doc_rich as rich;
 #[cfg(feature = "gpu-embed")]
-pub use remedy_ui_embed_gpu as gpu_embed;
+pub use remedy_ui_platform::embed_gpu as gpu_embed;
 /// Prism, the effects system (feature `effects`): the `.rfx` language and its compiler
 /// ([`effects::Effect::compile`]), the built-in effect library ([`effects::library`]), and
 /// effects as elements ([`effects::effect_view`]) drawn by the GPU kernel or the CPU renderer.
@@ -168,7 +168,7 @@ pub mod effects {
     }
 }
 #[cfg(feature = "webview")]
-pub use remedy_ui_embed_webview as webview;
+pub use remedy_ui_platform::embed_webview as webview;
 pub use remedy_ui_core::host as host;
 pub use remedy_ui_core::input as input;
 pub use remedy_ui_core::layout as layout;
@@ -227,12 +227,12 @@ pub use remedy_ui_engine::script_wasm as script_wasm;
 /// power (battery, sleep and resume, keeping awake), showing files in the file manager, and
 /// the user's usual folders. Notifications, badges and the tray are on [`App`].
 #[cfg(feature = "desktop")]
-pub use remedy_ui_services_desktop as desktop;
+pub use remedy_ui_platform::services_desktop as desktop;
 #[cfg(feature = "i18n")]
-pub use remedy_ui_services_i18n as i18n;
+pub use remedy_ui_platform::services_i18n as i18n;
 /// The HTTP client, natively and in a browser page.
 #[cfg(feature = "net")]
-pub use remedy_ui_services_net as net;
+pub use remedy_ui_platform::services_net as net;
 #[cfg(feature = "spell")]
 pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
@@ -241,7 +241,7 @@ pub use remedy_ui_services_update as update;
 /// (WebView2, Android System WebView), read losslessly and read-only, or the page's own in a
 /// browser.
 #[cfg(feature = "webstorage")]
-pub use remedy_ui_services_webstorage as webstorage;
+pub use remedy_ui_platform::services_webstorage as webstorage;
 pub use remedy_ui_core::style as style;
 pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]
@@ -327,9 +327,9 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     // On Android they also finish when the app goes out of sight: the process is kept from
     // being frozen until they end.
     #[cfg(all(feature = "net", target_os = "android"))]
-    remedy_ui_services_net::on_keepalive(remedy_ui_bridge_android::hold_process);
+    remedy_ui_platform::services_net::on_keepalive(remedy_ui_platform::bridge_android::hold_process);
     #[cfg(target_os = "android")]
-    remedy_ui_bridge_android::set_held_grace(config.keepalive_grace);
+    remedy_ui_platform::bridge_android::set_held_grace(config.keepalive_grace);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
     remedy_ui_media_image::svg::install();
@@ -348,9 +348,9 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         .map_err(|e| RunError::SingleInstance { reason: e.reason().to_owned() });
     }
     #[cfg(windows)]
-    remedy_ui_bridge_windows::set_instance_wait(config.single_instance_wait);
+    remedy_ui_platform::bridge_windows::set_instance_wait(config.single_instance_wait);
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
-    remedy_ui_bridge_linux::set_drop_waits(config.drop_waits.0, config.drop_waits.1);
+    remedy_ui_platform::bridge_linux::set_drop_waits(config.drop_waits.0, config.drop_waits.1);
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let wait = config
@@ -371,20 +371,20 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     let runner = Runner::new(config, setup).with_inbox(inbox);
     #[cfg(windows)]
     {
-        remedy_ui_bridge_windows::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
+        remedy_ui_platform::bridge_windows::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(target_os = "macos")]
     {
-        remedy_ui_bridge_macos::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
+        remedy_ui_platform::bridge_macos::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     {
-        remedy_ui_bridge_linux::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
+        remedy_ui_platform::bridge_linux::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     // The activity comes from the app's `remedy_ui::android::main!` entry point.
     #[cfg(target_os = "android")]
     {
-        remedy_ui_bridge_android::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
+        remedy_ui_platform::bridge_android::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(target_os = "ios")]
     {
@@ -415,7 +415,7 @@ struct KeepaliveOnExit(std::time::Duration);
 #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
 impl Drop for KeepaliveOnExit {
     fn drop(&mut self) {
-        remedy_ui_services_net::finish_keepalive(self.0);
+        remedy_ui_platform::services_net::finish_keepalive(self.0);
     }
 }
 

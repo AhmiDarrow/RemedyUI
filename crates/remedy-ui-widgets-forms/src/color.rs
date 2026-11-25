@@ -9,7 +9,7 @@ use remedy_ui_core::style::StylePatch;
 use remedy_ui_engine::view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
-use remedy_ui_services_i18n::{Decimal, NumberSymbols};
+use remedy_ui_platform::services_i18n::{Decimal, NumberSymbols};
 
 /// Hue (0..360), saturation, value and alpha (0..1).
 #[derive(Clone, Copy, Debug, PartialEq)]

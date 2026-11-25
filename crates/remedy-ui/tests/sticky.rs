@@ -12,7 +12,7 @@ use remedy_ui::reactive::Signal;
 use remedy_ui::style::{States, StickyInsets, StylePatch, StyleSheet};
 use remedy_ui::view::{El, RichText};
 use remedy_ui::{App, AppConfig, GeometryStore, Runner, WindowSpec};
-use remedy_ui_bridge_headless::HeadlessHost;
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 use remedy_ui_core::{Color, Point, Rect, Vec2};
 
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };

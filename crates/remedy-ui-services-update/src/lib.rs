@@ -247,10 +247,10 @@ mod http {
 
     /// Feeds, signatures and checksum files: small text, through the shared HTTP client.
     pub(super) fn get_text(url: &str) -> Result<String, UpdateError> {
-        let req = remedy_ui_services_net::Request::get(url)
+        let req = remedy_ui_platform::services_net::Request::get(url)
             .header("User-Agent", "RemedyUI-updater")
             .header("Accept", "application/vnd.github+json, application/json, */*");
-        let res = remedy_ui_services_net::Http::new("")
+        let res = remedy_ui_platform::services_net::Http::new("")
             .timeout(Duration::from_secs(60))
             .send_blocking(req, &remedy_ui_core::reactive::Cancel::new())
             .map_err(net)?;

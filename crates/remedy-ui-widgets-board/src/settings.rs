@@ -8,7 +8,7 @@ use std::cell::Cell;
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_engine::script::{SettingKind, SettingSpec};
-use remedy_ui_services_i18n::{Date, Time};
+use remedy_ui_platform::services_i18n::{Date, Time};
 use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 use remedy_ui_widgets_forms::{date_picker, time_picker};

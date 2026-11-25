@@ -847,7 +847,7 @@ struct Shared {
     on_url: Option<Rc<dyn Fn(String)>>,
     /// Reports power changes to [`App::on_power`] while the app runs.
     #[cfg(feature = "desktop")]
-    power: Option<remedy_ui_services_desktop::power::PowerWatch>,
+    power: Option<remedy_ui_platform::services_desktop::power::PowerWatch>,
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told when the app may be ended without another word ([`App::on_leaving`]).
     on_leaving: Option<Rc<dyn Fn(Leaving)>>,
@@ -1514,7 +1514,7 @@ impl App {
         };
         let Some(f) = f else { return };
         let schemes: Vec<&str> = schemes.iter().map(String::as_str).collect();
-        for url in remedy_ui_services_desktop::scheme::urls(args, &schemes) {
+        for url in remedy_ui_platform::services_desktop::scheme::urls(args, &schemes) {
             f(url);
         }
     }
@@ -1527,9 +1527,9 @@ impl App {
     #[cfg(feature = "desktop")]
     pub fn on_power(
         &self,
-        f: impl Fn(remedy_ui_services_desktop::power::PowerEvent) + 'static,
-    ) -> Result<(), remedy_ui_services_desktop::DesktopError> {
-        use remedy_ui_services_desktop::power::PowerEvent;
+        f: impl Fn(remedy_ui_platform::services_desktop::power::PowerEvent) + 'static,
+    ) -> Result<(), remedy_ui_platform::services_desktop::DesktopError> {
+        use remedy_ui_platform::services_desktop::power::PowerEvent;
         type Handler = Rc<dyn Fn(PowerEvent)>;
         thread_local! {
             static POWER: RefCell<Option<Handler>> = const { RefCell::new(None) };
@@ -1539,8 +1539,8 @@ impl App {
             return Ok(());
         }
         let ui = remedy_ui_core::reactive::waker()
-            .map_err(|e| remedy_ui_services_desktop::DesktopError::Platform { reason: e.to_string() })?;
-        let watch = remedy_ui_services_desktop::power::watch(move |e| {
+            .map_err(|e| remedy_ui_platform::services_desktop::DesktopError::Platform { reason: e.to_string() })?;
+        let watch = remedy_ui_platform::services_desktop::power::watch(move |e| {
             let _ = ui.post(move || {
                 let f = POWER.with(|p| p.borrow().clone());
                 if let Some(f) = f {
@@ -2533,9 +2533,9 @@ impl Runner {
         // Arabic, a comma for decimals in German), from the same data the app's do.
         #[cfg(feature = "i18n")]
         remedy_ui_engine::view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
-            let max = places.map_or(remedy_ui_services_i18n::MAX_SCALE, |p| p.min(28) as u8);
-            let d = remedy_ui_services_i18n::Decimal::from_f64(value, max)?;
-            Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
+            let max = places.map_or(remedy_ui_platform::services_i18n::MAX_SCALE, |p| p.min(28) as u8);
+            let d = remedy_ui_platform::services_i18n::Decimal::from_f64(value, max)?;
+            Some(remedy_ui_platform::services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
         })));
         let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
         // Images fetched from addresses are kept across runs in the app's cache folder (its

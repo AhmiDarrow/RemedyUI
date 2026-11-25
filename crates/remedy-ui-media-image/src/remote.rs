@@ -631,7 +631,7 @@ impl Fetch for Own {
     fn fetch(&self, request: FetchRequest, cancel: Cancel, done: FetchDone) {
         #[cfg(feature = "http")]
         {
-            use remedy_ui_services_net::{Http, NetError, Request};
+            use remedy_ui_platform::services_net::{Http, NetError, Request};
             let mut r = Request::get(request.url);
             if let Some(e) = request.if_none_match {
                 r = r.header("If-None-Match", e);

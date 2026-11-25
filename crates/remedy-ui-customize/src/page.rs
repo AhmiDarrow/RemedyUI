@@ -3,7 +3,7 @@
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
-use remedy_ui_services_i18n::MessageEntry;
+use remedy_ui_platform::services_i18n::MessageEntry;
 use remedy_ui_engine::view::{Align, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::{Tab, fuzzy_score, tabs, toolbar, toolbar_editor};

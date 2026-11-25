@@ -343,7 +343,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   unchanged), an `i32`, or `InstanceReply::later()` for a code sent from any thread once slower
   work is done (`ReplyLater::send`). Windows (the pipe is now duplex, one instance per waiting
   launch) and Linux and macOS (the socket) both carry it; a reply that does not come in time
-  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_bridge_windows` adds
+  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_platform::bridge_windows` adds
   `claim_single_instance_replying`, `ReplyWait`, `Claim` and `Replier`.
 - **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
   hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
@@ -487,7 +487,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Keepalive requests finish in the background on Android**: while one is under way the
   bridge's new `Keepalive` service (declared by `cargo remedy package`) keeps the process
   from being frozen, and the way out waits for them as on the desktop
-  (`remedy_ui_bridge_android::hold_process`, `remedy_ui_services_net::on_keepalive`).
+  (`remedy_ui_platform::bridge_android::hold_process`, `remedy_ui_platform::services_net::on_keepalive`).
 - `HttpError` carries the response headers (`HttpError::header`), so a `304 Not Modified`
   exposes its new `ETag`, `Last-Modified` and `Cache-Control`. The `media-image` disk cache
   now keeps them, so a revalidated image gets the new validators and freshness.

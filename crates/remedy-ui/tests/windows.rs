@@ -9,10 +9,10 @@ use std::time::Duration;
 use remedy_ui::layout::Length;
 use remedy_ui::reactive::Signal;
 use remedy_ui::{App, AppConfig, GeometryStore, Runner, WindowSpec};
-use remedy_ui_bridge_windows::WindowsHooks;
-use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
-use remedy_ui_bridge_winit::{UserEvent, run_on};
+use remedy_ui_platform::bridge_windows::WindowsHooks;
+use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
 
 #[test]
 fn an_app_runs_on_a_real_window_and_quits() {

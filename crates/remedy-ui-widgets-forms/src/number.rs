@@ -7,7 +7,7 @@ use remedy_ui_core::style::States;
 use remedy_ui_engine::view::{Align, El, FieldKind, InputPurpose, Ui};
 use remedy_ui_widgets_core as w;
 
-use remedy_ui_services_i18n::{Decimal, DecimalError, NumberSymbols};
+use remedy_ui_platform::services_i18n::{Decimal, DecimalError, NumberSymbols};
 
 /// The limits and look of a [`number_input`].
 #[derive(Clone, Debug, PartialEq)]

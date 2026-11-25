@@ -124,7 +124,7 @@ pub use player::{
     set_pip_window,
 };
 #[cfg(feature = "media-session")]
-pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
+pub use remedy_ui_platform::services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{
     Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,

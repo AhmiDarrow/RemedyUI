@@ -45,9 +45,7 @@ wgpu = { version = "=30.0.2", default-features = false, features = ["std", "park
 [dev-dependencies]
 log = { version = "=0.4.35" }
 png = { version = "=0.18.1" }
-remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "1.0.0-rc.1" }
-remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }
-remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-linux", "bridge-windows", "bridge-winit"] }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["ahmi-print", "remedy-emoji", "remedy-sans", "remedy-sans-ui", "scripts"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }

@@ -16,15 +16,15 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "1.0.0-rc.1" }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
-remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version = "1.0.0-rc.1", optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-desktop"], optional = true }
 
 [features]
 ## `Player::now_playing`: the player in the system's media controls (SMTC, a browser's
 ## `navigator.mediaSession`), through the desktop services.
-media-session = ["dep:remedy-ui-services-desktop"]
+media-session = ["remedy-ui-platform/services-desktop"]
 ## `Player::set_keep_awake`: the screen held on while video plays, through the desktop
 ## services' power inhibit (Windows, macOS, Linux, Android, a browser's Screen Wake Lock).
-keep-awake = ["dep:remedy-ui-services-desktop"]
+keep-awake = ["remedy-ui-platform/services-desktop"]
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = [
