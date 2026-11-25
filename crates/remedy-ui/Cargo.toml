@@ -60,13 +60,13 @@ stage = ["widgets", "viz", "dep:remedy-ui-widgets-stage"]
 effects = ["remedy-ui-engine/effects", "remedy-ui-engine/media-effects"]
 ## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
 ## thread at the size shown, color-managed and shared while in use.
-image = ["dep:remedy-ui-media-image"]
+image = ["remedy-ui-media/media-image"]
 ## SVG (`remedy_ui::svg`): SVG files wherever images go, and tinted icons.
-svg = ["image", "remedy-ui-media-image/svg", "remedy-ui-media-image/svgz", "remedy-ui-media-image/svg-raster-images", "remedy-ui-media-image/svg-text"]
+svg = ["image", "remedy-ui-media/media-image-svg", "remedy-ui-media/media-image-svgz", "remedy-ui-media/media-image-svg-raster-images", "remedy-ui-media/media-image-svg-text"]
 ## Animated images (`remedy_ui::anim`): GIF, APNG and animated WebP, played while seen.
-anim = ["image", "dep:remedy-ui-media-anim"]
+anim = ["image", "remedy-ui-media/media-anim"]
 ## Video surfaces (`remedy_ui::video`): frames from any thread, converted on the GPU.
-video = ["dep:remedy-ui-media-video"]
+video = ["remedy-ui-media/media-video"]
 ## Web views (`remedy_ui::webview`): the platform's web view (WebView2, WebKitGTK) as an
 ## element, with an allow-list for every navigation and one JSON message channel.
 webview = ["remedy-ui-platform/embed-webview"]
@@ -118,7 +118,7 @@ webstorage = ["remedy-ui-platform/services-webstorage"]
 macros = ["dep:remedy-ui-macros"]
 ## Images and animations decoded in a sandboxed helper process (`remedy_ui::isolated`), so a
 ## decoder that crashes, hangs or runs away with memory takes down only the helper.
-isolated = ["image", "anim", "dep:remedy-ui-media-isolated"]
+isolated = ["image", "anim", "remedy-ui-media/media-isolated"]
 ## Desktop services (`remedy_ui::desktop`): starting with the session, URL schemes
 ## (`App::on_url`), jump lists and recent files, power (`App::on_power`, keeping awake),
 ## showing files in the file manager and the user's usual folders.
@@ -147,7 +147,7 @@ full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "w
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", features = ["reactive-persist"] }
 remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1", optional = true }
-remedy-ui-media-isolated = { path = "../remedy-ui-media-isolated", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-anim", "media-image", "media-isolated", "media-video"], optional = true }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "effects", "media-effects", "paint", "render-cpu", "render-gpu", "script", "script-lua", "script-wasm", "view"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1" }
 remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1", optional = true }
@@ -161,14 +161,11 @@ remedy-ui-viz = { path = "../remedy-ui-viz", version = "1.0.0-rc.1", optional = 
 remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-stage = { path = "../remedy-ui-widgets-stage", version = "1.0.0-rc.1", optional = true }
-remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "1.0.0-rc.1", optional = true }
 remedy-ui-automation = { path = "../remedy-ui-automation", version = "1.0.0-rc.1", optional = true }
 remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "1.0.0-rc.1", optional = true }
-remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "1.0.0-rc.1", optional = true }
 remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-headless", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-net", "services-webstorage"] }
-remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-playback = { path = "../remedy-ui-media-playback", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "1.0.0-rc.1", optional = true }

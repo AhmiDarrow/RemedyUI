@@ -1485,7 +1485,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `svg-raster-images` and `svg-text`); `remedy-ui-secure` is a private module of `remedy-ui`.
   Apps going through the facade change nothing: `remedy_ui::svg` and the `svg` feature stay.
   Code that named the removed crates directly should use `remedy_ui_core::phase!` and
-  `remedy_ui_core::trace`, `remedy_ui::svg` (or `remedy_ui_media_image::svg`), and the
+  `remedy_ui_core::trace`, `remedy_ui::svg` (or `remedy_ui_media::media_image::svg`), and the
   existing `App::idle_lock` / `App::copy_secret` APIs.
 - **Web pages load their large data when it is needed, not with the module.** The fallback
   faces (`script-fonts`: Noto Sans Arabic, Devanagari, Bengali, SC and JP, about 9.5 MB) are

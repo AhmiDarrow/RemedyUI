@@ -14,7 +14,7 @@ categories.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "1.0.0-rc.1" }
-remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1" }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-image"] }
 remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1" }
 remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-i18n"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }

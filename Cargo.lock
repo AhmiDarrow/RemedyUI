@@ -4022,11 +4022,8 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",
  "remedy-ui-macros",
- "remedy-ui-media-anim",
- "remedy-ui-media-image",
- "remedy-ui-media-isolated",
+ "remedy-ui-media",
  "remedy-ui-media-playback",
- "remedy-ui-media-video",
  "remedy-ui-platform",
  "remedy-ui-rui",
  "remedy-ui-services-spell",
@@ -4112,7 +4109,7 @@ dependencies = [
  "remedy-ui-doc-code",
  "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-media-image",
+ "remedy-ui-media",
  "remedy-ui-platform",
  "remedy-ui-rui",
  "remedy-ui-text",
@@ -4245,32 +4242,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-media-anim"
+name = "remedy-ui-media"
 version = "1.0.0-rc.1"
 dependencies = [
  "gif",
+ "image",
  "image-webp",
+ "jni 0.21.1",
+ "js-sys",
+ "libc",
+ "moxcms",
+ "ndk-context",
  "png",
  "remedy-ui-core",
  "remedy-ui-devtools",
  "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-media-image",
- "remedy-ui-text",
- "remedy-ui-themes",
-]
-
-[[package]]
-name = "remedy-ui-media-image"
-version = "1.0.0-rc.1"
-dependencies = [
- "image",
- "js-sys",
- "moxcms",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-engine",
- "remedy-ui-fonts",
+ "remedy-ui-media",
  "remedy-ui-platform",
  "remedy-ui-text",
  "remedy-ui-themes",
@@ -4279,24 +4267,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
-]
-
-[[package]]
-name = "remedy-ui-media-isolated"
-version = "1.0.0-rc.1"
-dependencies = [
- "gif",
- "image",
- "jni 0.21.1",
- "libc",
- "ndk-context",
- "remedy-ui-core",
- "remedy-ui-engine",
- "remedy-ui-fonts",
- "remedy-ui-media-anim",
- "remedy-ui-media-image",
- "remedy-ui-text",
- "remedy-ui-themes",
  "windows-sys 0.61.2",
 ]
 
@@ -4318,8 +4288,7 @@ dependencies = [
  "remedy-ui-devtools",
  "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-media-image",
- "remedy-ui-media-video",
+ "remedy-ui-media",
  "remedy-ui-platform",
  "remedy-ui-text",
  "remedy-ui-themes",
@@ -4330,18 +4299,6 @@ dependencies = [
  "web-sys",
  "windows",
  "zbus 6.3.0",
-]
-
-[[package]]
-name = "remedy-ui-media-video"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-engine",
- "remedy-ui-fonts",
- "remedy-ui-text",
- "remedy-ui-themes",
 ]
 
 [[package]]

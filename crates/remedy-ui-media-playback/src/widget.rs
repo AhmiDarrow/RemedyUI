@@ -6,7 +6,7 @@ use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerKind, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
-use remedy_ui_media_video::{VideoFit, video_surface};
+use remedy_ui_media::media_video::{VideoFit, video_surface};
 use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::motion::{Easing, Motion, Target};

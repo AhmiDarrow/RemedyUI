@@ -22,7 +22,7 @@ use std::time::Duration;
 use remedy_ui_core::exec::{Bell, Next, Worker};
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_media_video::{Picture, VideoSink};
+use remedy_ui_media::media_video::{Picture, VideoSink};
 
 use crate::host::{
     AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Playout, Sample,
