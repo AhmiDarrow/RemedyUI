@@ -248,7 +248,9 @@ impl AvDecoder {
             MediaSource::Url(u) => NSURL::URLWithString(&NSString::from_str(u))
                 .ok_or_else(|| MediaError::NotFound(format!("{u} is not a URL")))?,
             MediaSource::Bytes(_) => {
-                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
             }
         };
         // SAFETY: AVFoundation calls on objects made here.

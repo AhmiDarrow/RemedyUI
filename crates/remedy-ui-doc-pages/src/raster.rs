@@ -625,7 +625,8 @@ impl Tiles {
                 self.bytes = 0;
             }
             Some(pages) => {
-                let gone: Vec<TileId> = self.done.keys().filter(|id| pages.contains(&id.page)).copied().collect();
+                let gone: Vec<TileId> =
+                    self.done.keys().filter(|id| pages.contains(&id.page)).copied().collect();
                 for id in gone {
                     self.remove(&id);
                 }

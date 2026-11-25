@@ -282,7 +282,8 @@ impl Builder<'_> {
         let follow = move |id: u64| {
             if let Some(dest) = usize::try_from(id).ok().and_then(|i| links.get(i)) {
                 // A link to a heading of this document goes there; anything else is the app's.
-                let here = dest.strip_prefix('#').zip(root.as_ref()).is_some_and(|(a, r)| scroll_to_heading(r, a));
+                let here =
+                    dest.strip_prefix('#').zip(root.as_ref()).is_some_and(|(a, r)| scroll_to_heading(r, a));
                 if !here {
                     open(dest);
                 }

@@ -595,7 +595,9 @@ impl NdkDecoder {
             }
             MediaSource::Url(u) => (None, u.clone()),
             MediaSource::Bytes(_) => {
-                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
             }
         };
         let location = CString::new(location).map_err(|e| MediaError::NotFound(e.to_string()))?;

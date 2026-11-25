@@ -588,7 +588,9 @@ impl GstDecoder {
             }
             MediaSource::Url(u) => u.clone(),
             MediaSource::Bytes(_) => {
-                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
             }
         };
         let uri = CString::new(uri).map_err(|e| MediaError::NotFound(e.to_string()))?;
@@ -1161,7 +1163,11 @@ struct GstOutput {
 unsafe impl Send for GstOutput {}
 
 impl GstOutput {
-    fn open(g: &'static Gst, format: AudioFormat, latency: crate::host::Latency) -> Result<GstOutput, MediaError> {
+    fn open(
+        g: &'static Gst,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<GstOutput, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }

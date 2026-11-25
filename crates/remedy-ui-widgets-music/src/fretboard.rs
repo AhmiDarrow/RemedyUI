@@ -57,7 +57,13 @@ pub struct FretMark {
 impl FretMark {
     /// A plain mark with no text.
     pub fn at(string: usize, fret: u32) -> FretMark {
-        FretMark { pos: FretPos { string, fret }, label: None, kind: MarkKind::Normal, opacity: 1.0, pulse: false }
+        FretMark {
+            pos: FretPos { string, fret },
+            label: None,
+            kind: MarkKind::Normal,
+            opacity: 1.0,
+            pulse: false,
+        }
     }
 
     /// The same mark drawn faint: `opacity` from 0 to 1.
@@ -620,7 +626,12 @@ pub fn fretboard(
                             if classes.contains(&class) {
                                 let center = Point::new(g.cell_x(f), g.string_y(s));
                                 cx.list.border(
-                                    Rect::new(center.x - r - 3.0, center.y - r - 3.0, center.x + r + 3.0, center.y + r + 3.0),
+                                    Rect::new(
+                                        center.x - r - 3.0,
+                                        center.y - r - 3.0,
+                                        center.x + r + 3.0,
+                                        center.y + r + 3.0,
+                                    ),
                                     CornerRadii::all(r + 3.0),
                                     2.0,
                                     c.ok,
@@ -769,8 +780,11 @@ pub fn fretboard(
                 // Up is up on screen, whichever string is there.
                 Key::ArrowUp | Key::ArrowDown => {
                     let higher = (e.key == Key::ArrowUp) != g.reverse_strings;
-                    let string =
-                        if higher { (cur.string + 1).min(g.strings - 1) } else { cur.string.saturating_sub(1) };
+                    let string = if higher {
+                        (cur.string + 1).min(g.strings - 1)
+                    } else {
+                        cur.string.saturating_sub(1)
+                    };
                     FretPos { string, ..cur }
                 }
                 Key::ArrowRight => by_fret(toward_bridge),

@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-    AUDCLNT_STREAMOPTIONS_RAW, AudioCategory_Other, AudioClientProperties, IAudioClient2,
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioCaptureClient, IAudioClient, IAudioClock,
-    IAudioRenderClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
-    WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_RAW, AudioCategory_Other,
+    AudioClientProperties, IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioClock, IAudioRenderClient,
+    IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0,
+    eCapture, eConsole, eRender,
 };
 use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFAttributes, IMFByteStream, IMFByteStreamCacheControl2, IMFMediaType, IMFSample,
@@ -350,7 +350,9 @@ impl MfDecoder {
             }
             MediaSource::Url(u) => u.clone(),
             MediaSource::Bytes(_) => {
-                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
             }
         };
         // Pictures stay on the GPU when a renderer takes them there.

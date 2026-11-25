@@ -633,7 +633,12 @@ mod tests {
         assert!(Wave::Sine.at(0.25) > 0.999 && Wave::Sine.at(0.75) < -0.999);
         assert!((Wave::Triangle.at(0.5) - 1.0).abs() < 1e-6 && (Wave::Triangle.at(0.0) + 1.0).abs() < 1e-6);
         assert!(Wave::Triangle.at(0.25).abs() < 1e-6);
-        let e = Adsr { attack: Duration::from_millis(100), decay: Duration::from_millis(100), sustain: 0.5, release: Duration::from_millis(200) };
+        let e = Adsr {
+            attack: Duration::from_millis(100),
+            decay: Duration::from_millis(100),
+            sustain: 0.5,
+            release: Duration::from_millis(200),
+        };
         assert!((e.level(0.05, 1.0) - 0.5).abs() < 1e-5, "half way up the attack");
         assert!((e.level(0.15, 1.0) - 0.75).abs() < 1e-5, "half way down the decay");
         assert!((e.level(0.6, 1.0) - 0.5).abs() < 1e-5, "held");
@@ -664,7 +669,11 @@ mod tests {
         // 120 beats a minute at 48 kHz: a beat is 24 000 frames.
         for block in [64usize, 480, 1000, 4096] {
             let mut s = Sequencer::new(48_000);
-            s.set_events(vec![(0.0, Sound::click(1000.0)), (1.0, Sound::click(1000.0)), (2.5, Sound::click(1000.0))]);
+            s.set_events(vec![
+                (0.0, Sound::click(1000.0)),
+                (1.0, Sound::click(1000.0)),
+                (2.5, Sound::click(1000.0)),
+            ]);
             s.play_from(0.0, 0.0);
             let mut all = Vec::new();
             while all.len() < 72_000 {
@@ -675,7 +684,10 @@ mod tests {
             let found = onsets(&all);
             let near = |at: usize, want: usize| at.abs_diff(want) <= 2;
             assert!(
-                found.len() == 3 && near(nth(&found, 0), 0) && near(nth(&found, 1), 24_000) && near(nth(&found, 2), 60_000),
+                found.len() == 3
+                    && near(nth(&found, 0), 0)
+                    && near(nth(&found, 1), 24_000)
+                    && near(nth(&found, 2), 60_000),
                 "block {block}: {found:?}"
             );
         }

@@ -52,7 +52,12 @@ pub struct PageInput {
 
 impl Default for PageInput {
     fn default() -> Self {
-        PageInput { wheel_zoom: Some(ZoomStep::Scale(1.1)), wheel_zoom_shift: None, key_zoom: None, reset_zoom: 1.0 }
+        PageInput {
+            wheel_zoom: Some(ZoomStep::Scale(1.1)),
+            wheel_zoom_shift: None,
+            key_zoom: None,
+            reset_zoom: 1.0,
+        }
     }
 }
 
