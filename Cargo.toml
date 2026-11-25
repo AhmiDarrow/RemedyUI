@@ -20,6 +20,8 @@ missing_docs = "deny"
 rust_2018_idioms = { level = "deny", priority = -1 }
 
 [workspace.lints.clippy]
+# A crate merged into another keeps its files: `tree/mod.rs` still declares `mod tree`.
+module_inception = "allow"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
