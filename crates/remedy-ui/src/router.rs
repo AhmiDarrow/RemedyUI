@@ -792,7 +792,7 @@ mod tests {
         );
         // The same route again is a new entry when it carries a state.
         r.push_with("/item/7", "again");
-        assert_eq!(r.position(), (3, 2));
+        assert_eq!(r.position(), (2, 3));
         assert_eq!(r.href("/item/7"), "#/item/7");
     }
 }
