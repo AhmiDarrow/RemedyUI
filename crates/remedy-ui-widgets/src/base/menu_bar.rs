@@ -72,14 +72,15 @@ impl Bar {
         self.menus.get(slot).is_some_and(MenuItem::is_disabled)
     }
 
-    /// The first slot that is not disabled going `delta` at a time from place `at` of
-    /// `slots`, wrapping around (`at` itself last).
-    fn enabled_from(&self, slots: &[usize], at: usize, delta: isize) -> Option<usize> {
+    /// The slot `delta` places from place `at` of `slots`, wrapping around. A disabled title
+    /// is a place like any other: it takes focus, so someone who cannot see it greyed out
+    /// still finds it, as a disabled entry inside a menu does. It only does not open.
+    fn neighbour(slots: &[usize], at: usize, delta: isize) -> Option<usize> {
         let k = slots.len() as isize;
-        (1..=k)
-            .filter_map(|i| usize::try_from((at as isize + delta * i).rem_euclid(k)).ok())
-            .filter_map(|i| slots.get(i).copied())
-            .find(|s| !self.slot_disabled(*s))
+        if k == 0 {
+            return None;
+        }
+        usize::try_from((at as isize + delta).rem_euclid(k)).ok().and_then(|i| slots.get(i).copied())
     }
 
     pub(crate) fn slot_at(&self, p: Point) -> Option<usize> {
@@ -130,8 +131,7 @@ impl Bar {
         self.remember_focus();
         self.set_active(true);
         let slots = self.slots();
-        let first = self.enabled_from(&slots, slots.len().saturating_sub(1), 1).or(slots.first().copied());
-        if let Some(t) = first.and_then(|s| self.titles.get(s)) {
+        if let Some(t) = slots.first().and_then(|s| self.titles.get(*s)) {
             t.focus();
         }
     }
@@ -227,18 +227,19 @@ impl Bar {
         }
     }
 
-    /// Left or Right at a menu's top level: the neighbouring menu opens (disabled ones are
-    /// passed over).
+    /// Left or Right at a menu's top level: the neighbouring menu opens (a disabled one's
+    /// title takes focus, shut).
     pub(crate) fn step(self: &Rc<Self>, delta: isize) {
         let slots = self.slots();
         let Some(open) = untrack(|| self.open_slot.get()) else { return };
         let Some(at) = slots.iter().position(|s| *s == open) else { return };
-        let next = self.enabled_from(&slots, at, delta.signum()).filter(|s| *s != open);
+        let next = Self::neighbour(&slots, at, delta.signum()).filter(|s| *s != open);
         if let Some(s) = next {
             self.set_active(true);
             match self.menus.get(s) {
-                // A plain entry in the bar has no menu to show: its title takes focus.
-                Some(m) if !m.is_submenu() => {
+                // A plain entry in the bar has no menu to show, and a disabled menu does not
+                // open: the title takes focus.
+                Some(m) if !m.is_submenu() || m.is_disabled() => {
                     self.close_open();
                     if let Some(t) = self.titles.get(s) {
                         t.focus();
@@ -366,9 +367,9 @@ impl Bar {
         } else {
             (Key::ArrowRight, Key::ArrowLeft)
         };
-        // Disabled menus are passed over: `from` is the place before the first one tried.
+        // `from` is the place before the one that takes focus.
         let focus = |from: usize, delta: isize| {
-            if let Some(t) = self.enabled_from(&slots, from, delta).and_then(|s| self.titles.get(s)) {
+            if let Some(t) = Self::neighbour(&slots, from, delta).and_then(|s| self.titles.get(s)) {
                 t.focus();
             }
         };

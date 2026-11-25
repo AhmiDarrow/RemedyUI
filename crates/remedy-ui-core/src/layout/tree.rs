@@ -3,7 +3,7 @@
 use crate::{Point, Rect, Scale, Size};
 use taffy::{AvailableSpace, NodeId, TaffyTree};
 
-use crate::layout::style::{Direction, LayoutStyle, to_taffy};
+use crate::layout::style::{Axis, Direction, Display, LayoutStyle, Length, Position, to_taffy};
 
 /// A node in a [`LayoutTree`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -152,15 +152,42 @@ impl LayoutTree {
                 Direction::Ltr => false,
                 Direction::Rtl => true,
             };
+            let (row, flex) = (style.axis == Axis::Row, style.display == Display::Flex);
             if rtl != was || parent != was_parent {
                 self.taffy.set_style(id, to_taffy(&style, rtl, parent)).map_err(err)?;
                 self.styles.insert(id, (style, rtl, parent));
             }
             for c in self.taffy.children(id).map_err(err)? {
+                self.fit_grower(c, flex && row)?;
                 stack.push((c, rtl, depth + 1));
             }
         }
         Ok(deepest)
+    }
+
+    /// A growing container in a row takes the width the row has left, not at least its
+    /// content's smallest width: its automatic minimum width is none. Working that minimum
+    /// out measures everything inside again at every level, which multiplies with depth (rows
+    /// of growing columns twelve deep took a thousand measures of one text), and it pushes a
+    /// row past its parent when the content is wider than the room. A measured leaf (text, a
+    /// picture) keeps its automatic minimum, and so does a width the app set. Heights are
+    /// left alone: what scrolls is as tall as its content because of that minimum.
+    fn fit_grower(&mut self, node: NodeId, in_flex_row: bool) -> Result<(), LayoutError> {
+        let Some((style, rtl, parent)) = self.styles.get(&node) else { return Ok(()) };
+        let container = self.taffy.children(node).is_ok_and(|c| !c.is_empty());
+        let auto = style.min_width == Length::Auto;
+        let fit =
+            in_flex_row && container && auto && style.grow > 0.0 && style.position != Position::Absolute;
+        // What the style alone gives is automatic exactly where the app left it so.
+        let is = auto && !self.taffy.style(node).map_err(err)?.min_size.width.is_auto();
+        if fit != is {
+            let mut t = to_taffy(style, *rtl, *parent);
+            if fit {
+                t.min_size.width = taffy::LengthPercentageAuto::length(0.0);
+            }
+            self.taffy.set_style(node, t).map_err(err)?;
+        }
+        Ok(())
     }
 
     /// Marks a measured leaf's content as changed (new text), so it is measured again.

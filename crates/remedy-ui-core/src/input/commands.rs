@@ -641,9 +641,9 @@ impl CommandTable {
 
     /// The command a key press runs, among the scopes active now (innermost first). Disabled
     /// commands are skipped so an outer one can answer; key releases and keys an input
-    /// method is composing never match. A held key's auto-repeats match like its first press
-    /// (holding Ctrl+Z keeps undoing): a caller whose command must run once per press checks
-    /// [`KeyEvent::repeat`].
+    /// method is composing never match. A held key's auto-repeats match like its first press:
+    /// whether the command then runs again is its caller's to decide from
+    /// [`KeyEvent::repeat`] (the widgets' `Commands` runs it once unless the command repeats).
     pub fn match_key(&self, e: &KeyEvent, active: &[Scope]) -> Option<&Command> {
         if !e.pressed || e.composing {
             return None;

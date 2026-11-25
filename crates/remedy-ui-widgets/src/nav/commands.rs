@@ -35,6 +35,8 @@ struct Inner {
     actions: RefCell<HashMap<String, Action>>,
     icons: RefCell<HashMap<String, Icon>>,
     destructive: RefCell<std::collections::HashSet<String>>,
+    /// Commands a held shortcut runs again.
+    repeats: RefCell<std::collections::HashSet<String>>,
     order: RefCell<Vec<String>>,
     /// Bumped on every change: widgets showing commands follow it.
     revision: Signal<u64>,
@@ -64,6 +66,7 @@ impl Commands {
             actions: RefCell::new(HashMap::new()),
             icons: RefCell::new(HashMap::new()),
             destructive: RefCell::new(std::collections::HashSet::new()),
+            repeats: RefCell::new(std::collections::HashSet::new()),
             order: RefCell::new(Vec::new()),
             revision: Signal::new(0),
         }))
@@ -119,6 +122,17 @@ impl Commands {
             self.0.destructive.borrow_mut().remove(id);
         }
         self.changed();
+    }
+
+    /// Whether holding the command's shortcut down runs it again and again (undo, redo, zoom,
+    /// next and previous). Off unless set: a held shortcut runs its command once, so a key
+    /// held a moment too long does not open ten windows or send a message twice.
+    pub fn set_repeats(&self, id: &str, on: bool) {
+        if on {
+            self.0.repeats.borrow_mut().insert(id.to_owned());
+        } else {
+            self.0.repeats.borrow_mut().remove(id);
+        }
     }
 
     /// Changes a command's label (after the locale changed).
@@ -297,7 +311,8 @@ impl Commands {
         let me = self.clone();
         ui.root().on_key(move |e| {
             let id = me.0.table.borrow().match_key(e, &[Scope::App, Scope::Window]).map(|c| c.id.clone());
-            id.is_some_and(|id| me.run(&id))
+            // A held key is still this command's: it runs again only where that was asked for.
+            id.is_some_and(|id| (e.repeat && !me.0.repeats.borrow().contains(&id)) || me.run(&id))
         })
     }
 }
