@@ -69,10 +69,10 @@ anim = ["image", "dep:remedy-ui-media-anim"]
 video = ["dep:remedy-ui-media-video"]
 ## Web views (`remedy_ui::webview`): the platform's web view (WebView2, WebKitGTK) as an
 ## element, with an allow-list for every navigation and one JSON message channel.
-webview = ["dep:remedy-ui-embed-webview"]
+webview = ["remedy-ui-platform/embed-webview"]
 ## GPU embeds (`remedy_ui::gpu_embed`): the app's own wgpu rendering (a 3D preview, a game
 ## view) as an element, on the device RemedyUI's windows draw with.
-gpu-embed = ["gpu", "dep:remedy-ui-embed-gpu"]
+gpu-embed = ["gpu", "remedy-ui-platform/embed-gpu"]
 ## Code (`remedy_ui::code`): code views with syntax colors from the theme, folding, diffs.
 code = ["widgets", "dep:remedy-ui-doc-code"]
 agents = ["widgets", "nav", "dep:remedy-ui-automation"]
@@ -105,15 +105,15 @@ script-wasm = ["board", "remedy-ui-engine/script-wasm"]
 ## for them; `App::customizations` keeps them in the app's data folder.
 customize = ["forms", "nav", "i18n", "dep:remedy-ui-customize"]
 ## Localization (`remedy_ui::i18n`): Fluent messages, locale data, dates and exact numbers.
-i18n = ["dep:remedy-ui-services-i18n"]
+i18n = ["remedy-ui-platform/services-i18n"]
 ## Every language CLDR names, in every locale CLDR has, for `i18n::language_name` (a subtitle
 ## or audio track's language: "Korean", "Koreanisch"; ISO 639-2 codes like `ger` too; about
 ## 3 MB of data). Without it, only the languages the engine ships are named.
-language-names = ["i18n", "remedy-ui-services-i18n/language-names"]
+language-names = ["i18n", "remedy-ui-platform/services-i18n-language-names"]
 ## Importing what a web version saved (`remedy_ui::webstorage`): a web view's localStorage
 ## (WebView2, Android System WebView, Chrome), read losslessly and read-only, or the page's
 ## own in a browser.
-webstorage = ["dep:remedy-ui-services-webstorage"]
+webstorage = ["remedy-ui-platform/services-webstorage"]
 ## `#[derive(Store)]` (`remedy_ui::Store`): field-level reactive stores.
 macros = ["dep:remedy-ui-macros"]
 ## Images and animations decoded in a sandboxed helper process (`remedy_ui::isolated`), so a
@@ -122,7 +122,7 @@ isolated = ["image", "anim", "dep:remedy-ui-media-isolated"]
 ## Desktop services (`remedy_ui::desktop`): starting with the session, URL schemes
 ## (`App::on_url`), jump lists and recent files, power (`App::on_power`, keeping awake),
 ## showing files in the file manager and the user's usual folders.
-desktop = ["dep:remedy-ui-services-desktop"]
+desktop = ["remedy-ui-platform/services-desktop"]
 ## The player in the system's media controls (`Player::now_playing`): Windows' SMTC, a
 ## browser's `navigator.mediaSession`.
 media-session = ["playback", "desktop", "remedy-ui-media-playback/media-session"]
@@ -132,11 +132,11 @@ keep-awake = ["playback", "desktop", "remedy-ui-media-playback/keep-awake"]
 ## The HTTP client (`remedy_ui::net`): JSON requests with typed decoding, HTTP errors with
 ## their detail, multipart uploads, keepalive requests, timeouts, and cancellation that follows a
 ## `Resource`'s key; natively (rustls) and in a browser page (`fetch`).
-net = ["dep:remedy-ui-services-net"]
+net = ["remedy-ui-platform/services-net"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
-headless = ["dep:remedy-ui-bridge-headless"]
+headless = ["remedy-ui-platform/bridge-headless"]
 ## Browser pages and PWAs (`remedy_ui::web`): `run` starts the app in the page on
 ## `wasm32-unknown-unknown`, where `AppConfig::web` says where it mounts. On other targets,
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
@@ -167,8 +167,7 @@ remedy-ui-automation = { path = "../remedy-ui-automation", version = "1.0.0-rc.1
 remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "1.0.0-rc.1", optional = true }
-remedy-ui-embed-webview = { path = "../remedy-ui-embed-webview", version = "1.0.0-rc.1", optional = true }
-remedy-ui-embed-gpu = { path = "../remedy-ui-embed-gpu", version = "1.0.0-rc.1", optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-headless", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-net", "services-webstorage"] }
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-playback = { path = "../remedy-ui-media-playback", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "1.0.0-rc.1", optional = true }
@@ -176,12 +175,7 @@ remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "1.0.0-rc.1",
 remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-board = { path = "../remedy-ui-widgets-board", version = "1.0.0-rc.1", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1", optional = true }
-remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "1.0.0-rc.1", optional = true }
-remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version = "1.0.0-rc.1", optional = true }
-remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "1.0.0-rc.1", optional = true }
-remedy-ui-services-webstorage = { path = "../remedy-ui-services-webstorage", version = "1.0.0-rc.1", optional = true }
-remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1", optional = true }
 # On every target for `remedy_ui::web`'s types (`WebConfig`, `Mount`, the file store) and its
 # documentation; the browser bindings it starts apps with are its wasm32-only dependencies,
 # so native builds pull in nothing of the web.
@@ -190,32 +184,32 @@ zeroize = { version = "=1.9.1", default-features = false, features = ["std"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 
 [target.'cfg(windows)'.dependencies]
-remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-windows"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-remedy-ui-bridge-macos = { path = "../remedy-ui-bridge-macos", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-macos"] }
 
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
-remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-linux"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-android"] }
 
 
 [dev-dependencies]
 # The network guide's samples decode JSON into their own types.
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154" }
-remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-headless"] }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "render-cpu", "render-gpu"] }
 png = { version = "=0.18.1" }
 
 [target.'cfg(windows)'.dev-dependencies]
-remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-winit"] }
 
 # tests/real_cursor.rs on Linux: the pointer read with XFixes and moved with XTest.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-winit"] }
 x11rb = { version = "=0.13.2", features = ["xfixes", "xtest"] }
 
 # Tests, examples and the guide's doctests build with every pack, so `cargo test` checks all of them.

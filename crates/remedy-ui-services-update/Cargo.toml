@@ -25,7 +25,7 @@ remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-
 # HTTPS for the updater; a browser page has none (its service worker updates it).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Feeds and signatures go through the shared HTTP client.
-remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1" }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-net"] }
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 # The TLS crypto provider ureq uses (pure Rust ring; no C toolchain).
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }

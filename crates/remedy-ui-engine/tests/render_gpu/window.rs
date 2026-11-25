@@ -9,7 +9,7 @@ mod common;
 
 use std::time::Duration;
 
-use remedy_ui_bridge_winit::run_on;
+use remedy_ui_platform::bridge_winit::run_on;
 use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Rect, Size};
 use remedy_ui_core::host::{App, Host, HostEvent, WindowId, WindowOptions};

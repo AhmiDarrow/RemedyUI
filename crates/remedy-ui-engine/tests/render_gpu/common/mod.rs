@@ -2,15 +2,15 @@
 //! Linux, where Xvfb is enough) and the validation layer's reports.
 
 #[cfg(target_os = "linux")]
-pub use remedy_ui_bridge_linux::LinuxHooks as Hooks;
+pub use remedy_ui_platform::bridge_linux::LinuxHooks as Hooks;
 #[cfg(windows)]
-pub use remedy_ui_bridge_windows::WindowsHooks as Hooks;
-use remedy_ui_bridge_winit::UserEvent;
-use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
+pub use remedy_ui_platform::bridge_windows::WindowsHooks as Hooks;
+use remedy_ui_platform::bridge_winit::UserEvent;
+use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
 #[cfg(windows)]
-use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(target_os = "linux")]
-use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
+use remedy_ui_platform::bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
 
 /// An event loop for this test thread, with the validation layer's reports collected from
 /// now on. `None` on Linux without an X11 display or a Vulkan device (said on stderr): the

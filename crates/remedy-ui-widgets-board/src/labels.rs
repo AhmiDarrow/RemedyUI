@@ -252,7 +252,7 @@ words! {
 
 /// `template` with each `{name}` filled from `args`.
 pub(crate) fn fill(template: &str, args: &[(&str, String)]) -> String {
-    remedy_ui_services_i18n::fill(template, args)
+    remedy_ui_platform::services_i18n::fill(template, args)
 }
 
 /// `text` without the Unicode isolation marks Fluent wraps placeholders in: the board fills

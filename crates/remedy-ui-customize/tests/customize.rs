@@ -10,7 +10,7 @@ use remedy_ui_core::a11y::Action;
 use remedy_ui_core::{Color, Size};
 use remedy_ui_customize::*;
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers, Platform};
-use remedy_ui_services_i18n::{Catalog, MessageEntry, Messages};
+use remedy_ui_platform::services_i18n::{Catalog, MessageEntry, Messages};
 use remedy_ui_core::style::Theme;
 use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 use remedy_ui_core::reactive::{Effect, Scope};
-use remedy_ui_services_desktop::DesktopError;
-use remedy_ui_services_desktop::media_session::{
+use remedy_ui_platform::services_desktop::DesktopError;
+use remedy_ui_platform::services_desktop::media_session::{
     MediaCommand, MediaSession, MediaState, NowPlaying, NowPlayingSink,
 };
 

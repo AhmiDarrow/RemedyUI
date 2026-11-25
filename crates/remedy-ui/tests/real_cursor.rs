@@ -16,14 +16,14 @@ use remedy_ui::playback::{
     Sample, VideoInfo, player,
 };
 use remedy_ui::{App, AppConfig, GeometryStore, Runner, WindowSpec};
-use remedy_ui_bridge_winit::run_on;
+use remedy_ui_platform::bridge_winit::run_on;
 
 #[cfg(windows)]
 mod os {
-    pub use remedy_ui_bridge_windows::pointer::{click, move_to, position, screen_size, showing, under};
-    use remedy_ui_bridge_winit::UserEvent;
-    use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-    use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+    pub use remedy_ui_platform::bridge_windows::pointer::{click, move_to, position, screen_size, showing, under};
+    use remedy_ui_platform::bridge_winit::UserEvent;
+    use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+    use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 
     pub fn event_loop() -> EventLoop<UserEvent> {
         match EventLoop::<UserEvent>::with_user_event().with_any_thread(true).build() {
@@ -32,16 +32,16 @@ mod os {
         }
     }
 
-    pub fn hooks() -> remedy_ui_bridge_windows::WindowsHooks {
-        remedy_ui_bridge_windows::WindowsHooks::default()
+    pub fn hooks() -> remedy_ui_platform::bridge_windows::WindowsHooks {
+        remedy_ui_platform::bridge_windows::WindowsHooks::default()
     }
 }
 
 #[cfg(target_os = "linux")]
 mod os {
-    use remedy_ui_bridge_winit::UserEvent;
-    use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-    use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
+    use remedy_ui_platform::bridge_winit::UserEvent;
+    use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+    use remedy_ui_platform::bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
     use x11rb::connection::Connection;
     use x11rb::protocol::xfixes::ConnectionExt as _;
     use x11rb::protocol::xproto::{
@@ -105,8 +105,8 @@ mod os {
         }
     }
 
-    pub fn hooks() -> remedy_ui_bridge_linux::LinuxHooks {
-        remedy_ui_bridge_linux::LinuxHooks::default()
+    pub fn hooks() -> remedy_ui_platform::bridge_linux::LinuxHooks {
+        remedy_ui_platform::bridge_linux::LinuxHooks::default()
     }
 }
 

@@ -6,7 +6,7 @@
 //! - **Android**: a signed APK with no Gradle: the app's library built for the target with
 //!   the NDK's clang, the Android bridge's Java (its `dex/classes.dex`: the activity, the
 //!   notification classes and the foreground service), the app's icon, a manifest, `aapt2`,
-//!   `zipalign` and `apksigner` (the steps of `crates/remedy-ui-bridge-android/tools/build-apk.sh`,
+//!   `zipalign` and `apksigner` (the steps of `crates/remedy-ui-platform/bridge-android/tools/build-apk.sh`,
 //!   for any app).
 //! - **macOS**: `<name>.app` (Info.plist, the executable, an `.icns` icon) in a zip. It is
 //!   built with Apple's linker, so it is packaged on a Mac or with a cross linker set up.
@@ -811,7 +811,7 @@ mod tests {
         // Every class the manifest names is in the bridge's dex the APK carries (a dex file
         // names its classes).
         let bridge =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../remedy-ui-bridge-android/dex/classes.dex");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../remedy-ui-platform/bridge-android/dex/classes.dex");
         let dex = std::fs::read(&bridge).unwrap_or_default();
         assert!(dex.starts_with(b"dex\n"), "{}", bridge.display());
         assert!(
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn the_bridges_dex_is_found_through_cargo_metadata() {
         let here = env!("CARGO_MANIFEST_DIR");
-        let bridge = Path::new(here).join("../remedy-ui-bridge-android/Cargo.toml");
+        let bridge = Path::new(here).join("../remedy-ui-platform/bridge-android/Cargo.toml");
         let meta = serde_json::json!({ "packages": [
             { "name": "remedy-ui", "manifest_path": "/x/remedy-ui/Cargo.toml" },
             { "name": "remedy-ui-bridge-android", "manifest_path": bridge.to_string_lossy() },

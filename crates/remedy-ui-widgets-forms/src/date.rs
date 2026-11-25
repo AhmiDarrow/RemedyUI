@@ -8,7 +8,7 @@ use remedy_ui_core::style::StylePatch;
 use remedy_ui_engine::view::{Align, El, FieldKind, Justify, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
-use remedy_ui_services_i18n::{CalendarSymbols, Date, NumberSymbols, Time, month_grid};
+use remedy_ui_platform::services_i18n::{CalendarSymbols, Date, NumberSymbols, Time, month_grid};
 
 /// A chevron button pointing back or forward in reading order: the icon mirrors on its own
 /// in right-to-left layouts, where "next" is to the left.
@@ -90,7 +90,7 @@ pub fn calendar(
                     for d in week {
                         let d = *d;
                         let text =
-                            num.format(remedy_ui_services_i18n::Decimal::from_int(i64::from(d.day)), 0);
+                            num.format(remedy_ui_platform::services_i18n::Decimal::from_int(i64::from(d.day)), 0);
                         let variant = if d == chosen { "primary" } else { "quiet" };
                         // The keyboard cursor gets a ring in the accent color.
                         let ring = {
