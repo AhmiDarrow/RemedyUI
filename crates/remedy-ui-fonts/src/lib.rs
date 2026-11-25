@@ -12,7 +12,7 @@
 //! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Light, Semilight, Regular, Semibold, Bold |
 //! | `ahmi-pixel` | Ahmi Pixel: pixel face | Regular, Bold |
 //! | `remedy-symbols` (default) | Remedy Symbols: interface symbols the text faces lack, for fallback (9 KB) | Regular |
-//! | `remedy-emoji` (default) | Remedy Emoji: our own color emoji, for fallback, COLRv1 (3.4 MB) | Regular |
+//! | `remedy-emoji` (default) | Remedy Emoji: our own color emoji, for fallback, COLRv1 (3.5 MB) | Regular |
 //! | `noto-arabic` | Noto Sans Arabic: Arabic, Persian and Urdu letters, digits and marks, for fallback | Regular, Bold |
 //! | `noto-devanagari` | Noto Sans Devanagari: Hindi, Marathi, Nepali and the other Devanagari languages, for fallback | Regular, Bold |
 //! | `noto-bengali` | Noto Sans Bengali: Bengali and Assamese, for fallback | Regular, Bold |
