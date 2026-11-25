@@ -1,5 +1,6 @@
 //! Bars: a small group of bars, such as a spectrum.
 
+use std::time::Duration;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -20,6 +21,13 @@ pub struct BarsOptions {
     pub range: Option<Range>,
     /// How the bars rise and fall. Ignored under reduced motion.
     pub smoothing: Smoothing,
+    /// In place of `smoothing`, move every bar in a straight line to its new value in
+    /// exactly this long (values that arrive on a beat, an equaliser's presets). Ignored
+    /// under reduced motion.
+    pub tween: Option<Duration>,
+    /// The least height a bar is drawn with, in logical pixels: above 0, a silent bar still
+    /// shows as a stub this tall. 0 hides bars with nothing to show.
+    pub min_bar: f32,
     /// Space between bars. `None` takes it from the theme. With more values than pixels the
     /// bars share pixels and the highest value of each group shows.
     pub gap: Option<f32>,
@@ -32,6 +40,18 @@ pub struct BarsOptions {
 }
 
 impl BarsOptions {
+    /// Sets `tween`: every bar reaches its new value in a straight line in this long.
+    pub fn tween(mut self, value: Duration) -> Self {
+        self.tween = Some(value);
+        self
+    }
+
+    /// Sets `min_bar`: the least height a bar is drawn with.
+    pub fn min_bar(mut self, value: f32) -> Self {
+        self.min_bar = value;
+        self
+    }
+
     /// Sets `range`: the span of values shown.
     pub fn range(mut self, value: Range) -> Self {
         self.range = Some(value);
@@ -74,6 +94,8 @@ impl Default for BarsOptions {
         BarsOptions {
             range: None,
             smoothing: Smoothing::meter(),
+            tween: None,
+            min_bar: 0.0,
             gap: None,
             width: None,
             height: None,
@@ -85,6 +107,17 @@ impl Default for BarsOptions {
 struct State {
     shown: Vec<f32>,
     target: Vec<f32>,
+    /// For a tween: where each bar was when the target last changed, and how long ago.
+    from: Vec<f32>,
+    since: Duration,
+}
+
+/// A bar's place `since` into a straight move from `from` to `target` that takes `tween`.
+fn tweened(from: f32, target: f32, since: Duration, tween: Duration) -> f32 {
+    if tween.is_zero() || since >= tween {
+        return target;
+    }
+    from + (target - from) * (since.as_secs_f32() / tween.as_secs_f32())
 }
 
 /// The values as fractions of their range: the range is 0 to 1 unless the options say
@@ -119,8 +152,9 @@ pub fn bars<S: Samples + 'static>(
         Some(w) => el.width(w),
         None => el.fill_width(),
     };
-    let state = Rc::new(RefCell::new(State { shown: Vec::new(), target: Vec::new() }));
+    let state = Rc::new(RefCell::new(State { shown: Vec::new(), target: Vec::new(), from: Vec::new(), since: Duration::ZERO }));
     let paint_state = state.clone();
+    let min_bar = if options.min_bar.is_finite() { options.min_bar.max(0.0) } else { 0.0 };
     let el = el.semantics(Semantics::new(Role::Image).label(label.clone())).paint(move |cx| {
         let Ok(s) = paint_state.try_borrow() else { return };
         // Bars at least a pixel wide: more values than that share bars.
@@ -136,9 +170,9 @@ pub fn bars<S: Samples + 'static>(
         let radii = CornerRadii { top_start: round, top_end: round, bottom_end: 0.0, bottom_start: 0.0 };
         for (i, v) in shown.iter().enumerate() {
             let h = v * cx.size.height;
-            if *v > 0.004 {
+            if *v > 0.004 || min_bar > 0.0 {
                 let x = i as f32 * (bar + gap);
-                let top = cx.size.height - h.max(1.0);
+                let top = cx.size.height - h.max(min_bar).max(1.0).min(cx.size.height);
                 cx.list.fill_rounded(
                     Rect::new(x, top, x + bar, cx.size.height),
                     radii,
@@ -151,14 +185,21 @@ pub fn bars<S: Samples + 'static>(
     let step_state = state.clone();
     let step_el = el.clone();
     let smoothing = options.smoothing;
+    let tween = options.tween;
     let ticker = Ticker::new(&el, options.clock, move |dt| {
         let reduced = step_el.ui().reduced_motion();
         let Ok(mut guard) = step_state.try_borrow_mut() else { return Moved::default() };
         let s = &mut *guard;
         let mut changed = false;
         let mut pending = false;
-        for (shown, target) in s.shown.iter_mut().zip(&s.target) {
-            let next = if reduced { *target } else { smoothing.step(*shown, *target, dt) };
+        s.since = s.since.saturating_add(dt);
+        let since = s.since;
+        for ((shown, target), from) in s.shown.iter_mut().zip(&s.target).zip(&s.from) {
+            let next = match tween {
+                _ if reduced => *target,
+                Some(t) => tweened(*from, *target, since, t),
+                None => smoothing.step(*shown, *target, dt),
+            };
             changed |= (next - *shown).abs() > f32::EPSILON;
             pending |= (next - *target).abs() > f32::EPSILON;
             *shown = next;
@@ -180,6 +221,11 @@ pub fn bars<S: Samples + 'static>(
             let have = s.shown.len();
             s.shown.truncate(count);
             s.shown.extend(target.iter().skip(have).copied());
+            // A tween starts over from where the bars are now.
+            if s.target != target {
+                s.from = s.shown.clone();
+                s.since = Duration::ZERO;
+            }
             s.target = target;
         }
         let tick = (high * 20.0).round() as i32;
@@ -195,4 +241,19 @@ pub fn bars<S: Samples + 'static>(
         }
         ticker.kick();
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tween_moves_in_a_straight_line_and_lands_on_time() {
+        let t = Duration::from_millis(200);
+        assert_eq!(tweened(0.2, 1.0, Duration::ZERO, t), 0.2);
+        assert!((tweened(0.2, 1.0, Duration::from_millis(50), t) - 0.4).abs() < 1e-6);
+        assert_eq!(tweened(0.2, 1.0, t, t), 1.0);
+        assert_eq!(tweened(0.2, 1.0, Duration::from_secs(9), t), 1.0);
+        assert_eq!(tweened(0.2, 1.0, Duration::ZERO, Duration::ZERO), 1.0, "no time: at once");
+    }
 }
