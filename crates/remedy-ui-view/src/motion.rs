@@ -17,6 +17,8 @@
 //! # }
 //! ```
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
@@ -26,6 +28,51 @@ use remedy_ui_style::StylePatch;
 use remedy_ui_tree::Dirty;
 
 use crate::element::{El, ElData, Ui};
+
+/// How often [`El::animate_keyframes`] plays its steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Repeat {
+    /// Until it is stopped.
+    Forever,
+    /// This many times through (at least once).
+    Times(u32),
+}
+
+/// A running [`El::animate_keyframes`].
+#[derive(Clone, Debug)]
+pub struct Keyframes(Rc<Cell<bool>>);
+
+impl Keyframes {
+    /// Stops after the step now playing: the property stays where that step leaves it.
+    pub fn stop(&self) {
+        self.0.set(true);
+    }
+
+    /// True once it was stopped or has played as often as asked.
+    pub fn is_stopped(&self) -> bool {
+        self.0.get()
+    }
+}
+
+/// Plays step `at`, then the one after it (or the first again, while `left` allows).
+fn play(el: El, steps: Rc<Vec<(Target, Motion)>>, at: usize, left: Repeat, handle: Keyframes) {
+    if handle.is_stopped() {
+        return;
+    }
+    let Some((target, motion)) = steps.get(at).copied() else { return };
+    let next = el.clone();
+    el.animate_then(target, motion, move || {
+        if at + 1 < steps.len() {
+            return play(next, steps, at + 1, left, handle);
+        }
+        match left {
+            Repeat::Forever => play(next, steps, 0, left, handle),
+            Repeat::Times(n) if n > 1 => play(next, steps, 0, Repeat::Times(n - 1), handle),
+            Repeat::Times(_) => handle.stop(),
+        }
+    });
+}
 
 /// What an animation moves, and to what.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +96,9 @@ pub enum Target {
     Translate(Vec2),
     /// How large it is drawn, about its center (1 is its laid-out size).
     Scale(f32),
+    /// How far its box shadow grows before it blurs (a glow that swells). The rest of the
+    /// shadow is the element's own as it is when the move starts.
+    ShadowSpread(f32),
 }
 
 impl Target {
@@ -63,6 +113,7 @@ impl Target {
             Target::Padding(_) => 6,
             Target::Translate(_) => 7,
             Target::Scale(_) => 8,
+            Target::ShadowSpread(_) => 9,
         }
     }
 
@@ -140,14 +191,17 @@ fn current(d: &ElData, t: &Target) -> Target {
         Target::Padding(_) => Target::Padding(a.padding.unwrap_or(s.padding)),
         Target::Translate(_) => Target::Translate(d.shift.0),
         Target::Scale(_) => Target::Scale(d.shift.1),
+        Target::ShadowSpread(_) => Target::ShadowSpread(a.shadow.unwrap_or(s.shadow).spread),
     }
 }
 
 fn slot_for(from: Target) -> Slot {
     match from {
-        Target::Opacity(v) | Target::BorderWidth(v) | Target::Radius(v) | Target::Scale(v) => {
-            Slot::F32(Animation::new(v))
-        }
+        Target::Opacity(v)
+        | Target::BorderWidth(v)
+        | Target::Radius(v)
+        | Target::Scale(v)
+        | Target::ShadowSpread(v) => Slot::F32(Animation::new(v)),
         Target::Background(c) | Target::Foreground(c) | Target::Border(c) => Slot::Color(Animation::new(c)),
         Target::Padding(i) => Slot::Insets(Animation::new(i)),
         Target::Translate(v) => Slot::Vec2(Animation::new(v)),
@@ -159,7 +213,11 @@ impl Slot {
         match (self, t) {
             (
                 Slot::F32(a),
-                Target::Opacity(v) | Target::BorderWidth(v) | Target::Radius(v) | Target::Scale(v),
+                Target::Opacity(v)
+                | Target::BorderWidth(v)
+                | Target::Radius(v)
+                | Target::Scale(v)
+                | Target::ShadowSpread(v),
             ) => {
                 a.set_reduced_motion(reduced);
                 a.animate_to(v, motion, now);
@@ -199,6 +257,10 @@ impl Slot {
             (8, Slot::F32(a)) => {
                 d.shift.1 = a.sample(now);
                 return false;
+            }
+            (9, Slot::F32(a)) => {
+                let base = s.shadow.unwrap_or(d.resolved.shadow);
+                s.shadow = Some(base.spread(a.sample(now)));
             }
             (1, Slot::Color(a)) => s.background = Some(a.sample(now)),
             (2, Slot::Color(a)) => s.foreground = Some(a.sample(now)),
@@ -338,6 +400,24 @@ impl El {
             }
         }
         self.ui.request(crate::Request::Frame);
+    }
+
+    /// Plays `steps` one after the other (each a value and the motion that takes the
+    /// property there), then again from the first, as often as `repeat` says: a pulse, a
+    /// breathing glow, a shake. Give the first step the value the last one leaves from to
+    /// loop without a jump. It stops with the returned handle, or when the element is
+    /// removed. Under reduced motion nothing moves: the property takes the last step's value.
+    pub fn animate_keyframes(&self, steps: Vec<(Target, Motion)>, repeat: Repeat) -> Keyframes {
+        let handle = Keyframes(Rc::new(Cell::new(false)));
+        match steps.last() {
+            None => handle.stop(),
+            Some((last, _)) if self.ui.reduced_motion() => {
+                self.set_animated(*last);
+                handle.stop();
+            }
+            Some(_) => play(self.clone(), Rc::new(steps), 0, repeat, handle.clone()),
+        }
+        handle
     }
 
     /// Animates every animatable property `patch` sets (opacity, colors, border, radius,
