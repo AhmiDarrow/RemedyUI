@@ -75,6 +75,8 @@ required-features = ["mcp"]
 [[bin]]
 name = "cargo-remedy"
 path = "src/main.rs"
+required-features = ["devkit", "templates"]
+
 [[bin]]
 name = "remedy-mcp"
 path = "src/bin/remedy-mcp.rs"
