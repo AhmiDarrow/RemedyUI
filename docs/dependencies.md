@@ -79,10 +79,10 @@ Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `ca
 |---|---|---|---|---|
 | Model Context Protocol | `rmcp` | 3.11.0 | `remedy-mcp` | The official Rust MCP SDK (Apache-2.0): its server, the stdio and streamable-HTTP transports, and the client the tests script. It brings `chrono`, which is marked unmaintained (a maintenance notice, recorded in `deny.toml`) |
 | Async runtime | `tokio` | 1.54.1 | `remedy-mcp` | rmcp runs on it. The tools themselves block, and the server runs them on tokio's blocking pool |
-| HTTP server | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tower-service` | 1.12.0, 0.1.21, 0.1.5, 1.12.1, 0.3.3 | `remedy-mcp` (feature `http`) | Serves rmcp's streamable-HTTP service on loopback, behind the bearer-token check |
-| JSON schemas | `schemars` | 1.2.3 | `remedy-mcp`, `cargo-remedy::devkit` (feature `schema`) | Every tool's input schema comes from its typed input, with the field docs as descriptions (the version rmcp uses) |
-| Compressed docs index | `flate2` (miniz_oxide back end) | 1.1.11 | `cargo-remedy::devkit` (feature `docs`), `xtask` | The committed docs index is zlib-compressed JSON (about 470 KB instead of 1.6 MB); the version `cargo-remedy` already uses for packaging |
-| Manifests | `toml` | 1.2.1 | `cargo-remedy`, `cargo-remedy::devkit` (feature `preview`) | Reads an app's Cargo.toml and writes the preview harness's |
+| HTTP server | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tower-service` | 1.12.0, 0.1.21, 0.1.5, 1.12.1, 0.3.3 | `remedy-mcp` (feature `mcp-http`) | Serves rmcp's streamable-HTTP service on loopback, behind the bearer-token check |
+| JSON schemas | `schemars` | 1.2.3 | `remedy-mcp`, `cargo-remedy::devkit` (feature `devkit-schema`) | Every tool's input schema comes from its typed input, with the field docs as descriptions (the version rmcp uses) |
+| Compressed docs index | `flate2` (miniz_oxide back end) | 1.1.11 | `cargo-remedy::devkit` (feature `devkit-docs`), `xtask` | The committed docs index is zlib-compressed JSON (about 470 KB instead of 1.6 MB); the version `cargo-remedy` already uses for packaging |
+| Manifests | `toml` | 1.2.1 | `cargo-remedy`, `cargo-remedy::devkit` (feature `devkit-preview`) | Reads an app's Cargo.toml and writes the preview harness's |
 
 ## Rules
 

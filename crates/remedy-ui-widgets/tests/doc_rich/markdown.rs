@@ -99,6 +99,14 @@ fn headings_lists_quotes_tables_and_code_have_their_structure() {
 }
 
 #[test]
+fn quotes_nested_without_end_keep_their_words_in_a_tree_of_bounded_depth() {
+    let (_ui, doc, _) = shown(&format!("{} deep words", ">".repeat(400)));
+    let quotes = find(&doc, "md_quote").len();
+    assert!((1..=12).contains(&quotes), "{quotes} quotes inside one another");
+    assert!(texts(&doc).iter().any(|t| t == "deep words"), "{:?}", texts(&doc));
+}
+
+#[test]
 fn styled_words_and_links_in_a_paragraph() {
     let (ui, doc, opened) = shown(DOC);
     let para = find(&doc, "label")

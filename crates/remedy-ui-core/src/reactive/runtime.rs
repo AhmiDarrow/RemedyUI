@@ -439,13 +439,12 @@ impl Runtime {
             return;
         }
         let mut nodes = self.nodes.borrow_mut();
-        let already = nodes.get(observer).is_some_and(|o| o.sources.contains(&id));
-        if already {
+        // An observer disposed while it runs subscribes to nothing: nothing would unlink it.
+        let Some(o) = nodes.get_mut(observer) else { return };
+        if o.sources.contains(&id) {
             return;
         }
-        if let Some(o) = nodes.get_mut(observer) {
-            o.sources.push(id);
-        }
+        o.sources.push(id);
         if let Some(s) = nodes.get_mut(id) {
             s.subscribers.push(observer);
         }
@@ -527,16 +526,23 @@ impl Runtime {
             let mut nodes = self.nodes.borrow_mut();
             let Some(node) = nodes.get_mut(id) else { continue };
             let raise = !causes_only && node.state < state;
-            if !raise && !fresh {
+            // A runaway effect was left dirty and out of the queue: a new change queues it again.
+            let requeue = !causes_only
+                && !raise
+                && !node.queued
+                && node.state == State::Dirty
+                && matches!(node.kind, Kind::Effect(_));
+            if !raise && !fresh && !requeue {
                 continue;
             }
             let was_clean = node.state == State::Clean;
             if raise {
                 node.state = state;
-                if matches!(node.kind, Kind::Effect(_) | Kind::Reaction(_)) && !node.queued {
-                    node.queued = true;
-                    self.pending.borrow_mut().push_back(id);
-                }
+            }
+            if (raise || requeue) && matches!(node.kind, Kind::Effect(_) | Kind::Reaction(_)) && !node.queued
+            {
+                node.queued = true;
+                self.pending.borrow_mut().push_back(id);
             }
             let propagate = raise && was_clean;
             if propagate || fresh {
@@ -680,7 +686,19 @@ impl Runtime {
             Some(Run::Memo(value, compute, equal)) => {
                 self.memo_runs.set(self.memo_runs.get() + 1);
                 let prev = value.borrow_mut().take();
+                // A computation that panics leaves the memo dirty, so its next read computes
+                // again instead of finding no value.
+                struct Unfinished<'a>(&'a Runtime, NodeId);
+                impl Drop for Unfinished<'_> {
+                    fn drop(&mut self) {
+                        if let Some(n) = self.0.nodes.borrow_mut().get_mut(self.1) {
+                            n.state = State::Dirty;
+                        }
+                    }
+                }
+                let unfinished = Unfinished(self, id);
                 let next = compute(prev.as_deref());
+                std::mem::forget(unfinished);
                 let changed = match &prev {
                     Some(p) => !equal(p.as_ref(), next.as_ref()),
                     None => true,
@@ -787,7 +805,7 @@ impl Runtime {
             let count = runs.entry(id).or_insert(0);
             *count += 1;
             if *count > RUNAWAY_RUNS {
-                // Leave it dirty; it runs again on the next change, and the count shows up
+                // Leave it dirty; the next change queues it again, and the count shows up
                 // in `Stats` so the inspector can point at it.
                 if *count == RUNAWAY_RUNS + 1 {
                     self.runaway_effects.set(self.runaway_effects.get() + 1);

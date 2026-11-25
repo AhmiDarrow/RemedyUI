@@ -105,6 +105,10 @@ remedy_ui_widgets_forms = "remedy_ui_widgets::forms"
 remedy_ui_widgets_music = "remedy_ui_widgets::music"
 remedy_ui_widgets_nav = "remedy_ui_widgets::nav"
 remedy_ui_widgets_stage = "remedy_ui_widgets::stage"
+# The tools' crates, now parts of `cargo-remedy` (for tools built on them).
+remedy_mcp = "cargo_remedy::mcp"
+remedy_templates = "cargo_remedy::templates"
+remedy_tools = "cargo_remedy::devkit"
 
 [[rename]]
 since = "1.0.0-rc.1"

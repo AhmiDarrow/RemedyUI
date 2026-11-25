@@ -363,7 +363,7 @@ impl Ui {
             (i.ambient.wakes.values().min().copied(), i.ambient.timer)
         };
         let Some(due) = earliest else { return };
-        if current.is_some_and(|(_, at)| at <= due + SLACK) {
+        if current.is_some_and(|(_, at)| at <= due.saturating_add(SLACK)) {
             return;
         }
         if let Some((id, _)) = current {
@@ -386,7 +386,7 @@ impl Ui {
             }
             let mut ids = Vec::new();
             i.ambient.wakes.retain(|id, at| {
-                let go = *at <= due + SLACK;
+                let go = *at <= due.saturating_add(SLACK);
                 if go {
                     ids.push(*id);
                 }

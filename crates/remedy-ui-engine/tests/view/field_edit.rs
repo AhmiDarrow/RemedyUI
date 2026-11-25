@@ -389,3 +389,41 @@ fn the_clipboard_and_undo_chords_work_on_a_layout_without_latin_letters() {
     assert!(ui.key(&chord("я", "KeyZ")));
     assert_eq!(field.value(), "привет", "Ctrl+Z undoes the cut");
 }
+
+#[test]
+fn input_from_outside_that_is_out_of_range_is_bounded() {
+    use remedy_ui_engine::view::{Decoration, ImeEvent};
+    let ui = ui();
+    let (field, _, _) = field_at(&ui, FieldKind::Single);
+    field.set_value("hello");
+    field.el().focus();
+    // An input method asking for more than the text holds deletes what there is.
+    assert!(ui.ime(&ImeEvent::DeleteSurrounding { before: 2, after: usize::MAX }));
+    assert_eq!(field.value(), "hel");
+    // A range that ends before it starts is not a range: it is dropped, not carried.
+    let (from, to) = (3, 1);
+    field.set_decorations(vec![Decoration::squiggle(from..to), Decoration::squiggle(0..2)]);
+    ui.key(&typed("x"));
+    assert_eq!(field.decorations(), vec![Decoration::squiggle(0..2)]);
+}
+
+#[test]
+fn a_field_made_before_the_first_frame_is_shaped_at_the_windows_scale() {
+    // The view knows its window's scale only from the first frame: a field made before it
+    // must come out as one made after.
+    let ui = ui();
+    let text = "Hamburgefonstiv 0123456789";
+    let early = ui.text_field("text_input", FieldKind::Single);
+    early.set_value(text);
+    ui.root().child(early.el());
+    let _ = ui.frame(Size::new(400.0, 120.0), 2.0);
+    let late = ui.text_field("text_input", FieldKind::Single);
+    late.set_value(text);
+    ui.root().child(late.el());
+    let _ = ui.frame(Size::new(400.0, 120.0), 2.0);
+    let end = |f: &remedy_ui_engine::view::TextField| {
+        let (b, c) = (f.el().bounds().unwrap_or_default(), f.caret_rect().unwrap_or_default());
+        c.min.x - b.min.x
+    };
+    assert_eq!(end(&early), end(&late), "the caret after the same text, shaped at the same scale");
+}

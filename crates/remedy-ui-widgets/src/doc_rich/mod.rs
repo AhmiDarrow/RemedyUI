@@ -3,7 +3,7 @@
 //! saving to Markdown ([`MarkdownFormat`]), and a find bar that searches any text on screen
 //! ([`find_bar`]).
 //!
-//! Layer 5: built only from public engine APIs and `widgets-core`.
+//! Layer 5: built only from public engine APIs and the base widgets ([`crate::base`]).
 
 mod editor;
 mod find;

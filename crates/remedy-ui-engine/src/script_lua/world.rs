@@ -344,11 +344,12 @@ impl World {
         {
             parent.children.retain(|c| *c != id);
         }
-        if self.root == Some(id) {
-            self.root = None;
-        }
         let mut todo = vec![id];
         while let Some(n) = todo.pop() {
+            // The mounted element may be inside what goes.
+            if self.root == Some(n) {
+                self.root = None;
+            }
             if let Some(e) = self.elements.remove(n) {
                 todo.extend(e.children);
                 self.drop_ref(e.props);

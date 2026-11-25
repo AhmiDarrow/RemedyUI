@@ -7,9 +7,9 @@
 //! a browser page) and the steps it took over the time it took is the rate. After that,
 //! every call long enough to time well is a measurement too, so the rate follows the device
 //! when it slows down (thermal throttling, a power-saving mode) or speeds up. Until the
-//! first measurement no step budget is made from a guess ([`Limits::step_budget`]
-//! (crate::script::Limits::step_budget)): only the time limit applies, so fair work is never stopped
-//! by a rate the device beats. The engine's fallback rate only spaces its clock checks then.
+//! first measurement no step budget is made from a guess
+//! ([`Limits::step_budget`](crate::script::Limits::step_budget)): only the time limit applies, so
+//! fair work is never stopped by a rate the device beats. The engine's fallback rate only spaces its clock checks then.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;

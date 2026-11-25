@@ -192,11 +192,20 @@ fn run(
                     size = (e.width.max(1), e.height.max(1));
                     draw_icon(conn, win, gc, &tray, size, depth)?;
                 }
-                Event::ButtonPress(e) if e.event == win => match e.detail {
-                    1 => report(TrayEvent::Activate),
-                    3 if !tray.menu.is_empty() => menu = Some(Menu::open(conn, &screen, &tray.menu, e)?),
-                    _ => {}
-                },
+                Event::ButtonPress(e) if e.event == win => {
+                    // A press on the icon while its menu is open closes that menu.
+                    let was_open = menu.is_some();
+                    if let Some(m) = menu.take() {
+                        m.close(conn)?;
+                    }
+                    match e.detail {
+                        1 => report(TrayEvent::Activate),
+                        3 if !was_open && !tray.menu.is_empty() => {
+                            menu = Some(Menu::open(conn, &screen, &tray.menu, e)?);
+                        }
+                        _ => {}
+                    }
+                }
                 ref e => {
                     if let Some(m) = &mut menu {
                         match m.handle(conn, e)? {

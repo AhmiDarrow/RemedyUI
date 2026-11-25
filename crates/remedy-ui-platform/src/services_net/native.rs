@@ -17,7 +17,7 @@ use ureq::RequestExt;
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
-use super::{HttpError, HttpPolicy, NetError, Prepared, Response, allowed, reaches};
+use super::{HttpError, HttpPolicy, NetError, Prepared, Response, absolute, allowed, reaches};
 
 /// How often a waiting caller looks at its cancel token.
 const CANCEL_POLL: Duration = Duration::from_millis(20);
@@ -182,7 +182,7 @@ fn net(e: ureq::Error) -> NetError {
 
 /// `location` (absolute, scheme-relative, absolute-path or relative) against `base`.
 fn join(base: &str, location: &str) -> String {
-    if location.contains("://") {
+    if absolute(location) {
         return location.to_owned();
     }
     let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
@@ -199,9 +199,13 @@ fn join(base: &str, location: &str) -> String {
     format!("{scheme}://{authority}{dir}{location}")
 }
 
-/// The scheme and host of an address, to tell when a redirect leaves the origin.
+/// The scheme and the host with its port of an address, to tell when a redirect leaves the
+/// origin (a default port written out counts as another, which only withholds more).
 fn origin(url: &str) -> Option<(String, String)> {
-    super::Parts::of(url).map(|p| (p.scheme, p.host))
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    Some((scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
 }
 
 /// Runs the request where it is called; once `stop` is cancelled it lets go of the body.
@@ -268,7 +272,8 @@ fn run(p: Prepared, stop: Option<&Cancel>) -> Result<Response, NetError> {
         }
         // Credentials the app set for one origin are not handed to another.
         if origin(&next) != origin(&url) {
-            headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
+            let secret = ["authorization", "proxy-authorization", "cookie"];
+            headers.retain(|(k, _)| !secret.iter().any(|h| k.eq_ignore_ascii_case(h)));
         }
         url = next;
     };
@@ -388,7 +393,7 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
     let kept = keepalive.then(Kept::new);
     // ureq's own deadline normally ends it first; this one holds even when a socket call
     // overruns it, so the caller's timeout is kept.
-    let deadline = p.timeout.and_then(|t| Instant::now().checked_add(t + CANCEL_POLL));
+    let deadline = p.timeout.and_then(|t| Instant::now().checked_add(t.saturating_add(CANCEL_POLL)));
     let chunks = p.chunks.clone();
     // Answering early: no chunk may follow the answer.
     let early = |e: NetError| {
@@ -477,5 +482,17 @@ mod tests {
         assert_eq!(join("http://a.test:8/x/y?q", "/z?1"), "http://a.test:8/z?1");
         assert_eq!(join("https://a.test/x/y?q", "z"), "https://a.test/x/z");
         assert_eq!(join("https://a.test", "z"), "https://a.test/z");
+        // An address in the query of a relative redirect is not where it goes.
+        assert_eq!(
+            join("https://a.test/x", "/in?to=https://b.test/"),
+            "https://a.test/in?to=https://b.test/"
+        );
+    }
+
+    #[test]
+    fn another_port_is_another_origin() {
+        assert_eq!(origin("http://u:p@LocalHost:8000/x"), origin("HTTP://localhost:8000?y"));
+        assert_ne!(origin("http://localhost:8000/"), origin("http://localhost:9000/"));
+        assert_ne!(origin("http://a.test/"), origin("https://a.test/"));
     }
 }

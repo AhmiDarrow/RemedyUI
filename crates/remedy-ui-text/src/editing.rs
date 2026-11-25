@@ -301,7 +301,8 @@ impl TextEditor {
             .filter(|&(s, _, word)| word && s < at)
             .map(|(s, _, _)| s)
             .max()
-            .unwrap_or(0)
+            // No word within reach: as far as was read, not the start of the whole text.
+            .unwrap_or_else(|| self.grapheme_floor(at.saturating_sub(BOUNDARY_WINDOW)))
     }
 
     /// The end of the word after `at`, skipping spaces and punctuation first (Ctrl+Right).
@@ -311,7 +312,8 @@ impl TextEditor {
             .filter(|&(_, e, word)| word && e > at)
             .map(|(_, e, _)| e)
             .min()
-            .unwrap_or(self.len())
+            // No word within reach: as far as was read, not the end of the whole text.
+            .unwrap_or_else(|| self.grapheme_floor(at.saturating_add(BOUNDARY_WINDOW)))
     }
 
     /// The word around `at`, for double-click.

@@ -41,7 +41,7 @@ impl Bar {
         self.menus.len()
     }
 
-    /// The titles showing, by slot (a menu's index, or `n` for "more"), tracked when `track`.
+    /// The titles showing while `shown` of them fit, by slot (a menu's index, or `n` for "more").
     fn slots_of(&self, shown: usize) -> Vec<usize> {
         let mut s: Vec<usize> = (0..shown.min(self.n())).collect();
         if shown < self.n() {

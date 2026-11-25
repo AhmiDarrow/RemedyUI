@@ -479,10 +479,11 @@ impl StylePatch {
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
     pub fn defaults(theme: &crate::style::Theme) -> StylePatch {
+        let derived = theme.derive();
         StylePatch {
             background: Some(Color::TRANSPARENT),
             background_layers: Some(Vec::new()),
-            foreground: Some(theme.derive().text),
+            foreground: Some(derived.text),
             border: Some(Color::TRANSPARENT),
             border_width: Some(0.0),
             border_style: Some(BorderStyle::Solid),
@@ -500,7 +501,7 @@ impl StylePatch {
             line_height: Some(LineHeight::Relative(1.33)),
             max_lines: Some(0),
             text_align: Some(TextAlign::Start),
-            outline: Some(theme.derive().focus),
+            outline: Some(derived.focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
             shadow: Some(Shadow::NONE),

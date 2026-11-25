@@ -188,6 +188,10 @@ impl VirtualList {
     /// Scrolls to `y`, clamped. Reaching the end of a sticky list sticks it again; leaving
     /// the end lets go.
     pub fn scroll_to(&mut self, y: f32) {
+        // Not a position (0 / 0 from a thumb dragged on an empty track): the view stays.
+        if y.is_nan() {
+            return;
+        }
         self.scroll = y.clamp(0.0, self.max_scroll());
         self.stuck = self.stick_to_end && self.scroll >= self.max_scroll() - 0.5;
     }
@@ -245,8 +249,13 @@ impl VirtualList {
         }
     }
 
-    /// Records row `i`'s measured height. The view stays anchored.
+    /// Records row `i`'s measured height. The view stays anchored. A height that is not a
+    /// finite number is no measurement: the row keeps what it had.
     pub fn set_height(&mut self, i: usize, height: f32) {
+        // An infinite height would turn every later sum into NaN.
+        if !height.is_finite() {
+            return;
+        }
         let Some(slot) = self.heights.get(i).copied() else { return };
         let anchor = self.anchor();
         let height = height.max(0.0);

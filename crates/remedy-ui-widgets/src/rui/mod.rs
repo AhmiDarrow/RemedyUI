@@ -6,9 +6,9 @@
 //! - [`spec`]: what each element takes, shared by everything below.
 //! - [`build`] (in build scripts): compiles `.rui` files to Rust, so release builds pay
 //!   nothing for markup.
-//! - [`Scope`], [`Widgets`], [`build_markup`] (feature `runtime`): build a file at run time
-//!   from what the app exposes to it.
-//! - [`Layouts`] (feature `runtime`): people's own versions of an app's screens, falling
+//! - [`Scope`], [`Widgets`], [`build_markup`] (feature `rui-runtime`): build a file at run
+//!   time from what the app exposes to it.
+//! - [`Layouts`] (feature `rui-runtime`): people's own versions of an app's screens, falling
 //!   back to the built-in screen with a notice when theirs does not load.
 //!
 //! A file can only bind the signals (`$name`) and commands (`!name`) the app exposes for

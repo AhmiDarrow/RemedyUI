@@ -628,6 +628,11 @@ impl Ui {
                 let Some((id, vertical, grab)) = self.0.borrow().bar_scroll else {
                     return false;
                 };
+                // The release never came (it happened outside the window): the grab is over.
+                if !e.buttons.contains(Buttons::PRIMARY) {
+                    self.0.borrow_mut().bar_scroll = None;
+                    return false;
+                }
                 let Some(next) = self.bar_offset_for(id, vertical, grab, e.position) else {
                     return true;
                 };
@@ -759,6 +764,11 @@ impl Ui {
                 let Some((id, last)) = self.0.borrow().middle_scroll else {
                     return false;
                 };
+                // The release never came (it happened outside the window): the pan is over.
+                if !e.buttons.contains(Buttons::MIDDLE) {
+                    self.0.borrow_mut().middle_scroll = None;
+                    return false;
+                }
                 let dx = last.x - e.position.x;
                 let dy = last.y - e.position.y;
                 self.0.borrow_mut().middle_scroll = Some((id, e.position));
@@ -921,10 +931,10 @@ impl Ui {
     }
 }
 
-/// Updates focus states and the input-method session after focus moved.
 /// An element's focus-change callback.
 type FocusCallback = Rc<dyn Fn(bool)>;
 
+/// Updates focus states and the input-method session after focus moved.
 pub(crate) fn focus_changed(ui: &Ui) {
     let tree = ui.tree();
     let now = tree.focused();

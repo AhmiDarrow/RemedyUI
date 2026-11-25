@@ -10,7 +10,7 @@
 //! - [`set_router`]: decoding somewhere else (a sandboxed helper process)
 //! - [`set_fetcher`] and [`set_cache_dir`]: how images from addresses are fetched and kept
 //! - [`set_memory_limit`], [`set_disk_limit`] and [`set_known_sizes_limit`]: how much is kept
-//! - [`svg`] (the `svg` feature): SVG at exactly the size shown, through this loader, and
+//! - [`svg`] (the `media-image-svg` feature): SVG at exactly the size shown, through this loader, and
 //!   tinted icons
 //!
 //! In a browser page images are drawn on the page's canvas, so an image from another site

@@ -1,5 +1,5 @@
-//! QR Code generation (ISO/IEC 18004, Model 2): numeric, alphanumeric and byte modes, versions
-//! 1 to 40, error correction levels L, M, Q and H, and the mask chosen by penalty score.
+//! QR Code generation (ISO/IEC 18004, Model 2): numeric, alphanumeric, byte and Kanji modes,
+//! versions 1 to 40, error correction levels L, M, Q and H, and the mask chosen by penalty score.
 
 use std::fmt;
 
@@ -675,6 +675,10 @@ fn data_codeword_bytes(segments: &[Segment], version: u8, capacity: usize) -> Ve
     bytes
 }
 
+/// The most characters any code holds (digits, at version 40 and level L): data with more
+/// cannot fit, whatever its modes, and is turned down before any work is done on it.
+const MAX_CHARS: usize = 7089;
+
 fn band_of(version: u8) -> usize {
     match version {
         1..=9 => 0,
@@ -695,6 +699,9 @@ impl QrCode {
 
     /// Like [`QrCode::encode_text`] with every choice in `options`.
     pub fn encode_text_with(text: &str, options: EncodeOptions) -> Result<QrCode, QrError> {
+        if text.chars().nth(MAX_CHARS).is_some() {
+            return Err(QrError::TooLong);
+        }
         let (items, eci) = items_of_text(text);
         QrCode::from_items(&items, eci, options)
     }
@@ -702,6 +709,9 @@ impl QrCode {
     /// A code for `data` with every choice in `options`. The bytes are written as they are;
     /// runs of digits and capitals still use the smaller modes, and there is no ECI header.
     pub fn encode(data: &[u8], options: EncodeOptions) -> Result<QrCode, QrError> {
+        if data.len() > MAX_CHARS {
+            return Err(QrError::TooLong);
+        }
         QrCode::from_items(&items_of_bytes(data), None, options)
     }
 

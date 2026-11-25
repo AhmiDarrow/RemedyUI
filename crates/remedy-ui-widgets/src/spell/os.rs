@@ -1,4 +1,4 @@
-//! The platform's own spell checker: the only unsafe code in this crate.
+//! The platform's own spell checker: the only unsafe code in the spell checker.
 //!
 //! - Windows 8 and later: `ISpellChecker`, through COM.
 //! - macOS: `NSSpellChecker`.

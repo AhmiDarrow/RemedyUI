@@ -1162,6 +1162,8 @@ impl State {
     fn reset(&mut self) {
         let (cols, rows) = (self.cols, self.rows);
         let history = std::mem::take(&mut self.history);
+        // The scrollback's cells still carry link ids: the table they name stays.
+        let links = std::mem::take(&mut self.links);
         let (bytes, dropped, scrollback, limit, colors, cell_px) = (
             self.history_bytes,
             self.dropped,
@@ -1173,6 +1175,7 @@ impl State {
         let out = std::mem::take(&mut self.out);
         *self = State::new(cols, rows);
         self.history = history;
+        self.links = links;
         self.history_bytes = bytes;
         self.dropped = dropped;
         self.scrollback = scrollback;
@@ -2334,14 +2337,16 @@ impl vte::Perform for State {
             ([], 'n') => match raw(0) {
                 5 => self.reply(b"\x1b[0n"),
                 6 => {
-                    let row = if self.modes.origin { self.cur.row - self.top } else { self.cur.row };
+                    let row =
+                        if self.modes.origin { self.cur.row.saturating_sub(self.top) } else { self.cur.row };
                     let s = format!("\x1b[{};{}R", row + 1, self.cur.col + 1);
                     self.reply(s.as_bytes());
                 }
                 _ => {}
             },
             ([b'?'], 'n') if raw(0) == 6 => {
-                let row = if self.modes.origin { self.cur.row - self.top } else { self.cur.row };
+                let row =
+                    if self.modes.origin { self.cur.row.saturating_sub(self.top) } else { self.cur.row };
                 let s = format!("\x1b[?{};{}R", row + 1, self.cur.col + 1);
                 self.reply(s.as_bytes());
             }
@@ -2546,15 +2551,14 @@ impl Emulator {
         let mut rest = bytes;
         while !rest.is_empty() {
             if self.discarding {
-                // Skip to the end of the string that was too long: BEL, or ESC (ESC \ is ST).
+                // Skip to the end of the string that was too long: BEL, CAN, SUB or ESC.
                 match rest.iter().position(|b| *b == 0x07 || *b == 0x1b || *b == 0x18 || *b == 0x1a) {
                     Some(at) => {
                         self.discarding = false;
-                        let b = rest.get(at).copied().unwrap_or(0);
-                        rest = rest.get(at + 1..).unwrap_or_default();
-                        if b == 0x1b && rest.first() == Some(&b'\\') {
-                            rest = rest.get(1..).unwrap_or_default();
-                        }
+                        // The ESC goes to the parser: ESC \ (ST) does nothing there, and any
+                        // other sequence it starts is neither lost nor printed as text.
+                        let skip = usize::from(rest.get(at) != Some(&0x1b));
+                        rest = rest.get(at + skip..).unwrap_or_default();
                     }
                     None => return,
                 }

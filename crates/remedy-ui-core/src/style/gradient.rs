@@ -516,8 +516,18 @@ fn parse_stops(arg: &str) -> Result<Vec<GradientStop>, ParseGradientError> {
     }
 }
 
+/// How deep `color-mix()` may nest inside `color-mix()`. Each level reads its arguments again,
+/// so text from a stranger nested without end would cost time and stack without end; themes
+/// nest once or twice.
+const MIX_DEPTH: u32 = 16;
+
 /// A CSS color: the color and an alpha to scale it by.
 fn parse_color(s: &str) -> Result<(ColorRef, f32), ParseGradientError> {
+    parse_color_within(s, MIX_DEPTH)
+}
+
+/// [`parse_color`] with `depth` more levels of `color-mix()` allowed inside.
+fn parse_color_within(s: &str, depth: u32) -> Result<(ColorRef, f32), ParseGradientError> {
     let bad = || err(&format!("bad color `{s}`"));
     match s {
         "transparent" => return Ok((ColorRef::Value(Color::TRANSPARENT), 1.0)),
@@ -566,11 +576,14 @@ fn parse_color(s: &str) -> Result<(ColorRef, f32), ParseGradientError> {
         }
         "color-mix" => {
             // shortcut: only mixes with `transparent` (a color at an alpha), the form themes use; mixing two colors needs a ColorRef of two roles.
+            let Some(depth) = depth.checked_sub(1) else {
+                return Err(err("color-mix is nested too deeply"));
+            };
             let parts = split_top(inner, ',');
             let ["in srgb", a, b] = parts.as_slice() else { return Err(bad()) };
             let side = |p: &str| -> Result<(ColorRef, f32, Option<f32>), ParseGradientError> {
                 let w = split_top(p, ' ');
-                let (c, a) = parse_color(w.first().ok_or_else(bad)?)?;
+                let (c, a) = parse_color_within(w.first().ok_or_else(bad)?, depth)?;
                 let pct = match w.get(1) {
                     Some(v) => Some(number(v, "%").ok_or_else(bad)? / 100.0),
                     None => None,
@@ -800,6 +813,17 @@ mod tests {
         assert_eq!(c, ColorRef::Role(ColorRole::Bg));
         assert!((a - 0.3).abs() < 1e-6);
         assert!(parse_color("color-mix(in srgb, #fff 50%, #000)").is_err());
+        // Nesting goes a few levels, not without end.
+        let nested = |levels: usize| {
+            let mut css = "var(--bg)".to_owned();
+            for _ in 0..levels {
+                css = format!("color-mix(in srgb, {css} 50%, transparent)");
+            }
+            parse_color(&css)
+        };
+        let twice = nested(2).unwrap_or_else(|e| unreachable!("{e:?}"));
+        assert!(twice.0 == ColorRef::Role(ColorRole::Bg) && (twice.1 - 0.25).abs() < 1e-6);
+        assert!(nested(10_000).is_err());
         // The same custom name is the same &'static str.
         assert!(std::ptr::eq(intern("glow"), intern("glow")));
     }

@@ -292,7 +292,9 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
             return true;
         }
         // Type-ahead: the next option starting with the typed letter.
-        if let Some(t) = e.text.as_ref().and_then(|t| t.chars().next()).filter(|c| c.is_alphanumeric()) {
+        if e.pressed
+            && let Some(t) = e.text.as_ref().and_then(|t| t.chars().next()).filter(|c| c.is_alphanumeric())
+        {
             let lower = t.to_lowercase().to_string();
             // From the option after the chosen one; from the first when none is chosen.
             let start = selected.get_untracked().ok().filter(|c| *c < n).map_or(0, |c| c + 1);

@@ -238,7 +238,9 @@ pub(crate) fn number_text(v: f64, step: f64) -> String {
     if step >= 1.0 && step.fract() == 0.0 || step <= 0.0 && v.fract() == 0.0 {
         return format!("{v:.0}");
     }
-    let digits = if step > 0.0 { (-step.log10()).ceil().clamp(0.0, 6.0) as usize } else { 2 };
+    // The fraction digits `step` is written with (0.25 has two, 2.5 one).
+    let digits =
+        if step > 0.0 { format!("{step}").split_once('.').map_or(0, |(_, f)| f.len()).min(6) } else { 2 };
     format!("{v:.digits$}")
 }
 
@@ -306,4 +308,18 @@ pub(crate) fn ellipse(c: remedy_ui_core::Point, rx: f32, ry: f32) -> remedy_ui_e
     p.cubic_to(Point::new(c.x + kx, c.y - ry), Point::new(c.x + rx, c.y - ky), Point::new(c.x + rx, c.y));
     p.close();
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number_text;
+
+    #[test]
+    fn numbers_show_the_digits_their_step_has() {
+        assert_eq!(number_text(3.0, 1.0), "3");
+        assert_eq!(number_text(0.5, 0.1), "0.5");
+        assert_eq!(number_text(0.75, 0.25), "0.75");
+        assert_eq!(number_text(7.5, 2.5), "7.5");
+        assert_eq!(number_text(0.5, 0.0), "0.50");
+    }
 }

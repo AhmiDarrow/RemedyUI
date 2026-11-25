@@ -1,15 +1,15 @@
 //! RemedyUI scripted widgets, independent of any language: small programs people write and
 //! share (a FreeSpeak Home's custom widgets), run as untrusted code.
 //!
-//! This crate is what every script engine and every host agrees on:
+//! This module is what every script engine and every host agrees on:
 //!
 //! - [`ScriptWidget`]: one loaded widget. It says its name and its [settings](SettingSpec),
 //!   describes itself for the current settings and host data ([`ScriptWidget::render`]),
 //!   and runs the handlers its buttons name ([`ScriptWidget::act`]), keeping its own state
 //!   between calls.
-//! - [`ScriptEngine`]: a language that loads widgets from a [`Package`]. Engines are crates
-//!   of their own (`remedy-ui-engine::script_lua` for widgets people write by hand in RemedyLua,
-//!   `remedy-ui-engine::script_wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
+//! - [`ScriptEngine`]: a language that loads widgets from a [`Package`]. Engines are modules
+//!   of their own (`remedy_ui_engine::script_lua` for widgets people write by hand in RemedyLua,
+//!   `remedy_ui_engine::script_wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
 //!   app or a board enables; a package names its [`Language`].
 //! - The element-description protocol ([`Node`], read from JSON by [`describe`], or by
 //!   [`describe_with`] for apps that offer elements of their own): what a
@@ -62,11 +62,11 @@ pub use serde_json;
 pub struct Language(Cow<'static, str>);
 
 impl Language {
-    /// RemedyLua: widgets people write by hand (`remedy-ui-engine::script_lua`). The id is `lua`;
+    /// RemedyLua: widgets people write by hand (`remedy_ui_engine::script_lua`). The id is `lua`;
     /// `.rlua` is the same language with the typed dialect selected by the source.
     pub const LUA: Language = Language(Cow::Borrowed("lua"));
     /// WebAssembly: widgets compiled from Rust or any language that targets it
-    /// (`remedy-ui-engine::script_wasm`).
+    /// (`remedy_ui_engine::script_wasm`).
     pub const WASM: Language = Language(Cow::Borrowed("wasm"));
 
     /// The language named `id`.
@@ -249,8 +249,6 @@ impl Limits {
         self
     }
 
-    /// The operations one call may take: `operations`, or `time` at `per_ms` operations a
-    /// millisecond (an engine's measured rate).
     /// The steps one call may take on this device: `operations` when set; else the time
     /// limit at `rate` once the rate is measured; else no step limit (only the time limit).
     pub fn step_budget(&self, rate: &StepRate) -> u64 {
@@ -650,7 +648,7 @@ impl Described {
     }
 }
 
-/// Reads a description from the protocol's JSON (see the crate docs), nesting at most
+/// Reads a description from the protocol's JSON (see the module docs), nesting at most
 /// `limits.nesting` deep.
 pub fn describe(v: &Value, limits: &Limits) -> Result<Described, ScriptError> {
     describe_with(v, limits, &|_| false)

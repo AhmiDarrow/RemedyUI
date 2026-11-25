@@ -356,6 +356,10 @@ pub(crate) fn drag_corner(rect: Rect, corner: usize, to: Point) -> Rect {
     )
 }
 
+/// The most segments one line of a squiggly underline is drawn with (a line of text has a few
+/// hundred; more than this cannot be told apart on any page).
+const MOST_WAVES: f32 = 16_384.0;
+
 /// A note's icon edge, points.
 pub(crate) const NOTE: f32 = 20.0;
 /// An arrowhead's length, points (per point of line width, at least this).
@@ -475,13 +479,13 @@ pub(crate) fn paint(
                 let y = q.max.y - amp;
                 let mut path = Path::new();
                 path.move_to(Point::new(q.min.x, y));
-                let mut x = q.min.x;
-                let mut up = true;
-                while x < q.max.x {
-                    let nx = (x + step).min(q.max.x);
-                    path.line_to(Point::new(nx, if up { y - amp } else { y + amp }));
-                    up = !up;
-                    x = nx;
+                // Counted, not stepped: a quad from a file may be so wide (or so far out) that
+                // adding a step no longer moves `x`, and may not be finite at all.
+                let waves = ((q.max.x - q.min.x) / step).ceil().clamp(0.0, MOST_WAVES);
+                let waves = if waves.is_finite() { waves as usize } else { 0 };
+                for i in 1..=waves {
+                    let nx = (q.min.x + step * i as f32).min(q.max.x);
+                    path.line_to(Point::new(nx, if i % 2 == 1 { y - amp } else { y + amp }));
                 }
                 list.push(Item::StrokePath {
                     path,

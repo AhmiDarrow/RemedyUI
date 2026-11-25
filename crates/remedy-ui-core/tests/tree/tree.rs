@@ -331,6 +331,25 @@ fn payloads_hold_widget_data() -> R {
 }
 
 #[test]
+fn payloads_are_dropped_with_the_tree_free_to_use() -> R {
+    // A payload that looks at the tree as it goes (a widget letting go of what it made).
+    struct Counts(Tree, Rc<RefCell<Vec<usize>>>);
+    impl Drop for Counts {
+        fn drop(&mut self) {
+            self.1.borrow_mut().push(self.0.len());
+        }
+    }
+    let t = Tree::new();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let e = el(&t, t.root(), "widget")?;
+    t.set_payload(e, Counts(t.clone(), seen.clone()))?;
+    t.set_payload(e, Counts(t.clone(), seen.clone()))?;
+    t.remove(e)?;
+    assert_eq!(*seen.borrow(), [2, 1], "the replaced payload, then the removed element's");
+    Ok(())
+}
+
+#[test]
 fn removing_the_focused_element_hands_focus_to_the_nearest_focusable_ancestor() -> R {
     let t = Tree::new();
     let panel = el(&t, t.root(), "panel")?;

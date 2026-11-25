@@ -5,8 +5,8 @@
 //! Each test is run in order (they share the one enabled engine); a failure is reported and
 //! the run carries on. Arguments that are not flags filter tests by name.
 //!
-//! On Android the same tests run inside an app (`examples/android-isolated-check/`,
-//! `tools/android-check.sh`), whose helpers are isolated service processes.
+//! On Android the same tests run inside an app (`examples/media_isolated/android-isolated-check/`,
+//! `media-isolated/tools/android-check.sh`), whose helpers are isolated service processes.
 
 use std::hint::black_box;
 use std::io::{Read, Write};

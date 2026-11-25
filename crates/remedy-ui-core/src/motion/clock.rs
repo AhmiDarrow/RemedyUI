@@ -30,7 +30,7 @@ impl FrameClock {
 
     /// When the frame being built will be shown: one interval after the last blank.
     pub fn presentation_time(&self) -> Duration {
-        self.last_vblank + self.interval
+        self.last_vblank.saturating_add(self.interval)
     }
 
     /// The display's frame interval.

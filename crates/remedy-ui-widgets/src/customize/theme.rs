@@ -517,6 +517,8 @@ pub struct Refusal {
     pub kind: RefusalKind,
     /// What it held (the URL, or the shader's type).
     pub detail: String,
+    /// Where, key by key: `token` cannot be split back when a key has a dot in it.
+    pub(crate) path: Vec<String>,
 }
 
 impl Refusal {
@@ -558,7 +560,8 @@ const SHADER_TYPES: &[&str] = &["shader", "wgsl", "glsl", "hlsl", "msl", "spirv"
 /// protocol-relative `//host`, or either inside CSS's `url(…)`.
 fn is_external_url(s: &str) -> bool {
     let mut t = s.trim();
-    if let Some(inner) = t.strip_prefix("url(").or_else(|| t.strip_prefix("URL(")) {
+    // CSS reads `url(` in any case.
+    if let Some(inner) = t.get(..4).filter(|p| p.eq_ignore_ascii_case("url(")).and_then(|_| t.get(4..)) {
         t = inner.trim_end_matches(')').trim().trim_matches(|c| c == '"' || c == '\'');
     }
     if t.starts_with("//") {
@@ -573,19 +576,24 @@ fn is_external_url(s: &str) -> bool {
 }
 
 fn scan(v: &Value, path: &mut Vec<String>, out: &mut Vec<Refusal>) {
-    let here = |path: &[String]| if path.is_empty() { "(top)".to_owned() } else { path.join(".") };
+    let refusal = |path: &[String], kind: RefusalKind, detail: &str| Refusal {
+        token: if path.is_empty() { "(top)".to_owned() } else { path.join(".") },
+        kind,
+        detail: detail.to_owned(),
+        path: path.to_vec(),
+    };
     match v {
         Value::Object(m) => {
             if let Some(t) = m.get("$type").and_then(Value::as_str)
                 && SHADER_TYPES.contains(&t.to_ascii_lowercase().as_str())
             {
-                out.push(Refusal { token: here(path), kind: RefusalKind::Shader, detail: t.to_owned() });
+                out.push(refusal(path, RefusalKind::Shader, t));
                 return;
             }
             for (k, child) in m {
                 path.push(k.clone());
                 if matches!(k.to_ascii_lowercase().as_str(), "shader" | "shaders") {
-                    out.push(Refusal { token: here(path), kind: RefusalKind::Shader, detail: k.clone() });
+                    out.push(refusal(path, RefusalKind::Shader, k));
                 } else {
                     scan(child, path, out);
                 }
@@ -601,10 +609,10 @@ fn scan(v: &Value, path: &mut Vec<String>, out: &mut Vec<Refusal>) {
         }
         Value::String(s) => {
             if path.first().is_some_and(|p| p == "asset") && path.last().is_none_or(|l| l != "$type") {
-                out.push(Refusal { token: here(path), kind: RefusalKind::Asset, detail: s.clone() });
+                out.push(refusal(path, RefusalKind::Asset, s));
             }
             if is_external_url(s) {
-                out.push(Refusal { token: here(path), kind: RefusalKind::ExternalUrl, detail: s.clone() });
+                out.push(refusal(path, RefusalKind::ExternalUrl, s));
             }
         }
         _ => {}
@@ -917,11 +925,13 @@ impl Customizations {
             if !policy.drop_refused {
                 return Err(CustomizeError::Refused(refused));
             }
-            // Deepest first, so array positions stay right while removing.
+            // Deepest first and, at one depth, last found first (the sort keeps that order), so
+            // array positions stay right while removing.
             let mut paths: Vec<Vec<&str>> = refused
                 .iter()
+                .rev()
                 .map(|r| {
-                    let mut p: Vec<&str> = r.token.split('.').collect();
+                    let mut p: Vec<&str> = r.path.iter().map(String::as_str).collect();
                     // A refused value takes its whole token with it.
                     if p.last() == Some(&"$value") {
                         p.pop();
@@ -932,7 +942,12 @@ impl Customizations {
             paths.dedup();
             paths.sort_by_key(|p| std::cmp::Reverse(p.len()));
             for p in paths {
-                drop_at(&mut doc, &p);
+                if p.is_empty() {
+                    // The document itself is what is refused: none of it is left.
+                    doc = Value::Object(Map::new());
+                } else {
+                    drop_at(&mut doc, &p);
+                }
             }
         }
         let Value::Object(map) = doc else {
@@ -1088,6 +1103,7 @@ mod tests {
         for yes in [
             "https://x.example/bg.png",
             "url('http://x/y.png')",
+            "Url( \"https://x/y.png\" )",
             "//cdn.example/a",
             "file:///etc/passwd",
             "ftp://x",

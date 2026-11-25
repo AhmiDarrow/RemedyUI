@@ -1609,7 +1609,9 @@ fn fonts_added_later_and_new_families_reshape_every_text() {
     // A theme naming other families shapes everything again too.
     let mut t = Theme::dark_forest();
     t.font_families = vec![face.family.to_owned()];
+    let _ = ui.take_requests();
     ui.set_theme(t.clone(), StyleSheet::new());
+    assert!(ui.take_requests().contains(&Request::Frame), "a new theme asks for the frame that shows it");
     let _ = ui.frame(size, 1.0);
     let named = width(&label);
     t.font_families = vec!["A family nobody has".to_owned()];
@@ -1997,4 +1999,15 @@ fn scrollbar_thumbs_can_be_dragged() {
     let off = ui.scroll_offset(list.id());
     assert!(off.y > 80.0, "dragging the thumb down should scroll the pane, got {off:?}");
     assert!(off.y < 300.0, "should not jump past the end, got {off:?}");
+
+    // A grab whose release was lost (the button came up outside the window) ends at the
+    // first move without the button: the thumb does not follow a bare pointer.
+    ui.pointer(&pointer(PointerPhase::Down, 194.0, 60.0, true));
+    apply(&ui);
+    let held = ui.scroll_offset(list.id());
+    ui.pointer(&pointer(PointerPhase::Move, 194.0, 20.0, false));
+    apply(&ui);
+    ui.pointer(&pointer(PointerPhase::Move, 194.0, 5.0, false));
+    apply(&ui);
+    assert_eq!(ui.scroll_offset(list.id()), held);
 }

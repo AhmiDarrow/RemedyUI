@@ -69,6 +69,12 @@ fn enter_keeps_and_deepens_indentation_and_tab_indents_lines() {
     assert_eq!(e.text(), "a\nb\nc");
     assert!(e.undo());
     assert_eq!(e.text(), "    a\n    b\n    c");
+    // With no indentation unit, Backspace in leading spaces takes one space.
+    let mut e = CodeEditor::new("  x");
+    e.set_indent(remedy_ui_text::Indent { unit: String::new() });
+    e.set_selection(2, 2);
+    e.backspace(0);
+    assert_eq!(e.text(), " x");
 }
 
 #[test]

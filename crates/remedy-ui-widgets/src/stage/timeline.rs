@@ -293,7 +293,8 @@ pub fn timeline<T: Clone + 'static>(
         time: Box::new(time),
         key: Box::new(key),
         build: Box::new(build),
-        scale: options.scale.unwrap_or(f64::from(u * 4.0)),
+        // As `TimelineOptions::scale` keeps it: no scale would put every item in view.
+        scale: options.scale.filter(|s| s.is_finite() && *s > 0.0).unwrap_or(f64::from(u * 4.0)),
         lead: options.lead.unwrap_or(u * 16.0),
         newest_at: options.newest_at,
         along: options.along,

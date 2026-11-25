@@ -129,6 +129,22 @@ fn scroll_offsets_clamp_and_survive_commits() {
 }
 
 #[test]
+fn scrolls_that_are_not_numbers_move_nothing() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::BOUNCING);
+    c.commit(page(1000.0));
+    c.set_scroll_offset(LayerId(1), Vec2::new(0.0, 100.0));
+    assert!(!c.set_scroll_offset(LayerId(1), Vec2::new(0.0, f32::NAN)));
+    assert!(!c.scroll_to_snapped(LayerId(1), Vec2::new(f32::NAN, 0.0)));
+    assert!(!c.scroll_by(LayerId(1), Vec2::new(0.0, f32::INFINITY)));
+    assert!(!c.fling(LayerId(1), Vec2::new(0.0, f32::NAN)));
+    assert_eq!(c.scroll_at(Point::new(10.0, 10.0), Vec2::new(0.0, f32::NAN)), None);
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 100.0)));
+    // To the end, as far as it goes, is still a number.
+    assert!(c.set_scroll_offset(LayerId(1), Vec2::new(0.0, f32::INFINITY)));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 700.0)));
+}
+
+#[test]
 fn flings_animate_then_settle() {
     let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
     c.commit(page(100_000.0));

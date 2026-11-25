@@ -167,7 +167,8 @@ impl GridGeometry {
     /// How many tiles of `tile` fit across `width` (at least one).
     pub fn columns_for(width: f32, tile: Size, gap: f32, pad: f32) -> usize {
         let room = width - pad * 2.0 + gap;
-        ((room / (tile.width + gap)).floor() as usize).max(1)
+        // A tile and gap of no width would fit without end.
+        ((room / (tile.width + gap).max(1.0)).floor() as usize).max(1)
     }
 
     /// Fluid tiles across `width` ([`Tiles::fluid`]): as many columns as fit at `min_width`,
@@ -185,7 +186,8 @@ impl GridGeometry {
 
     /// Item `i`'s box, in content coordinates.
     pub fn rect_of(&self, i: usize) -> Rect {
-        let (r, c) = (i / self.cols, i % self.cols);
+        let cols = self.cols.max(1);
+        let (r, c) = (i / cols, i % cols);
         let x = self.pad + c as f32 * (self.tile.width + self.gap);
         let y = self.pad + r as f32 * self.row_height();
         Rect::from_origin_size(Point::new(x, y), self.tile)
@@ -202,7 +204,7 @@ impl GridGeometry {
         let mut out = Vec::new();
         for r in first..=last {
             for c in 0..self.cols {
-                let i = r * self.cols + c;
+                let i = r.saturating_mul(self.cols).saturating_add(c);
                 if i >= n {
                     return out;
                 }
@@ -624,9 +626,15 @@ pub fn grid_view_with<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         let cur = sel3.cursor.get_untracked().ok().flatten().and_then(|c| order.iter().position(|k| *k == c));
         let last = order.len() - 1;
         let page = (((vp3.get().1 / g.row_height()) as usize).max(1)) * g.cols;
+        // Tiles run from the right, right to left: Left is the next tile there.
+        let (next_key, previous_key) = if body3.is_rtl() {
+            (Key::ArrowLeft, Key::ArrowRight)
+        } else {
+            (Key::ArrowRight, Key::ArrowLeft)
+        };
         let target = match e.key {
-            Key::ArrowRight => Some(cur.map_or(0, |c| (c + 1).min(last))),
-            Key::ArrowLeft => Some(cur.map_or(0, |c| c.saturating_sub(1))),
+            ref k if *k == next_key => Some(cur.map_or(0, |c| (c + 1).min(last))),
+            ref k if *k == previous_key => Some(cur.map_or(0, |c| c.saturating_sub(1))),
             Key::ArrowDown => Some(cur.map_or(0, |c| if c + g.cols <= last { c + g.cols } else { c })),
             Key::ArrowUp => Some(cur.map_or(0, |c| c.checked_sub(g.cols).unwrap_or(c))),
             Key::PageDown => Some(cur.map_or(0, |c| (c + page).min(last))),
@@ -748,5 +756,15 @@ mod tests {
         );
         // Past the last item stops at it.
         assert_eq!(geo.hits(Rect::new(0.0, 0.0, 400.0, 1000.0), 4), vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn odd_geometry_neither_panics_nor_runs_away() {
+        // Tiles of no width with no gap: a column a pixel, not columns without end.
+        assert_eq!(GridGeometry::columns_for(300.0, Size::new(0.0, 0.0), 0.0, 0.0), 300);
+        // No columns counts as one.
+        assert_eq!(GridGeometry { cols: 0, ..g(1) }.rect_of(3).min.x, 5.0);
+        // A band far past any row meets nothing.
+        assert!(g(3).hits(Rect::new(0.0, 1e30, 10.0, 2e30), 9).is_empty());
     }
 }

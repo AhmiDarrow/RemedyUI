@@ -102,7 +102,8 @@ impl Host {
                         ))));
                     }
                     self.sessions.fetch_add(1, Ordering::Relaxed);
-                    let loops = o.loops.map_or(Loops::Forever, Loops::Times);
+                    // An animation plays at least once, whatever the helper says.
+                    let loops = o.loops.map_or(Loops::Forever, |n| Loops::Times(n.max(1)));
                     Ok(Some((o.session, Animation { size, show_at: show, frames: o.frames, loops })))
                 }
                 Ok(Reply::Still) => Ok(None),
@@ -285,6 +286,7 @@ impl Remote {
                     || Fail::Image(DecodeError::Malformed("the file is no longer an animation".into())),
                 )?;
             if a != self.animation {
+                host.close(session);
                 return Err(Fail::Image(DecodeError::Malformed("the animation opened differently".into())));
             }
             self.at = At::Helper(host.clone(), session);

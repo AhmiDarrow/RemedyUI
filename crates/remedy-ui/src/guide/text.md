@@ -471,8 +471,8 @@ Arabic, French, Brazilian Portuguese, Russian, Japanese, German and Bengali. A l
 engine does not ship takes the closest one it does (`es-MX` reads Spanish, `pt-PT` Brazilian
 Portuguese), then English.
 
-Each crate keeps its words in Fluent files (`i18n/<locale>.ftl`), compiled in as its
-`STRINGS` catalog. Reword a built-in message, or add a language, with
+Each part of the engine keeps its words in Fluent files (`i18n/<catalog>/<locale>.ftl` in its
+crate), compiled in as its `STRINGS` catalog (`widgets-core`, `widgets-forms`, `view`). Reword a built-in message, or add a language, with
 `remedy_ui::view::strings::add_messages(catalog, locale, ftl)`. Structs of words such as
 `board::BoardLabels` keep English as their `Default`, give a locale's words with
 `localized`, and take your own wording through `translated`. The translations were written

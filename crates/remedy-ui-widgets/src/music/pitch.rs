@@ -146,8 +146,8 @@ impl Pitch {
         let mut alter = 0i8;
         for c in marks.chars() {
             match c {
-                '#' | '\u{266f}' => alter += 1,
-                'b' | '\u{266d}' => alter -= 1,
+                '#' | '\u{266f}' => alter = alter.checked_add(1)?,
+                'b' | '\u{266d}' => alter = alter.checked_sub(1)?,
                 _ => return None,
             }
         }

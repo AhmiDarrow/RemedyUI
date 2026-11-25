@@ -243,3 +243,33 @@ fn mutated_sources_never_panic_or_hang() {
     println!("{compiled} of {rounds} mutants compiled; {:?}", started.elapsed());
     assert!(compiled > 0, "some mutants still compile");
 }
+
+/// Work that makes no new values (a function inlined again at every call of every caller) is
+/// stopped by the compile's step budget instead of running for hours.
+#[test]
+fn repeated_inlining_is_bounded() {
+    let mut src = String::from("effect bomb { fn f0(x: float) -> float { return x; }");
+    for i in 1..8 {
+        let calls = vec![format!("f{}(x)", i - 1); 24].join(" + ");
+        src.push_str(&format!(" fn f{i}(x: float) -> float {{ return {calls}; }}"));
+    }
+    src.push_str(" pass p { out = vec4(f7(uv.x)); } }");
+    let mut limits = Limits::untrusted();
+    limits.max_values = 2000;
+    let r = timed("an inlining bomb", Duration::from_secs(5), || Effect::compile_with(&src, &limits));
+    let Err(e) = r else { unreachable!("24^7 inlined calls compiled") };
+    assert!(e.to_string().contains("steps to compile"), "{e}");
+}
+
+/// A long chain of operators is as deep a tree as it is long: it compiles without recursing
+/// that deep, and one long enough to exhaust a stack when dropped is refused.
+#[test]
+fn long_operator_chains_are_walked_or_refused() {
+    let sum = |n: usize| {
+        let terms = vec!["0.001"; n].join(" + ");
+        format!("effect long {{ scale 1.0; pass p {{ out = vec4(vec3({terms}), 1.0); }} }}")
+    };
+    assert!(Effect::compile_with(&sum(1000), &Limits::untrusted()).is_ok());
+    let Err(e) = Effect::compile(&sum(9000)) else { unreachable!("9000 terms compiled") };
+    assert!(e.to_string().contains("operators"), "{e}");
+}

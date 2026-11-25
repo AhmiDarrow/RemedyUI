@@ -19,6 +19,9 @@ use crate::raster::{GlyphImage, GlyphImageFormat, PathRecorder};
 
 const FOREGROUND_PALETTE: u16 = 0xFFFF;
 const PAD: i32 = 2;
+/// Pixel coordinates are kept within this of the origin: far past any image painted here
+/// (4096 pixels at most), and small enough that sums of them never overflow.
+const FAR: i32 = 1 << 20;
 
 /// True when `glyph` has a COLR, CBDT/CBLC, EBDT or sbix image that should be painted in
 /// color instead of as a hinted outline.
@@ -93,10 +96,13 @@ fn rasterize_colr(
     if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
         return None;
     }
-    let left = min_x.floor() as i32 - PAD;
-    let top_y = min_y.floor() as i32 - PAD;
-    let right = max_x.ceil() as i32 + PAD;
-    let bottom = max_y.ceil() as i32 + PAD;
+    // A font's transforms can put the bounds anywhere a float reaches: kept well inside
+    // what an i32 holds, so nothing below overflows (the image is cut to 4096 either way).
+    let px = |v: f32| v.clamp(-FAR as f32, FAR as f32) as i32;
+    let left = px(min_x.floor()) - PAD;
+    let top_y = px(min_y.floor()) - PAD;
+    let right = px(max_x.ceil()) + PAD;
+    let bottom = px(max_y.ceil()) + PAD;
     let width = (right - left).clamp(1, 4096) as u32;
     let height = (bottom - top_y).clamp(1, 4096) as u32;
     let pix = Pixmap::new(width, height);
@@ -165,9 +171,11 @@ fn decode_bitmap(glyph: &BitmapGlyph<'_>) -> Option<(u32, u32, Vec<u8>)> {
             let w = glyph.width;
             let h = glyph.height;
             let n = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
+            // The size the font claims is only believed once the data is that long.
+            let src = bytes.get(..n)?;
             // Already premultiplied BGRA; swizzle to RGBA.
             let mut out = Vec::with_capacity(n);
-            for &[b, g, r, a] in bytes.get(..n)?.as_chunks::<4>().0 {
+            for &[b, g, r, a] in src.as_chunks::<4>().0 {
                 out.extend_from_slice(&[r, g, b, a]);
             }
             Some((w, h, out))
@@ -436,10 +444,14 @@ impl LayerPainter<'_> {
         let path = outline_path(&self.font, glyph_id)?;
         let m = self.ctm();
         let (ox, oy) = self.origin;
-        path.rasterize_mapped(|x, y| {
+        let mut img = path.rasterize_mapped(|x, y| {
             let (dx, dy) = m.apply(x, y);
             (dx - ox, dy - oy)
-        })
+        })?;
+        // A layer a transform sent far away covers nothing here wherever it is.
+        img.left = img.left.clamp(-FAR, FAR);
+        img.top = img.top.clamp(-FAR, FAR);
+        Some(img)
     }
 
     fn blit_coverage(&mut self, img: &GlyphImage, color: [f32; 4]) {
@@ -475,11 +487,12 @@ impl ColorPainter for LayerPainter<'_> {
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
         let (x0, y0, x1, y1) = self.ctm().apply_box(clip_box);
         let (ox, oy) = self.origin;
+        let px = |v: f32| v.clamp(-FAR as f32, FAR as f32) as i32;
         self.clips.push(Clip::Rect {
-            x0: (x0 - ox).floor() as i32,
-            y0: (y0 - oy).floor() as i32,
-            x1: (x1 - ox).ceil() as i32,
-            y1: (y1 - oy).ceil() as i32,
+            x0: px((x0 - ox).floor()),
+            y0: px((y0 - oy).floor()),
+            x1: px((x1 - ox).ceil()),
+            y1: px((y1 - oy).ceil()),
         });
     }
     fn pop_clip(&mut self) {

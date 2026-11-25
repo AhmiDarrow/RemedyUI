@@ -72,3 +72,35 @@ fn a_broken_render_is_reported_and_the_last_good_picture_stays() {
     assert_eq!(view.status(), EmbedStatus::Gpu, "recovered");
     assert_eq!(view.stats().rendered, 2);
 }
+
+/// Never gets ready; counts how often it was asked to.
+struct Unready(Rc<Cell<u32>>);
+
+impl GpuContent for Unready {
+    fn prepare(&mut self, _gpu: &Gpu<'_>) -> Result<(), PrepareError> {
+        self.0.set(self.0.get() + 1);
+        Err(PrepareError::new("the shader is missing"))
+    }
+
+    fn render(&mut self, _gpu: &Gpu<'_>, _target: &Target<'_>, _encoder: &mut wgpu::CommandEncoder) {}
+}
+
+#[test]
+fn a_failed_prepare_is_reported_and_waits_for_the_next_device() {
+    let ui = ui();
+    let asked = Rc::new(Cell::new(0));
+    let (el, view) = gpu_view(&ui, "Unready", Unready(asked.clone()));
+    ui.root().child(el);
+    let mut s = Screen::new(ui, true);
+    s.frame();
+    match view.status() {
+        EmbedStatus::Failed(e) => assert_eq!(e, "preparing failed: the shader is missing"),
+        other => unreachable!("a reported failure: {other:?}"),
+    }
+    view.request_redraw();
+    s.frame();
+    view.request_redraw();
+    s.frame();
+    assert_eq!(asked.get(), 1, "not asked again on the same device");
+    assert_eq!(view.stats().rendered, 0);
+}

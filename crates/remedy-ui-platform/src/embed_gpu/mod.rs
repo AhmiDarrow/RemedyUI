@@ -246,6 +246,8 @@ struct State {
     content: Box<dyn GpuContent>,
     /// The device content was prepared on, by serial.
     prepared: Option<u64>,
+    /// The device preparing failed on, by serial: not tried again until another replaces it.
+    refused: Option<u64>,
     surface: Option<Surface>,
     status: EmbedStatus,
     stats: EmbedStats,
@@ -376,6 +378,9 @@ impl State {
         };
         let serial = ctx.device_serial();
         let gpu = Gpu { device: &ctx.device, queue: &ctx.queue, format: FORMAT, serial };
+        if self.refused == Some(serial) {
+            return;
+        }
         if self.prepared != Some(serial) {
             // A first or a replacement device: everything made on the old one is gone.
             if let Some(old) = self.surface.take() {
@@ -386,6 +391,7 @@ impl State {
             match prepared.map_err(|e| e.to_string()).and_then(|()| error.map_or(Ok(()), Err)) {
                 Ok(()) => self.prepared = Some(serial),
                 Err(e) => {
+                    self.refused = Some(serial);
                     self.status = EmbedStatus::Failed(format!("preparing failed: {e}"));
                     return;
                 }
@@ -488,6 +494,7 @@ pub fn gpu_view(ui: &Ui, label: impl Into<String>, content: impl GpuContent) -> 
         state: RefCell::new(State {
             content: Box::new(content),
             prepared: None,
+            refused: None,
             surface: None,
             status: EmbedStatus::Starting,
             stats: EmbedStats::default(),

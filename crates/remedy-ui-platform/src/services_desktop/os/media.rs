@@ -102,23 +102,27 @@ impl Session {
         if let Some(s) = &now.subtitle {
             v.SetSubtitle(&HSTRING::from(s.as_str()))?;
         }
-        match &now.art {
-            Some(Artwork::Url(u)) => {
-                let uri = Uri::CreateUri(&HSTRING::from(u.as_str()))?;
-                d.SetThumbnail(&RandomAccessStreamReference::CreateFromUri(&uri)?)?;
+        // A picture that cannot be used (an address Windows does not parse) is left out: the
+        // title still shows.
+        let _ = (|| -> windows::core::Result<()> {
+            match &now.art {
+                Some(Artwork::Url(u)) => {
+                    let uri = Uri::CreateUri(&HSTRING::from(u.as_str()))?;
+                    d.SetThumbnail(&RandomAccessStreamReference::CreateFromUri(&uri)?)
+                }
+                Some(Artwork::Bytes(b)) => {
+                    let s = InMemoryRandomAccessStream::new()?;
+                    let w = DataWriter::CreateDataWriter(&s)?;
+                    w.WriteBytes(b)?;
+                    // An in-memory store: done at once, so waiting on it here does not stall.
+                    w.StoreAsync()?.join()?;
+                    w.DetachStream()?;
+                    s.Seek(0)?;
+                    d.SetThumbnail(&RandomAccessStreamReference::CreateFromStream(&s)?)
+                }
+                None => Ok(()),
             }
-            Some(Artwork::Bytes(b)) => {
-                let s = InMemoryRandomAccessStream::new()?;
-                let w = DataWriter::CreateDataWriter(&s)?;
-                w.WriteBytes(b)?;
-                // An in-memory store: done at once, so waiting on it here does not stall.
-                w.StoreAsync()?.join()?;
-                w.DetachStream()?;
-                s.Seek(0)?;
-                d.SetThumbnail(&RandomAccessStreamReference::CreateFromStream(&s)?)?;
-            }
-            None => {}
-        }
+        })();
         d.Update()?;
         self.smtc.SetIsEnabled(true)
     }

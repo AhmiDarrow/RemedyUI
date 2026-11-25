@@ -351,7 +351,10 @@ impl Gst {
     /// An app sink taking `caps`, as fast as it is pulled, holding at most what is given.
     pub(crate) fn app_sink(&self, caps: &str, max_buffers: c_uint) -> Result<Ptr, MediaError> {
         let sink = self.make("appsink")?;
-        let caps = self.caps(caps)?;
+        let caps = self.caps(caps).inspect_err(|_| {
+            // SAFETY: the sink is still floating and ours alone: this frees it.
+            unsafe { (self.object_unref)(sink) }
+        })?;
         // SAFETY: setting documented appsink properties with their C types; the caps are
         // copied by the property and then released.
         unsafe {
@@ -926,7 +929,8 @@ impl GstDecoder {
     }
 
     /// Fills each branch's head with what its sink has ready. With nothing ready anywhere, it
-    /// waits up to `wait` on the pictures (or the sound, without pictures) before returning.
+    /// waits up to `wait` on the pictures (or the sound, without pictures; or the text, once
+    /// both have ended, so a late end of the subtitles is not spun on) before returning.
     fn fill(&mut self, wait: Duration) {
         let g = self.g;
         let mut any = false;
@@ -947,7 +951,8 @@ impl GstDecoder {
             return;
         }
         let ns = u64::try_from(wait.as_nanos()).unwrap_or(0);
-        if let Some(b) = [self.video.as_mut(), self.audio.as_mut()].into_iter().flatten().find(|b| !b.done) {
+        let branches = [self.video.as_mut(), self.audio.as_mut(), self.text.as_mut()];
+        if let Some(b) = branches.into_iter().flatten().find(|b| !b.done) {
             // SAFETY: pulling from a live app sink, waiting at most `wait`.
             let s = unsafe { (g.app_sink_try_pull_sample)(b.sink, ns) };
             if !s.is_null() {
@@ -1193,11 +1198,11 @@ impl GstOutput {
             return Err(launch_error(g.take_error(err), "playing sound", MediaError::Device));
         }
         if !err.is_null() {
-            // A recoverable warning (an element missing a property): report it.
+            // A pipeline made in part (an element not installed, a property unknown): report it.
             let msg = g.take_error(err);
             // SAFETY: releasing the half-made pipeline.
             unsafe { (g.object_unref)(pipeline) };
-            return Err(MediaError::Device(msg));
+            return Err(launch_error(msg, "playing sound", MediaError::Device));
         }
         // SAFETY: looking up the named source in the bin (a new reference).
         let src = unsafe { (g.bin_get_by_name)(pipeline, c"src".as_ptr()) };
@@ -1413,7 +1418,7 @@ impl GstInput {
             let msg = g.take_error(err);
             // SAFETY: releasing the half-made pipeline.
             unsafe { (g.object_unref)(pipeline) };
-            return Err(MediaError::Device(msg));
+            return Err(launch_error(msg, "recording from the microphone", MediaError::Device));
         }
         // SAFETY: looking up the named sink in the bin (a new reference).
         let sink = unsafe { (g.bin_get_by_name)(pipeline, c"sink".as_ptr()) };
@@ -1548,11 +1553,11 @@ fn choose<'a>(
 /// Marks `name` as not running here (it failed on real data after its test passed).
 fn condemn(name: &str, why: &str) {
     let verdict = Err(unusable(name, why));
-    if let Ok(mut v) = VERDICTS.lock() {
-        match v.iter_mut().find(|(n, _)| n == name) {
-            Some(entry) => entry.1 = verdict,
-            None => v.push((name.to_owned(), verdict)),
-        }
+    // Poisoned or not, as `choice` reads it: a verdict lost would have `open` try it forever.
+    let mut v = VERDICTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match v.iter_mut().find(|(n, _)| n == name) {
+        Some(entry) => entry.1 = verdict,
+        None => v.push((name.to_owned(), verdict)),
     }
 }
 
@@ -1804,14 +1809,15 @@ impl GstStreamDecoder {
         let mut err: *mut GError = std::ptr::null_mut();
         // SAFETY: building a pipeline from a description; errors come back in `err`.
         let pipeline = unsafe { (g.parse_launch)(desc.as_ptr(), &mut err) };
+        // A part the decoder needs that is not installed (h264parse) is named as such.
         if pipeline.is_null() {
-            return Err(MediaError::Unsupported(g.take_error(err)));
+            return Err(launch_error(g.take_error(err), DECODING, MediaError::Unsupported));
         }
         if !err.is_null() {
             let msg = g.take_error(err);
             // SAFETY: releasing the half-made pipeline.
             unsafe { (g.object_unref)(pipeline) };
-            return Err(MediaError::Unsupported(msg));
+            return Err(launch_error(msg, DECODING, MediaError::Unsupported));
         }
         // SAFETY: looking up the named elements (new references).
         let (src, sink) = unsafe {

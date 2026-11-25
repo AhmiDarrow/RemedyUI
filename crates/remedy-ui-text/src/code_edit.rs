@@ -263,7 +263,9 @@ impl CodeEditor {
             if s.is_caret() {
                 let line = e.line_range(e.line_of(s.focus));
                 let before = e.slice(line.start..s.focus);
-                if !before.is_empty() && before.chars().all(|c| c == ' ') && unit.chars().all(|c| c == ' ') {
+                // An empty unit is no level to take off (and nothing to divide by).
+                let spaces = !unit.is_empty() && unit.chars().all(|c| c == ' ');
+                if !before.is_empty() && before.chars().all(|c| c == ' ') && spaces {
                     let n = before.len() % unit.len();
                     let n = if n == 0 { unit.len() } else { n };
                     e.set_selection(s.focus - n, s.focus);

@@ -92,8 +92,9 @@ RemedyUI uses, and versioned with it:
   (`rich`, `code`, `pages`), media (`image`, `svg`, `anim`, `video`, `playback`, `isolated`),
   `viz`, `customize`, `markup`, `i18n`, `spell`, `update`, `webstorage`, `agents`, `devtools`,
   `gpu_embed`, `webview`, `testing`, and `cargo-remedy`'s commands and `remedy.toml`.
-- **Engine crates** (`remedy-ui-core::host`, `-compositor`, `-render-cpu`, `-render-gpu`, the
-  `-bridge-*` crates, `-trace`, `-tree`): published, semver-checked, and stable for what the
+- **Engine parts** (`remedy-ui-core::host`, `::tree` and `::trace`, `remedy-ui-engine::compositor`,
+  `::render_cpu` and `::render_gpu`, the bridges in `remedy-ui-platform` and
+  `remedy-ui-bridge-web`): published, semver-checked, and stable for what the
   facade exposes of them; their engine-to-engine surface follows the release cadence of the
   renderers and bridges.
 - **Experimental:** scripted widgets (`remedy-ui-engine::script`, `remedy-ui-widgets::board`) are being

@@ -1367,7 +1367,7 @@ impl AAudioIn {
                     // open is refused, which is the usual reason; the code says which.
                     Err(r) => {
                         return Err(MediaError::Denied(format!(
-                            "the microphone would not open ({}; with the unprocessed preset: {});                              the usual cause is that the app has not been given the microphone permission",
+                            "the microphone would not open ({}; with the unprocessed preset: {}); the usual cause is that the app has not been given the microphone permission",
                             aa.error("AAudio", r),
                             aa.error("AAudio", with_preset)
                         )));

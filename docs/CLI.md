@@ -1,6 +1,6 @@
 # cargo remedy
 
-`cargo remedy` is RemedyUI's command line. It creates, runs and packages apps. It also offers every developer tool that `remedy-mcp` gives AI agents ([MCP.md](MCP.md)): one logic, the `cargo-remedy::devkit` crate, behind both.
+`cargo remedy` is RemedyUI's command line. It creates, runs and packages apps. It also offers every developer tool that `remedy-mcp` gives AI agents ([MCP.md](MCP.md)): one logic, `cargo-remedy::devkit`, behind both.
 
 ```sh
 cargo install --path crates/cargo-remedy
@@ -14,8 +14,8 @@ Every tool command prints readable text. Add `--json` to get the typed result as
 |---|---|
 | `cargo remedy new <name> [--template basic\|tray\|multi-window\|document\|android] [--path <dir>] [--remedy-path <checkout>]` | Creates an app: a window, the Remedy theme, Fluent strings, a test, a golden-image preview and `remedy.toml` |
 | `cargo remedy run [--release] [--watch] [-- <args>]` | Builds and runs it. In debug builds, F12 opens the inspector. `--watch` rebuilds and restarts the app on change |
-| `cargo remedy package [--target windows\|linux\|macos\|android]` | Builds a release and packages it (installer, portable zip, `.tar.gz`, `.app`, APK; signatures) |
-| `cargo remedy migrate [--dry-run] [--path <dir>]` | Rewrites an app for the engine's renamed APIs (see `docs/API-REVIEW.md`) |
+| `cargo remedy package [--target windows\|linux\|macos\|android\|web]` | Builds a release and packages it (installer, portable zip, `.tar.gz`, `.app`, APK; signatures; for `web`, an installable page, with `--example <name>`, `--dev` and `--out <dir>`) |
+| `cargo remedy migrate [--dry-run] [--path <dir>]` | Rewrites an app for the engine's renamed APIs (see `docs/API-REVIEW.md`) and for the engine crates that became modules of others (`remedy_ui_viz::bars` becomes `remedy_ui_widgets::viz::bars`) |
 
 ## Docs and widgets
 

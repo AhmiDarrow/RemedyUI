@@ -44,10 +44,12 @@ pub(crate) fn unwrap(bytes: &[u8]) -> String {
         let rest = head.split_once(key)?.1;
         rest.lines().next()?.trim().parse::<usize>().ok()
     };
-    let doc = match (offset("StartHTML:"), offset("EndHTML:")) {
+    let part = |start: &str, end: &str| match (offset(start), offset(end)) {
         (Some(s), Some(e)) if s <= e => bytes.get(s..e.min(bytes.len())),
         _ => None,
     };
+    // StartHTML is -1 when the source gave no document around its fragment.
+    let doc = part("StartHTML:", "EndHTML:").or_else(|| part("StartFragment:", "EndFragment:"));
     String::from_utf8_lossy(doc.unwrap_or(bytes)).into_owned()
 }
 
@@ -81,5 +83,16 @@ mod tests {
             unwrap(b"Version:0.9\r\nStartHTML:99999\r\nEndHTML:5\r\n<b>x</b>"),
             "Version:0.9\r\nStartHTML:99999\r\nEndHTML:5\r\n<b>x</b>"
         );
+    }
+
+    #[test]
+    fn a_fragment_without_a_document_is_the_html() {
+        let head = |sf: usize, ef: usize| {
+            format!(
+                "Version:0.9\r\nStartHTML:-1\r\nEndHTML:-1\r\nStartFragment:{sf:010}\r\nEndFragment:{ef:010}\r\n"
+            )
+        };
+        let n = head(0, 0).len();
+        assert_eq!(unwrap(format!("{}<b>hi</b>", head(n, n + 9)).as_bytes()), "<b>hi</b>");
     }
 }

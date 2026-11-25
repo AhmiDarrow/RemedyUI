@@ -1,18 +1,18 @@
 //! The logic behind RemedyUI's developer tools, shared by the `remedy-mcp` server (for AI
 //! agents) and `cargo remedy`'s commands (for people and scripts). Each tool group is a
-//! feature, `full` (the default) has them all, and every function takes typed input and
-//! returns typed output, with no protocol or terminal code here:
+//! feature, `devkit-full` (part of the default `cli`) has them all, and every function takes
+//! typed input and returns typed output, with no protocol or terminal code here:
 //!
 //! | Feature | Module | What it does |
 //! |---|---|---|
-//! | `docs` | [`docs`] | Search and read the guides, design docs and rustdoc; the widget catalog |
-//! | `markup` | [`markup`] | Check `.rui` markup and compile it to Rust |
-//! | `effects` | [`effects`] | Check Prism `.rfx` effects and what they cost; render a frame to PNG |
-//! | `scaffold` | [`scaffold`] | Create an app from the app templates (`cargo-remedy::templates`) |
-//! | `preview` | [`preview`] | Render an app's UI headlessly: a PNG, the accessibility tree, the audit |
-//! | `testing` | [`testing`] | Run an app's tests and the engine's budget scenes, summarized |
-//! | `live` | [`live`] | Operate a running app through its agents listener, under consent |
-//! | `devtools` | [`devtools`] | Read a running app's remote devtools |
+//! | `devkit-docs` | [`docs`] | Search and read the guides, design docs and rustdoc; the widget catalog |
+//! | `devkit-markup` | [`markup`] | Check `.rui` markup and compile it to Rust |
+//! | `devkit-effects` | [`effects`] | Check Prism `.rfx` effects and what they cost; render a frame to PNG |
+//! | `devkit-scaffold` | [`scaffold`] | Create an app from the app templates (`cargo-remedy::templates`) |
+//! | `devkit-preview` | [`preview`] | Render an app's UI headlessly: a PNG, the accessibility tree, the audit |
+//! | `devkit-testing` | [`testing`] | Run an app's tests and the engine's budget scenes, summarized |
+//! | `devkit-live` | [`live`] | Operate a running app through its agents listener, under consent |
+//! | `devkit-devtools` | [`devtools`] | Read a running app's remote devtools |
 //!
 //! Paths go through a [`Workspace`]: tools working for an agent stay inside the folders the
 //! person named; the command line works anywhere.
@@ -71,7 +71,7 @@ impl std::error::Error for ToolError {}
 /// A tool's result.
 pub type Result<T> = std::result::Result<T, ToolError>;
 
-/// A tool group: a feature of this crate and a set of tools.
+/// A tool group: a set of tools behind a feature of this crate (`devkit-<name>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Group {
@@ -106,7 +106,7 @@ impl Group {
         Group::Devtools,
     ];
 
-    /// Its name, which is also its feature's (`docs`).
+    /// Its name (`docs`): its features are `devkit-docs` and, for the server, `mcp-docs`.
     pub fn name(self) -> &'static str {
         match self {
             Group::Docs => "docs",
@@ -174,7 +174,7 @@ impl Group {
             };
             if !g.built() {
                 return Err(ToolError::new(format!(
-                    "the `{name}` tools are not in this build (build with the `{name}` feature)"
+                    "the `{name}` tools are not in this build (build with `devkit-{name}`, or `mcp-{name}` for the server)"
                 )));
             }
             if !out.contains(&g) {

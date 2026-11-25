@@ -425,7 +425,12 @@ impl PerfOverlay {
                 let Some(inner) = weak.upgrade() else { return };
                 let h = inner.history.borrow();
                 let budget = inner.budget_ns.get().max(1);
-                let top = h.iter().map(FrameSample::total_ns).max().unwrap_or(0).max(budget + budget / 2);
+                let top = h
+                    .iter()
+                    .map(FrameSample::total_ns)
+                    .max()
+                    .unwrap_or(0)
+                    .max(budget.saturating_add(budget / 2));
                 let scale = cx.size.height / top as f32;
                 let n = h.len();
                 for (i, s) in h.iter().enumerate() {

@@ -118,13 +118,31 @@ fn measure_resolution() -> std::time::Duration {
 /// monotonic reading, and a thread clock that ticks coarsely (about 15.6 ms on Windows)
 /// inflates the processor reading when a tick lands. So work is [`over`](Self::over) a budget
 /// only when both say so, and the work done is the smaller of the two.
+///
+/// The system charges a whole step of the thread clock to the thread that is running when
+/// the clock ticks, however briefly it ran, and on a busy machine that is also the moment the
+/// thread is set aside. So a limit ([`over`](Self::over), [`proven`](Self::proven)) leaves one
+/// step out of the thread reading: a reading of one step is no proof of work, and a reading of
+/// two is a step's worth. A measurement ([`work`](Self::work)) keeps the reading as it is.
 #[derive(Clone, Copy, Debug)]
 pub struct WorkClock {
     thread: ThreadTime,
     wall: Instant,
 }
 
+/// One step of the thread clock: its measured resolution, or the system's usual tick (15.625 ms
+/// on Windows, nothing to speak of elsewhere) until it is measured.
+fn thread_step() -> std::time::Duration {
+    let unmeasured = if cfg!(windows) { 15_625 } else { 0 };
+    ThreadTime::resolution_if_known().unwrap_or(std::time::Duration::from_micros(unmeasured))
+}
+
 impl WorkClock {
+    /// The processor time this thread is known to have used since the start.
+    fn thread_work(&self) -> std::time::Duration {
+        self.thread.elapsed().saturating_sub(thread_step())
+    }
+
     /// Starts timing, now, on this thread.
     pub fn start() -> WorkClock {
         WorkClock { thread: ThreadTime::now(), wall: Instant::now() }
@@ -137,6 +155,13 @@ impl WorkClock {
         if self.thread.is_processor_time() { self.thread.elapsed().min(wall) } else { wall }
     }
 
+    /// The work certainly done since the start, for holding work to a limit: as
+    /// [`work`](Self::work), less the one step a thread reading can overstate by.
+    pub fn proven(&self) -> std::time::Duration {
+        let wall = self.wall.elapsed();
+        if self.thread.is_processor_time() { self.thread_work().min(wall) } else { wall }
+    }
+
     /// Whether the work since the start has gone past `budget`: both clocks past it (just the
     /// monotonic clock where there is no thread clock).
     pub fn over(&self, budget: std::time::Duration) -> bool {
@@ -144,7 +169,7 @@ impl WorkClock {
         if wall <= budget {
             return false;
         }
-        !self.thread.is_processor_time() || self.thread.elapsed() > budget
+        !self.thread.is_processor_time() || self.thread_work() > budget
     }
 }
 
@@ -205,6 +230,7 @@ mod tests {
         std::hint::black_box(x);
         assert!(c.over(std::time::Duration::from_millis(5)), "working past a budget is over it");
         assert!(c.work() <= start.elapsed() + std::time::Duration::from_millis(1));
+        assert!(c.proven() <= c.work(), "a limit never counts more than was measured");
     }
 
     #[test]

@@ -20,7 +20,7 @@ use super::{
 };
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, answered, file_path, first_byte, load,
-    max_fetch, quiet, timed_out,
+    max_fetch, quiet, read_file, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Sample};
 
@@ -143,7 +143,9 @@ impl NdkElementary {
         let (w, h) = (i32::try_from(v.width).unwrap_or(0), i32::try_from(v.height).unwrap_or(0));
         let (sps, pps) = (annex_b(&v.sps), annex_b(&v.pps));
         // Room for a key frame however the decoder sizes its buffers by default.
-        let ints = [(c"width", w), (c"height", h), (c"max-input-size", (w * h * 3 / 2).max(1 << 16))];
+        // The size is the stream's own word (its SPS): one too large to multiply is still a size.
+        let room = w.saturating_mul(h).saturating_mul(3) / 2;
+        let ints = [(c"width", w), (c"height", h), (c"max-input-size", room.max(1 << 16))];
         let buffers: [(&CStr, &[u8]); 2] = [(c"csd-0", &sps), (c"csd-1", &pps)];
         self.video = None;
         self.vout = Out::default();
@@ -454,7 +456,7 @@ fn scheme<'a>(url: &'a str, scheme: &str) -> Option<&'a str> {
 
 fn fetch(url: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     if let Some(path) = file_path(url) {
-        return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
+        return read_file(&path);
     }
     if let Some(rest) = scheme(url, "http://") {
         return http(url, rest, hops, stop);
@@ -478,6 +480,10 @@ fn io_error(url: &str, e: &std::io::Error, quiet: &str) -> MediaError {
 /// socket is shut at once (a watcher thread), ending the read waiting on it.
 fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     let started = Instant::now();
+    // A line break or the like in a playlist's URI must not write the request's own lines.
+    if url.bytes().any(|b| b.is_ascii_control()) {
+        return Err(MediaError::NotFound(format!("{url:?}: not a URL")));
+    }
     let rest = rest.split('#').next().unwrap_or(rest);
     let (authority, path) = rest.find(['/', '?']).map_or((rest, "/"), |i| rest.split_at(i));
     let path = if path.starts_with('?') { format!("/{path}") } else { path.to_owned() };
@@ -546,7 +552,7 @@ fn exchange(
     .map_err(io)?;
     let mut r = BufReader::new(s);
     let mut line = String::new();
-    r.read_line(&mut line).map_err(io)?;
+    head_line(&mut r, &mut line).map_err(io)?;
     let status: u16 = line
         .split_whitespace()
         .nth(1)
@@ -554,8 +560,11 @@ fn exchange(
         .ok_or_else(|| MediaError::NotFound(format!("{url}: not an HTTP answer")))?;
     let (mut length, mut chunked, mut location) = (None, false, None);
     loop {
-        line.clear();
-        if r.read_line(&mut line).map_err(io)? == 0 {
+        // A head that never ends is given up on as a body that takes too long is.
+        if started.elapsed() > load() {
+            return Err(timed_out(url, "the download took too long"));
+        }
+        if head_line(&mut r, &mut line).map_err(io)? == 0 {
             break;
         }
         let Some((name, value)) = line.trim_end().split_once(':') else { break };
@@ -574,6 +583,10 @@ fn exchange(
             return Err(MediaError::NotFound(format!("{url}: too many redirects")));
         }
         let to = if to.contains("://") {
+            // A server may send the fetch to another server, never to this device's own files.
+            if scheme(&to, "http://").is_none() && scheme(&to, "https://").is_none() {
+                return Err(MediaError::NotFound(format!("{url}: redirected to {to}, which is not fetched")));
+            }
             to
         } else {
             format!("http://{authority}/{}", to.trim_start_matches('/'))
@@ -587,8 +600,7 @@ fn exchange(
     let mut body = Vec::with_capacity(length.unwrap_or(0).min(64 << 20));
     if chunked {
         loop {
-            line.clear();
-            r.read_line(&mut line).map_err(|e| io_error(url, &e, "nothing arrived"))?;
+            head_line(&mut r, &mut line).map_err(|e| io_error(url, &e, "nothing arrived"))?;
             let size = line.trim().split(';').next().unwrap_or_default();
             let size = usize::from_str_radix(size, 16)
                 .map_err(|_| MediaError::NotFound(format!("{url}: a broken chunked answer")))?;
@@ -596,13 +608,22 @@ fn exchange(
                 break;
             }
             read_body(&mut r, Some(size), &mut body, url, started)?;
-            line.clear();
-            r.read_line(&mut line).map_err(|e| io_error(url, &e, "nothing arrived"))?;
+            head_line(&mut r, &mut line).map_err(|e| io_error(url, &e, "nothing arrived"))?;
         }
     } else {
         read_body(&mut r, length, &mut body, url, started)?;
     }
     Ok(body)
+}
+
+/// The longest line read of an answer's head or of a chunk's size: a server's endless line
+/// must not take all the memory.
+const HEAD_LINE: u64 = 64 << 10;
+
+/// The answer's next line into `line` (emptied first), cut at [`HEAD_LINE`].
+fn head_line(r: &mut BufReader<TcpStream>, line: &mut String) -> std::io::Result<usize> {
+    line.clear();
+    Read::take(&mut *r, HEAD_LINE).read_line(line)
 }
 
 /// Reads `len` bytes into `into` (to the end of the connection when `None`).

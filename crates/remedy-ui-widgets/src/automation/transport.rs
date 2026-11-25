@@ -27,13 +27,16 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 /// The length of a grant's token: 128 bits as hex.
 const TOKEN_LEN: usize = remedy_ui_core::token::TOKEN_LEN;
 
+/// How long a new connection has to send its token.
+const TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// A window listening for agents. Dropping it stops listening and closes its connections.
 #[derive(Debug)]
 pub struct Listener {
     id: u64,
     addr: SocketAddr,
     stop: Arc<AtomicBool>,
-    connections: Arc<Mutex<Vec<TcpStream>>>,
+    connections: Arc<Mutex<Vec<(u64, TcpStream)>>>,
 }
 
 impl Listener {
@@ -48,7 +51,7 @@ impl Drop for Listener {
         self.stop.store(true, Ordering::SeqCst);
         // Wake the accepting thread so it sees the stop.
         let _ = TcpStream::connect(self.addr);
-        for c in self.connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+        for (_, c) in self.connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
             let _ = c.shutdown(Shutdown::Both);
         }
         let id = self.id;
@@ -85,7 +88,7 @@ impl Agents {
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         LISTENING.with(|l| l.borrow_mut().insert(id, self.clone()));
         let stop = Arc::new(AtomicBool::new(false));
-        let connections: Arc<Mutex<Vec<TcpStream>>> = Arc::default();
+        let connections: Arc<Mutex<Vec<(u64, TcpStream)>>> = Arc::default();
         let (tokens, stop2, conns) = (self.tokens.clone(), stop.clone(), connections.clone());
         std::thread::Builder::new().name("remedy-agents".into()).spawn(move || {
             for stream in socket.incoming() {
@@ -94,28 +97,46 @@ impl Agents {
                 }
                 let Ok(mut stream) = stream else { continue };
                 let (tokens, waker, stop) = (tokens.clone(), waker.clone(), stop2.clone());
+                let conn = NEXT.fetch_add(1, Ordering::Relaxed);
                 if let Ok(c) = stream.try_clone() {
-                    conns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(c);
+                    conns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((conn, c));
                 }
-                let _ = std::thread::Builder::new().name("remedy-agent".into()).spawn(move || {
-                    // Strangers are turned away here, before reaching the window.
-                    let Some(token) = read_token(&mut stream) else { return };
-                    let known =
-                        tokens.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&token);
-                    if !known {
-                        let _ = writeln!(
-                            stream,
-                            "{}",
-                            crate::automation::to_json(&Answer::Refused(Refused::NoAccess))
-                        );
-                        return;
+                let open = conns.clone();
+                let spawned = std::thread::Builder::new().name("remedy-agent".into()).spawn(move || {
+                    // Strangers are turned away here, before reaching the window; one that
+                    // sends no token does not hold its thread for good.
+                    let _ = stream.set_read_timeout(Some(TOKEN_WAIT));
+                    let token = read_token(&mut stream);
+                    let _ = stream.set_read_timeout(None);
+                    let known = token.as_ref().map(|t| {
+                        tokens.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(t)
+                    });
+                    match known {
+                        Some(true) => serve(stream, id, &waker, &stop),
+                        Some(false) => {
+                            let _ = writeln!(
+                                stream,
+                                "{}",
+                                crate::automation::to_json(&Answer::Refused(Refused::NoAccess))
+                            );
+                        }
+                        None => {}
                     }
-                    serve(stream, id, &waker, &stop);
+                    // The kept handle would hold the socket open for as long as the window listens.
+                    forget(&open, conn);
                 });
+                if spawned.is_err() {
+                    forget(&conns, conn);
+                }
             }
         })?;
         Ok(Listener { id, addr, stop, connections })
     }
+}
+
+/// Drops the handle kept for closing connection `conn`, once it has ended.
+fn forget(connections: &Mutex<Vec<(u64, TcpStream)>>, conn: u64) {
+    connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(c, _)| *c != conn);
 }
 
 /// Answers one connection's requests until it closes.

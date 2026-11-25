@@ -30,7 +30,7 @@ pub fn toggle(list: &mut Vec<Reaction>, emoji: &str) {
         }
         Some(r) => {
             r.mine = true;
-            r.count += 1;
+            r.count = r.count.saturating_add(1);
         }
         None => list.push(Reaction { emoji: emoji.to_owned(), count: 1, mine: true }),
     }

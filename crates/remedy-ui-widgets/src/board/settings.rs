@@ -40,7 +40,7 @@ pub(crate) fn seconds(v: &Value) -> Option<i64> {
 
 /// The local date and time (to the minute) of `secs` at `offset` seconds east of UTC.
 pub(crate) fn local_parts(secs: i64, offset: i32) -> (Date, Time) {
-    let local = secs + i64::from(offset);
+    let local = secs.saturating_add(i64::from(offset));
     let day = Date::from_days_since_epoch(local.div_euclid(DAY));
     let minutes = local.rem_euclid(DAY) / 60;
     let time = Time::new(u8::try_from(minutes / 60).unwrap_or(0), u8::try_from(minutes % 60).unwrap_or(0))
@@ -110,12 +110,13 @@ pub(crate) fn setting_editor(
                 let text = f2.value();
                 let v = match &kind {
                     SettingKind::Number { min, max } => match text.trim().parse::<f64>() {
-                        Ok(n) => {
+                        // "nan" and "inf" read as numbers, and are none a setting can hold.
+                        Ok(n) if n.is_finite() => {
                             let n = min.map_or(n, |m| n.max(m));
                             Value::from(max.map_or(n, |m| n.min(m)))
                         }
                         // Not a number yet: nothing changes.
-                        Err(_) => return,
+                        _ => return,
                     },
                     _ => Value::String(text),
                 };

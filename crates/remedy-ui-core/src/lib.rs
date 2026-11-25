@@ -16,6 +16,18 @@
 //! - [`trace`]: the phase spans every part of the engine emits (through `tracing`), the clock
 //!   trace timestamps share across threads, GPU work slices, and gauges of what the engine holds.
 //! - [`edition`]: editions, the switch that changes of default behavior hang off.
+//!
+//! On top of those, the parts of the engine that need neither a platform nor a renderer:
+//!
+//! - [`reactive`]: signals, memos, effects, stores, resources and persisted state.
+//! - [`tree`]: the element tree: dirty flags, events, hit testing, focus and error boundaries.
+//! - [`layout`]: flex, grid and block layout, and virtual lists.
+//! - [`style`]: themes, tokens, states and style resolution.
+//! - [`input`]: the event model, gestures, scroll physics, commands and gamepads.
+//! - [`motion`]: easing, tweens, springs and the frame clock.
+//! - [`a11y`]: semantics and the accessibility tree.
+//! - [`host`]: what a platform provides, as every bridge implements it.
+//! - [`testing`]: a headless harness over the tree and a fake clock.
 
 pub mod arena;
 pub mod color;

@@ -1,9 +1,9 @@
 //! RemedyUI's GPU renderer.
 //!
 //! Runs on wgpu (D3D12, Vulkan, Metal, OpenGL 3.3 / GLES 3.0; WebGPU and WebGL2 in a
-//! browser), found by a backend ladder that ends in a software adapter. Display lists draw through `vello_gpu` with the same
-//! [`Painter`](crate::render_cpu::Painter) as the CPU renderer, so both draw the same glyphs
-//! and shapes; compositor tiles live in textures and composite with clips and opacity groups.
+//! browser), found by a backend ladder that ends in a software adapter. Display lists draw
+//! through `vello_gpu` with the same [`Painter`](crate::render_cpu::Painter) as the CPU
+//! renderer, so both draw the same glyphs and shapes; compositor tiles live in textures and composite with clips and opacity groups.
 //! Pipelines are created at start-up from a persistent cache where the driver supports one. A
 //! lost device is replaced and every tile rastered again from the retained layer tree with no
 //! app code. See `docs/design/04-rendering.md`.

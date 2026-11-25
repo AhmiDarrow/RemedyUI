@@ -497,6 +497,21 @@ fn typing_keeps_what_the_edit_did_not_touch() {
 }
 
 #[test]
+fn a_one_line_paragraph_takes_text_at_its_end() {
+    // A wrap width too wide to wrap at: the whole paragraph is one piece of one line, fewer
+    // than the lines two pieces share.
+    let (mut e, style) = engine();
+    let o = options(1.0e9, Direction::Auto);
+    let mut text = latin(LAZY_MIN_BYTES + 100);
+    let mut p = e.layout(&RichText::plain(text.clone()), &style, o);
+    assert!(p.is_lazy());
+    assert_eq!(p.lines().len(), 1);
+    text.push('x');
+    p = e.layout_after_edit(&p, &RichText::plain(text), &style, o);
+    assert_eq!(p.lines().len(), 1);
+}
+
+#[test]
 fn short_or_unwrapped_paragraphs_lay_out_whole() {
     let (mut e, style) = engine();
     let short = RichText::plain(latin(LAZY_MIN_BYTES - 100));

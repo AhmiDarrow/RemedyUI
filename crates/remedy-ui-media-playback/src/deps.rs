@@ -341,7 +341,7 @@ pub fn libpulse(why: &str) -> MissingDependency {
 }
 
 /// An X server extension (`ext`: "SHM", "Composite", "XFixes", "RandR") the X server does not
-/// offer, for `why`.
+/// offer, needed for `purpose`.
 pub fn x_extension(ext: &str, purpose: &str) -> MissingDependency {
     MissingDependency {
         name: format!("the X server's {ext} extension"),

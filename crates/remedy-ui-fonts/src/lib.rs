@@ -1,7 +1,7 @@
 //! The Remedy font families and the script fallback faces, as data for RemedyUI's text engine.
 //!
-//! Each family is a Cargo feature, so an app carries only the faces it uses. Remedy Sans UI
-//! and Remedy Symbols are on by default. The fonts are the hinted TrueType builds from their own repositories and
+//! Each family is a Cargo feature, so an app carries only the faces it uses. Remedy Sans UI,
+//! Remedy Symbols and Remedy Emoji are on by default. The fonts are the hinted TrueType builds from their own repositories and
 //! are licensed under the SIL Open Font License 1.1 (see `fonts/OFL-*.txt`); Remedy Emoji,
 //! our own emoji art, and this crate's code are MIT OR Apache-2.0.
 //!
@@ -251,7 +251,7 @@ pub fn needs(family: &str) -> Option<fn(char) -> bool> {
 }
 
 /// True for a face that is only a fallback for scripts the text faces lack (the Noto
-/// script faces and Remedy Symbols), not a face to set text in.
+/// script faces, Remedy Symbols and Remedy Emoji), not a face to set text in.
 pub fn is_fallback_only(family: &str) -> bool {
     family == "Remedy Symbols" || family == "Remedy Emoji" || family.starts_with("Noto Sans ")
 }

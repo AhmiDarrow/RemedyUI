@@ -59,7 +59,7 @@ pub fn calendar(
         .child(step_button(ui, true, "calendar-next-month", move || cursor.update(|c| *c = c.add_months(1))));
 
     let grid = ui.el("calendar").column().gap(unit / 2.0).fill_width().focusable(true);
-    let g2 = grid.clone();
+    let (g2, g3) = (grid.clone(), grid.clone());
     let u3 = ui.clone();
     let l2 = label.clone();
     let u4 = ui.clone();
@@ -164,9 +164,11 @@ pub fn calendar(
             }
             let Ok(c) = cursor.get_untracked() else { return false };
             let first = untrack(|| CalendarSymbols::for_locale(&u4.locale()).first_weekday);
+            // Days run from the right, right to left: Left is the next day there.
+            let toward_end = if g3.is_rtl() { -1 } else { 1 };
             let next = match e.key {
-                Key::ArrowLeft => c.add_days(-1),
-                Key::ArrowRight => c.add_days(1),
+                Key::ArrowLeft => c.add_days(-toward_end),
+                Key::ArrowRight => c.add_days(toward_end),
                 Key::ArrowUp => c.add_days(-7),
                 Key::ArrowDown => c.add_days(7),
                 Key::PageUp if e.modifiers.shift => c.add_months(-12),
@@ -200,7 +202,7 @@ pub fn calendar(
 }
 
 /// A date field: shows the chosen date as the locale writes it and opens a [`calendar`] in a
-/// popover. The date can also be typed as `YYYY-MM-DD`.
+/// popover (a press outside it or Escape closes it).
 #[track_caller]
 pub fn date_picker(
     ui: &Ui,
@@ -216,7 +218,10 @@ pub fn date_picker(
     let anchor: std::rc::Rc<std::cell::RefCell<Option<El>>> = std::rc::Rc::default();
     let a2 = anchor.clone();
     let button = w::button(ui, "", move || {
-        if let Some(p) = open.borrow_mut().take() {
+        // A popover closed by a press outside or Escape is gone already: open a new one.
+        if let Some(p) = open.borrow_mut().take()
+            && ui2.tree().contains(p.id())
+        {
             p.remove();
             return;
         }

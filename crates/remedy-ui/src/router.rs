@@ -64,7 +64,12 @@ impl Route {
     /// Empty segments are dropped, so `settings//2/` is `/settings/2`.
     pub fn parse(s: &str) -> Route {
         let s = s.trim();
-        let s = match (s.split_once('#'), s.find("://")) {
+        // Only a scheme before it makes `://` a link's: further in, it is the route's own query.
+        let scheme_end = s.find("://").filter(|i| {
+            let scheme = s.get(..*i).unwrap_or_default();
+            *i > 0 && scheme.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        });
+        let s = match (s.split_once('#'), scheme_end) {
             (Some((_, fragment)), _) => fragment,
             (None, Some(i)) => &s[i + 3..],
             (None, None) => s,
@@ -504,7 +509,12 @@ impl Router {
         let outlet = w::column(ui).grow(1.0).fill_width();
         let (me, o) = (self.clone(), outlet.clone());
         let reloads = Signal::new(0u64);
-        RELOADS.with(|r| r.borrow_mut().push(reloads));
+        RELOADS.with(|r| {
+            let mut r = r.borrow_mut();
+            // Views that are gone leave the list here, not only at the next reload.
+            r.retain(|s| s.get_untracked().is_ok());
+            r.push(reloads);
+        });
         let outlet = outlet.bind(move || {
             let route = me.route.get();
             let _ = reloads.get();
@@ -718,6 +728,9 @@ mod tests {
         assert_eq!(r.query("q").as_deref(), Some("a&b"));
         assert_eq!(r.href(), "#/browse/My%20Movies/Alien?sort=year&q=a%26b");
         assert_eq!(Route::parse("").path(), "/");
+        // An address inside a route's query is the query's, however often it is parsed.
+        let r = Route::parse(&Route::parse("#/open?u=https://h/a").to_string());
+        assert_eq!((r.path(), r.query("u").as_deref()), ("/open", Some("https://h/a")));
     }
 
     #[test]

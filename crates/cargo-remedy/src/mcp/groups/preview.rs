@@ -1,4 +1,4 @@
-//! render_preview, a11y_audit.
+//! render_preview, list_previews, a11y_audit.
 
 use crate::devkit::preview::{ListInput, PreviewInput, list, render};
 use crate::devkit::{Group, ToolError};

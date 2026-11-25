@@ -1,6 +1,6 @@
-//! The isolated-decoding tests (`tests/isolated.rs`) as an Android library. An instrumentation
-//! (`tools/IsolatedCheck.java`) loads it and calls `run` with the app's Context; the tests'
-//! report comes back as text. `tools/android-check.sh` builds, installs and runs it. Built for
+//! The isolated-decoding tests (`tests/media_isolated/isolated.rs`) as an Android library. An instrumentation
+//! (`media-isolated/tools/IsolatedCheck.java`) loads it and calls `run` with the app's Context; the tests'
+//! report comes back as text. `media-isolated/tools/android-check.sh` builds, installs and runs it. Built for
 //! any other platform it is empty.
 
 #[cfg(target_os = "android")]
