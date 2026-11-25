@@ -1056,7 +1056,10 @@ fn the_playhead_lights_its_column_and_marks_recolour_notes() {
     let view = TabView::default().playhead(playhead).follow(true).decor(decor);
     let el = tab_staff_view(&ui, "Riff", measures, Signal::new(None), TabOptions::default(), view);
     mount(&ui, &el);
-    let _ = frame(&ui);
+    // The tab takes its height in its first frames.
+    for _ in 0..4 {
+        let _ = frame(&ui);
+    }
     assert!(!frame(&ui), "nothing to redraw at rest");
     // Beat 1.2 is inside the third event (it starts at 1 and lasts a quarter).
     playhead.set(Some(1.2));
