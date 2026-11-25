@@ -1,6 +1,7 @@
 //! The tab staff: tablature for any number of strings, with measures, rhythm and techniques.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -132,17 +133,29 @@ pub struct TabEvent {
     pub value: NoteValue,
     /// Dots.
     pub dots: u8,
+    /// Its length in quarter notes when that is not a note value with dots (a transcription
+    /// in free time, a tuplet): it takes the place of `value` and `dots` for timing and
+    /// spacing, and the event is drawn without a rhythm stem.
+    pub length: Option<f32>,
 }
 
 impl TabEvent {
     /// An event of `notes`.
     pub fn new(notes: Vec<TabNote>, value: NoteValue) -> TabEvent {
-        TabEvent { notes, value, dots: 0 }
+        TabEvent { notes, value, dots: 0, length: None }
     }
 
     /// A rest.
     pub fn rest(value: NoteValue) -> TabEvent {
-        TabEvent { notes: Vec::new(), value, dots: 0 }
+        TabEvent { notes: Vec::new(), value, dots: 0, length: None }
+    }
+
+    /// An event `quarters` quarter notes long, whatever that is (0.05, 1.37): notes that
+    /// sound together, or with no notes a silence of that length. Events follow one another,
+    /// so a note's start is the lengths before it.
+    pub fn free(notes: Vec<TabNote>, quarters: f32) -> TabEvent {
+        let length = if quarters.is_finite() { quarters.max(0.0) } else { 0.0 };
+        TabEvent { notes, value: NoteValue::Quarter, dots: 0, length: Some(length) }
     }
 
     /// The same event with dots.
@@ -158,7 +171,7 @@ impl TabEvent {
 
     /// Length in quarter notes.
     pub fn quarters(&self) -> f32 {
-        self.value.quarters(self.dots)
+        self.length.unwrap_or_else(|| self.value.quarters(self.dots))
     }
 }
 
@@ -189,6 +202,136 @@ pub struct TabCursor {
     pub string: usize,
 }
 
+/// How a tab's measures are laid out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TabFlow {
+    /// Lines (systems) that wrap to the width, one under the other.
+    #[default]
+    Wrapped,
+    /// One line as long as the piece: the tab is as wide as its measures, for a container
+    /// that scrolls sideways (`El::scroll().scroll_x()`).
+    Row,
+}
+
+/// How one note is marked ([`TabDecor::notes`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NoteMark {
+    /// Its number's colour in place of the text colour (a low-confidence note, a wrong one).
+    pub color: Option<Color>,
+    /// Draw it faint.
+    pub dim: bool,
+    /// What a tooltip says when the pointer rests on it; empty for none.
+    pub tip: String,
+}
+
+/// What an app marks on a tab over its notes ([`TabView::decor`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TabDecor {
+    /// Marks on single notes, by measure, event and string.
+    pub notes: HashMap<TabCursor, NoteMark>,
+    /// The columns in play (events counted from 0 through the piece): the notes of every
+    /// other column are drawn faint. `None`: all of them.
+    pub active: Option<Range<usize>>,
+}
+
+/// What a tab shows and follows beyond its notes ([`tab_staff_view`]).
+#[derive(Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct TabView {
+    /// The play position in quarter notes from the start of the piece (an audio clock's
+    /// beat): the column sounding then is lit from top to bottom. `None` inside: stopped.
+    pub playhead: Option<Signal<Option<f32>>>,
+    /// Scroll the lit column into view as the playhead moves.
+    pub follow: bool,
+    /// Colours, faint notes and tooltips.
+    pub decor: Option<Signal<TabDecor>>,
+}
+
+impl TabView {
+    /// Lights the column at `playhead`.
+    pub fn playhead(mut self, playhead: Signal<Option<f32>>) -> Self {
+        self.playhead = Some(playhead);
+        self
+    }
+
+    /// Keeps the lit column in view.
+    pub fn follow(mut self, follow: bool) -> Self {
+        self.follow = follow;
+        self
+    }
+
+    /// Marks notes as `decor` says.
+    pub fn decor(mut self, decor: Signal<TabDecor>) -> Self {
+        self.decor = Some(decor);
+        self
+    }
+}
+
+/// One column of a laid-out tab: an event and where it is ([`tab_columns`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct TabColumn {
+    /// Its measure.
+    pub measure: usize,
+    /// Its event in the measure.
+    pub event: usize,
+    /// When it starts, in quarter notes from the start of the piece.
+    pub start: f32,
+    /// How long it lasts, in quarter notes.
+    pub length: f32,
+    /// The column from above the top line to below the bottom one, in the tab's own
+    /// coordinates.
+    pub rect: Rect,
+}
+
+/// The line gap a tab uses in `ui`'s theme.
+fn gap_of(ui: &Ui, options: &TabOptions) -> f32 {
+    options.line_gap.unwrap_or(ui.theme().spacing.unit * 3.5).max(6.0)
+}
+
+/// The columns of `measures` as a [`tab_staff`] `width` wide lays them out, in order: for a
+/// playhead drawn by the app, hit testing, or lining something else up with the events.
+pub fn tab_columns(ui: &Ui, measures: &[TabMeasure], options: &TabOptions, width: f32) -> Vec<TabColumn> {
+    let gap = gap_of(ui, options);
+    columns(&build(measures, options, width, gap), measures, options)
+}
+
+fn columns(lay: &TabLayout, measures: &[TabMeasure], o: &TabOptions) -> Vec<TabColumn> {
+    let strings = o.tuning.len().max(1);
+    let mut starts = Vec::with_capacity(measures.len());
+    let mut t = 0.0f32;
+    for m in measures {
+        starts.push(t);
+        t += m.events.iter().map(TabEvent::quarters).sum::<f32>();
+    }
+    let mut out = Vec::new();
+    for sys in &lay.systems {
+        let (top, bottom) = (sys.top_line - lay.gap * 0.5, sys.top_line + (strings - 1) as f32 * lay.gap + lay.gap * 0.5);
+        for mb in &sys.measures {
+            let Some(m) = measures.get(mb.index) else { continue };
+            let mut start = starts.get(mb.index).copied().unwrap_or(0.0);
+            for (event, (e, col)) in m.events.iter().zip(&mb.cols).enumerate() {
+                let length = e.quarters();
+                out.push(TabColumn {
+                    measure: mb.index,
+                    event,
+                    start,
+                    length,
+                    rect: Rect::new(col.left, top, col.right, bottom),
+                });
+                start += length;
+            }
+        }
+    }
+    out
+}
+
+/// The column sounding at `beat`: the last one that has started.
+fn column_at(cols: &[TabColumn], beat: f32) -> Option<&TabColumn> {
+    cols.iter().rev().find(|c| c.start <= beat).or(cols.first()).filter(|_| beat.is_finite())
+}
+
 /// How a [`tab_staff`] looks.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -197,6 +340,10 @@ pub struct TabOptions {
     pub tuning: Vec<i32>,
     /// Show the open string names at the start of each line.
     pub string_names: bool,
+    /// How the measures are laid out.
+    pub flow: TabFlow,
+    /// Number the columns (the events, counted from 1 through the piece) above the lines.
+    pub column_numbers: bool,
     /// Show rhythm stems, flags and beams under the lines.
     pub rhythm: bool,
     /// The time signature the piece starts in.
@@ -208,6 +355,18 @@ pub struct TabOptions {
 }
 
 impl TabOptions {
+    /// How the measures are laid out.
+    pub fn flow(mut self, value: TabFlow) -> Self {
+        self.flow = value;
+        self
+    }
+
+    /// Numbers the columns above the lines.
+    pub fn column_numbers(mut self, value: bool) -> Self {
+        self.column_numbers = value;
+        self
+    }
+
     /// Sets `tuning`: the open strings as MIDI notes, lowest first.
     pub fn tuning(mut self, value: Vec<i32>) -> Self {
         self.tuning = value;
@@ -249,6 +408,8 @@ impl Default for TabOptions {
     fn default() -> Self {
         TabOptions {
             tuning: GUITAR.to_vec(),
+            flow: TabFlow::Wrapped,
+            column_numbers: false,
             string_names: false,
             rhythm: true,
             time: Some((4, 4)),
@@ -330,6 +491,8 @@ struct SystemBox {
 struct TabLayout {
     systems: Vec<SystemBox>,
     height: f32,
+    /// How wide the systems are, margins included.
+    width: f32,
     gap: f32,
     margin: f32,
 }
@@ -363,10 +526,13 @@ fn build(measures: &[TabMeasure], o: &TabOptions, width: f32, gap: f32) -> TabLa
         })
         .collect();
     let widths: Vec<f32> = natural.iter().map(|(w, _)| *w).collect();
-    let avail = (width - 2.0 * margin).max(gap * 10.0);
+    let avail = match o.flow {
+        TabFlow::Wrapped => (width - 2.0 * margin).max(gap * 10.0),
+        TabFlow::Row => f32::INFINITY,
+    };
     let ranges = break_systems(&widths, header, first_extra, avail);
     let n_systems = ranges.len();
-    let above = gap * 2.4;
+    let above = gap * if o.column_numbers { 3.6 } else { 2.4 };
     let below = if o.rhythm { gap * 3.4 } else { gap * 1.0 };
     let mut y = margin;
     let mut systems = Vec::new();
@@ -399,17 +565,21 @@ fn build(measures: &[TabMeasure], o: &TabOptions, width: f32, gap: f32) -> TabLa
         systems.push(SystemBox { measures: boxes, top_line, top, height, x_end: x });
         y += height + gap * 0.8;
     }
-    TabLayout { systems, height: (y - gap * 0.8 + margin).max(gap * 8.0), gap, margin }
+    let wide = systems.iter().map(|s: &SystemBox| s.x_end).fold(0.0f32, f32::max) + margin;
+    TabLayout { systems, height: (y - gap * 0.8 + margin).max(gap * 8.0), width: wide, gap, margin }
 }
 
 fn string_y(sys: &SystemBox, gap: f32, strings: usize, string: usize) -> f32 {
     sys.top_line + (strings - 1 - string.min(strings - 1)) as f32 * gap
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Marks {
     cursor: Option<TabCursor>,
     picked: Option<TabCursor>,
+    /// The column the playhead is in.
+    playing: Option<(usize, usize)>,
+    decor: TabDecor,
 }
 
 fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &TabOptions, marks: Marks) {
@@ -430,6 +600,14 @@ fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &Tab
         times.push(time.unwrap_or((4, 4)));
     }
     let char_w = gap * 0.6;
+    // The number of each measure's first column, counted through the piece.
+    let mut first_col = Vec::with_capacity(measures.len());
+    let mut count = 0usize;
+    for m in measures {
+        first_col.push(count);
+        count += m.events.len();
+    }
+    let col_of = |measure: usize, event: usize| first_col.get(measure).copied().unwrap_or(0) + event;
     for sys in &lay.systems {
         let x0 = lay.margin;
         let ys: Vec<f32> = (0..strings).map(|s| string_y(sys, gap, strings, s)).collect();
@@ -440,6 +618,12 @@ fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &Tab
         for mb in &sys.measures {
             for (ei, col) in mb.cols.iter().enumerate() {
                 let here = |m: Option<TabCursor>| m.filter(|t| t.measure == mb.index && t.event == ei);
+                if marks.playing == Some((mb.index, ei)) {
+                    cx.list.fill_rect(
+                        Rect::new(col.left, y_top - gap * 0.5, col.right, y_bottom + gap * 0.5),
+                        Brush::Solid(c.accent.with_alpha(0.28)),
+                    );
+                }
                 if let Some(t) = here(marks.picked) {
                     let y = y_of(t.string);
                     cx.list.fill_rounded(
@@ -523,9 +707,31 @@ fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &Tab
                 time_sig(cx, t, x, mid, gap, ink);
             }
             // Numbers.
-            for (e, col) in m.events.iter().zip(&mb.cols) {
+            for (ei, (e, col)) in m.events.iter().zip(&mb.cols).enumerate() {
+                let column = col_of(mb.index, ei);
+                let outside = marks.decor.active.as_ref().is_some_and(|r| !r.contains(&column));
+                if o.column_numbers {
+                    let mut style = small;
+                    if outside {
+                        style.color = style.color.with_alpha(style.color.a * 0.4);
+                    }
+                    cx.text(
+                        &(column + 1).to_string(),
+                        Point::new(col.x, sys.top + gap * 0.6),
+                        Vec2::new(0.5, 0.5),
+                        style,
+                    );
+                }
                 for n in &e.notes {
-                    cx.text(&fret_text(n), Point::new(col.x, y_of(n.string)), Vec2::new(0.5, 0.5), num);
+                    let mark = marks.decor.notes.get(&TabCursor { measure: mb.index, event: ei, string: n.string });
+                    let mut style = num;
+                    if let Some(color) = mark.and_then(|m| m.color) {
+                        style.color = color;
+                    }
+                    if outside || mark.is_some_and(|m| m.dim) {
+                        style.color = style.color.with_alpha(style.color.a * 0.35);
+                    }
+                    cx.text(&fret_text(n), Point::new(col.x, y_of(n.string)), Vec2::new(0.5, 0.5), style);
                 }
             }
             // Techniques.
@@ -540,11 +746,19 @@ fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &Tab
             let stem_len = gap * 1.9;
             if o.rhythm {
                 let this_time = times.get(mb.index).copied().unwrap_or((4, 4));
-                let items: Vec<(f32, u8, bool)> =
-                    m.events.iter().map(|e| (e.quarters(), e.value.flags(), e.is_rest())).collect();
+                // A free-time event breaks a beam as a rest does.
+                let items: Vec<(f32, u8, bool)> = m
+                    .events
+                    .iter()
+                    .map(|e| (e.quarters(), e.value.flags(), e.is_rest() || e.length.is_some()))
+                    .collect();
                 let groups = beam_runs(&items, beat_quarters(this_time));
                 let glyph_staff = Staff { bottom: (y_top + y_bottom) / 2.0 + gap * 1.5, space: gap * 0.75 };
                 for (ei, (e, col)) in m.events.iter().zip(&mb.cols).enumerate() {
+                    // Free time has no note value to draw.
+                    if e.length.is_some() {
+                        continue;
+                    }
                     if e.is_rest() {
                         draw_rest(cx.list, e.value, col.x, glyph_staff, ink);
                         continue;
@@ -791,7 +1005,35 @@ pub fn tab_staff(
     selected: Signal<Option<TabCursor>>,
     options: TabOptions,
 ) -> El {
-    tab_staff_with(ui, label.into(), measures, selected, options, None)
+    tab_staff_with(ui, label.into(), measures, selected, options, None, TabView::default())
+}
+
+/// A [`tab_staff`] that also shows what `view` says: a playhead that lights the column
+/// sounding now (and keeps it in view), and the app's colours, faint notes and tooltips.
+#[track_caller]
+pub fn tab_staff_view(
+    ui: &Ui,
+    label: impl Into<String>,
+    measures: Signal<Vec<TabMeasure>>,
+    selected: Signal<Option<TabCursor>>,
+    options: TabOptions,
+    view: TabView,
+) -> El {
+    tab_staff_with(ui, label.into(), measures, selected, options, None, view)
+}
+
+/// A [`tab_staff_editor`] that also shows what `view` says, as [`tab_staff_view`] does.
+#[track_caller]
+pub fn tab_staff_editor_view(
+    ui: &Ui,
+    label: impl Into<String>,
+    measures: Signal<Vec<TabMeasure>>,
+    selected: Signal<Option<TabCursor>>,
+    options: TabOptions,
+    editing: TabEditing,
+    view: TabView,
+) -> El {
+    tab_staff_with(ui, label.into(), measures, selected, options, Some(editing), view)
 }
 
 /// A tab people can edit: everything [`tab_staff`] does, plus keys and the pointer change the
@@ -815,7 +1057,7 @@ pub fn tab_staff_editor(
     options: TabOptions,
     editing: TabEditing,
 ) -> El {
-    tab_staff_with(ui, label.into(), measures, selected, options, Some(editing))
+    tab_staff_with(ui, label.into(), measures, selected, options, Some(editing), TabView::default())
 }
 
 fn tab_staff_with(
@@ -825,9 +1067,11 @@ fn tab_staff_with(
     selected: Signal<Option<TabCursor>>,
     options: TabOptions,
     editing: Option<TabEditing>,
+    view: TabView,
 ) -> El {
-    let unit = ui.theme().spacing.unit;
-    let gap = options.line_gap.unwrap_or(unit * 3.5).max(6.0);
+    let gap = gap_of(ui, &options);
+    let row = options.flow == TabFlow::Row;
+    let decor_of = move || view.decor.map(|d| d.get()).unwrap_or_default();
     let strings = options.tuning.len().max(1);
     let start = TabCursor { measure: 0, event: 0, string: strings - 1 };
     let cursor = Signal::new(selected.get_untracked().ok().flatten().unwrap_or(start));
@@ -836,10 +1080,21 @@ fn tab_staff_with(
     let options = Rc::new(options);
 
     let (po, pw) = (options.clone(), width.clone());
-    let el = ui.el("tab_staff").fill_width().height(gap * 9.0).paint(move |cx| {
+    let el = ui.el("tab_staff").height(gap * 9.0);
+    let el = if row { el } else { el.fill_width() };
+    let el = el.paint(move |cx| {
         let ms = measures.get();
         let lay = build(&ms, &po, cx.size.width.max(pw.get()), gap);
-        let marks = Marks { cursor: focused.get().then(|| cursor.get()), picked: selected.get() };
+        let playing = view
+            .playhead
+            .and_then(|p| p.get())
+            .and_then(|beat| column_at(&columns(&lay, &ms, &po), beat).map(|c| (c.measure, c.event)));
+        let marks = Marks {
+            cursor: focused.get().then(|| cursor.get()),
+            picked: selected.get(),
+            playing,
+            decor: decor_of(),
+        };
         paint(cx, &lay, &ms, &po, marks);
     });
 
@@ -847,19 +1102,53 @@ fn tab_staff_with(
     let el = el.on_resize(move |size| {
         sw.set(size.width);
         let ms = measures.get_untracked().unwrap_or_default();
-        let h = build(&ms, &so, size.width, gap).height;
-        let _ = sel.clone().layout(|l| l.height = Length::Px(h));
+        let lay = build(&ms, &so, size.width, gap);
+        let _ = sel.clone().layout(|l| {
+            l.height = Length::Px(lay.height);
+            if row {
+                l.width = Length::Px(lay.width);
+            }
+        });
     });
     let (bo, bw, bel) = (options.clone(), width.clone(), el.clone());
     let el = el.bind(move || {
         let ms = measures.get();
         let w = bw.get();
-        if w > 0.0 {
-            let h = build(&ms, &bo, w, gap).height;
-            let _ = bel.clone().layout(|l| l.height = Length::Px(h));
+        if w > 0.0 || row {
+            let lay = build(&ms, &bo, w, gap);
+            let _ = bel.clone().layout(|l| {
+                l.height = Length::Px(lay.height);
+                if row {
+                    l.width = Length::Px(lay.width);
+                }
+            });
         }
         bel.repaint();
     });
+    // The playhead and the app's marks redraw the tab; a column newly lit is brought into
+    // view.
+    let (fo, fw, fel) = (options.clone(), width.clone(), el.clone());
+    let lit = Cell::new(None);
+    let el = el.bind(move || {
+        let _ = view.decor.map(|d| d.with(|_| ()));
+        let beat = view.playhead.and_then(|p| p.get());
+        fel.repaint();
+        let Some(beat) = beat else { return lit.set(None) };
+        if !view.follow {
+            return;
+        }
+        let ms = measures.get_untracked().unwrap_or_default();
+        let lay = build(&ms, &fo, fw.get(), gap);
+        let cols = columns(&lay, &ms, &fo);
+        let Some(col) = column_at(&cols, beat) else { return };
+        if lit.replace(Some((col.measure, col.event))) != Some((col.measure, col.event)) {
+            // A little of what comes next shows too.
+            let r = col.rect;
+            fel.scroll_rect_into_view(Rect::new(r.min.x - gap, r.min.y - gap * 2.4, r.max.x + gap * 6.0, r.max.y + gap * 3.4));
+        }
+    });
+    // A note's tooltip, where the app gave it one.
+    let tips = view.decor.map(|decor| (decor, remedy_ui_widgets_core::PartTooltip::new(&el)));
 
     let hit = {
         let (pel, pw, po) = (el.clone(), width.clone(), options.clone());
@@ -891,6 +1180,7 @@ fn tab_staff_with(
         measures.get_untracked().map(|ms| ms.iter().map(|m| m.events.len()).collect()).unwrap_or_default()
     };
     let down = Rc::new(Cell::new(false));
+    let (tip_el, tip_width, tip_options) = (el.clone(), width.clone(), options.clone());
     let editor = editing.map(|e| TabEditor::new(el.ui().clone(), measures, cursor, e.on_edit));
     let editable = editor.is_some();
     let key_editor = editor.clone();
@@ -900,6 +1190,20 @@ fn tab_staff_with(
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
+            if let Some((decor, tip)) = &tips {
+                let part = hit(e.position).filter(|_| e.phase == PointerPhase::Move && !down.get()).and_then(|c| {
+                    let text = decor.get_untracked().ok()?.notes.get(&c)?.tip.clone();
+                    let (b, w) = (tip_el.bounds()?, tip_width.get());
+                    let ms = measures.get_untracked().ok()?;
+                    let lay = build(&ms, &tip_options, w.max(b.width()), gap);
+                    let col = columns(&lay, &ms, &tip_options).into_iter().find(|k| (k.measure, k.event) == (c.measure, c.event))?;
+                    let sys = lay.systems.iter().find(|s| s.measures.iter().any(|m| m.index == c.measure))?;
+                    let y = b.min.y + string_y(sys, gap, strings, c.string);
+                    let near = (e.position.y - y).abs() <= gap * 0.6 && (e.position.x - b.min.x - (col.rect.min.x + col.rect.max.x) / 2.0).abs() <= gap;
+                    near.then(|| (Rect::new(b.min.x + col.rect.min.x, y - gap * 0.5, b.min.x + col.rect.max.x, y + gap * 0.5), text))
+                });
+                tip.point(part);
+            }
             match e.phase {
                 PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => down.set(true),
                 PointerPhase::Move if down.get() => {}

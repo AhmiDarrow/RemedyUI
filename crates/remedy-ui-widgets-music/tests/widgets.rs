@@ -1012,3 +1012,63 @@ fn the_accessibility_actions_the_widgets_offer_are_focus_only() {
     let b = board(FretboardOptions::default());
     assert!(actions_of(&b.el).contains(&Action::Focus));
 }
+
+#[test]
+fn a_tab_in_one_row_is_as_wide_as_its_measures_and_free_events_keep_their_lengths() {
+    let ui = ui();
+    let long: Vec<TabMeasure> = (0..12).flat_map(|_| riff()).collect();
+    let options = TabOptions::default().flow(TabFlow::Row).column_numbers(true);
+    let wrapped = tab_columns(&ui, &long, &TabOptions::default(), 600.0);
+    let row = tab_columns(&ui, &long, &options, 600.0);
+    assert_eq!(wrapped.len(), row.len());
+    let lines = |cols: &[TabColumn]| {
+        let mut ys: Vec<i32> = cols.iter().map(|c| c.rect.min.y as i32).collect();
+        ys.dedup();
+        ys.len()
+    };
+    assert!(lines(&wrapped) > 3 && lines(&row) == 1, "one line in a row");
+    assert!(row.last().is_some_and(|c| c.rect.max.x > 600.0), "wider than the width it was given");
+    // The columns start where the lengths before them end, free lengths included.
+    let free = vec![TabMeasure::new(vec![
+        TabEvent::free(vec![TabNote::new(0, 3)], 0.05),
+        TabEvent::free(Vec::new(), 1.37),
+        TabEvent::new(vec![TabNote::new(1, 2)], NoteValue::Quarter),
+    ])];
+    let cols = tab_columns(&ui, &free, &options, 600.0);
+    let starts: Vec<f32> = cols.iter().map(|c| c.start).collect();
+    assert!((starts.get(2).copied().unwrap_or(0.0) - 1.42).abs() < 1e-5, "{starts:?}");
+    // The element takes that width.
+    let measures = Signal::new(long);
+    let el = tab_staff_view(&ui, "Row", measures, Signal::new(None), options, TabView::default());
+    mount(&ui, &el);
+    let _ = frame(&ui);
+    let _ = frame(&ui);
+    let w = el.bounds().unwrap_or_default().width();
+    assert!((w - row.last().map_or(0.0, |c| c.rect.max.x)).abs() < 40.0, "{w}");
+}
+
+#[test]
+fn the_playhead_lights_its_column_and_marks_recolour_notes() {
+    let ui = ui();
+    let measures = Signal::new(riff());
+    let playhead = Signal::new(None);
+    let decor = Signal::new(TabDecor::default());
+    let view = TabView::default().playhead(playhead).follow(true).decor(decor);
+    let el = tab_staff_view(&ui, "Riff", measures, Signal::new(None), TabOptions::default(), view);
+    mount(&ui, &el);
+    let _ = frame(&ui);
+    assert!(!frame(&ui), "nothing to redraw at rest");
+    // Beat 1.2 is inside the third event (it starts at 1 and lasts a quarter).
+    playhead.set(Some(1.2));
+    assert!(frame(&ui), "the lit column is drawn");
+    playhead.set(None);
+    assert!(frame(&ui), "and taken away when stopped");
+    decor.update(|d| {
+        d.notes.insert(
+            TabCursor { measure: 0, event: 1, string: 5 },
+            NoteMark { color: Some(Color::rgba8(220, 40, 40, 255)), dim: false, tip: "72%".into() },
+        );
+        d.active = Some(0..2);
+    });
+    assert!(frame(&ui), "a coloured note and faint ones outside the range are drawn");
+}

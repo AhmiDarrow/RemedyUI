@@ -214,6 +214,72 @@ pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
     });
 }
 
+/// Tooltips for a widget that paints many things in one element (the notes of a score, the
+/// bars of a chart): the widget says which part the pointer is over as it moves, and the tip
+/// of a part shows beside that part once the pointer has rested on it.
+#[derive(Clone)]
+pub struct PartTooltip {
+    ui: Ui,
+    /// The part pointed at, with the timer waiting to show its tip or the tip shown.
+    at: Rc<RefCell<Option<Rect>>>,
+    pending: Rc<Cell<Option<u64>>>,
+    shown: Rc<RefCell<Option<El>>>,
+}
+
+impl PartTooltip {
+    /// Tooltips for the parts of `target`. They go when the pointer leaves it and when it
+    /// is removed. (This takes the element's hover handler.)
+    pub fn new(target: &El) -> PartTooltip {
+        let me = PartTooltip {
+            ui: target.ui().clone(),
+            at: Rc::default(),
+            pending: Rc::default(),
+            shown: Rc::default(),
+        };
+        let gone = me.clone();
+        let _ = target.clone().on_removed(move || gone.hide());
+        let left = me.clone();
+        let _ = target.clone().on_hover(move |inside| {
+            if !inside {
+                left.hide();
+            }
+        });
+        me
+    }
+
+    /// The pointer is over the part at `rect` (window coordinates) whose tip says `text`, or
+    /// over no part (`None`, or an empty text). Call it on every pointer move: pointing at
+    /// the same part again changes nothing.
+    pub fn point(&self, part: Option<(Rect, String)>) {
+        let part = part.filter(|(_, text)| !text.is_empty());
+        if part.as_ref().map(|(r, _)| *r) == *self.at.borrow() {
+            return;
+        }
+        self.hide();
+        let Some((rect, text)) = part else { return };
+        *self.at.borrow_mut() = Some(rect);
+        let me = self.clone();
+        let id = self.ui.after(TOOLTIP_DELAY, move || {
+            me.pending.set(None);
+            let tip = me.ui.el("tooltip").text(remedy_ui_view::RichText::plain(text)).pass_through();
+            let tip = me.ui.overlay(place_near_within(&me.ui, tip, rect, 4.0, TOOLTIP_WIDTH));
+            *me.shown.borrow_mut() = Some(tip);
+        });
+        self.pending.set(Some(id));
+    }
+
+    /// Takes the tip away, and forgets the part pointed at.
+    pub fn hide(&self) {
+        *self.at.borrow_mut() = None;
+        if let Some(id) = self.pending.take() {
+            self.ui.cancel_timer(id);
+        }
+        if let Some(tip) = self.shown.borrow_mut().take() {
+            tip.remove();
+        }
+    }
+}
+
 /// A transparent full-window layer that closes `content` when pressed outside it, and on
 /// Escape, which gives focus back to what had it when it opened.
 pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
