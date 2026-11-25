@@ -5065,6 +5065,7 @@ dependencies = [
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-view",
+ "remedy-ui-widgets-core",
 ]
 
 [[package]]

@@ -2272,6 +2272,8 @@ struct Win {
     pan: Option<TouchPan>,
     /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
     cursor_hidden: bool,
+    /// The pointer shape the host was last told ([`Ui::cursor`]).
+    cursor: remedy_ui_view::Cursor,
     /// Middle-button autoscroll in progress ([`Autoscroll`]).
     autoscroll: Option<Autoscroll>,
 }
@@ -2723,6 +2725,7 @@ impl Runner {
                         held: None,
                         pan: None,
                         cursor_hidden: false,
+                        cursor: remedy_ui_view::Cursor::Default,
                         autoscroll: None,
                         host: id,
                         ui: ui.clone(),
@@ -3039,6 +3042,13 @@ impl Runner {
             host.set_cursor_hidden(h, hide);
             if let Some(w) = self.wins.get_mut(&key) {
                 w.cursor_hidden = hide;
+            }
+        }
+        let shape = ui.cursor();
+        if self.wins.get(&key).is_some_and(|w| w.cursor != shape) {
+            host.set_cursor(h, shape);
+            if let Some(w) = self.wins.get_mut(&key) {
+                w.cursor = shape;
             }
         }
         for r in ui.take_requests() {

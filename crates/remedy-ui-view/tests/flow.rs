@@ -720,3 +720,23 @@ fn keyframes_loop_until_stopped_and_shadow_spread_animates() {
     assert!(glow.is_stopped());
     assert_eq!(card.info().map(|i| i.style.shadow.spread), Some(6.0));
 }
+
+#[test]
+fn the_pointer_takes_the_shape_of_the_innermost_element_that_sets_one() {
+    use remedy_ui_input::{PointerEvent, PointerPhase};
+    use remedy_ui_view::Cursor;
+    let ui = ui();
+    let inner = ui.el("box").width(20.0).height(20.0);
+    let outer = ui.el("box").width(100.0).height(100.0).cursor(Cursor::Grab).child(inner.clone());
+    let _ = ui.root().child(outer);
+    frame(&ui);
+    assert_eq!(ui.cursor(), Cursor::Default, "nothing under the pointer yet");
+    let at = |el: &El, dx: f32| el.bounds().map(|b| remedy_ui_core::Point::new(b.min.x + dx, b.min.y + 5.0));
+    let over_inner = at(&inner, 5.0).must("laid out");
+    ui.pointer(&PointerEvent::new(PointerPhase::Move, over_inner));
+    assert_eq!(ui.cursor(), Cursor::Grab, "inherited from the parent");
+    let _ = inner.clone().cursor(Cursor::NotAllowed);
+    assert_eq!(ui.cursor(), Cursor::NotAllowed);
+    ui.pointer(&PointerEvent::new(PointerPhase::Move, remedy_ui_core::Point::new(over_inner.x + 60.0, over_inner.y)));
+    assert_eq!(ui.cursor(), Cursor::Grab, "outside the child, still inside the parent");
+}

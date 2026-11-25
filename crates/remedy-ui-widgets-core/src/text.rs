@@ -49,6 +49,7 @@ pub fn link(ui: &Ui, s: impl IntoProp<String>, on_activate: impl Fn() + 'static)
     let accent = ui.theme().colors.accent;
     let color = remedy_ui_style::ensure_contrast(accent, ui.theme().colors.bg, 4.5);
     crate::min_target(ui.el("link"))
+        .cursor(remedy_ui_view::Cursor::Pointer)
         .text(s.clone().map(move |s| {
             RichText::new().styled(&s, {
                 let mut v_ = remedy_ui_view::TextStylePatch::default();
