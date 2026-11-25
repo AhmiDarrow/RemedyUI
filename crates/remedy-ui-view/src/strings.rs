@@ -32,7 +32,7 @@ type Key = (usize, String);
 /// Messages apps added: catalog name → locale → sources.
 type Added = HashMap<String, BTreeMap<String, Vec<Rc<FluentResource>>>>;
 
-/// A crate's catalog from its `i18n/<locale>.ftl` files, one per [`LOCALES`] entry:
+/// A crate's catalog from its `i18n/<name>/<locale>.ftl` files, one per [`LOCALES`] entry:
 /// `pub static STRINGS: Strings = remedy_ui_view::engine_strings!("widgets-core");`
 #[macro_export]
 macro_rules! engine_strings {
@@ -40,17 +40,17 @@ macro_rules! engine_strings {
         $crate::strings::Strings::new(
             $name,
             &[
-                ("en", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/en.ftl"))),
-                ("es", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/es.ftl"))),
-                ("zh-Hans", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/zh-Hans.ftl"))),
-                ("hi", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/hi.ftl"))),
-                ("ar", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/ar.ftl"))),
-                ("fr", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/fr.ftl"))),
-                ("pt-BR", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/pt-BR.ftl"))),
-                ("ru", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/ru.ftl"))),
-                ("ja", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/ja.ftl"))),
-                ("de", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/de.ftl"))),
-                ("bn", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/bn.ftl"))),
+                ("en", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/en.ftl"))),
+                ("es", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/es.ftl"))),
+                ("zh-Hans", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/zh-Hans.ftl"))),
+                ("hi", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/hi.ftl"))),
+                ("ar", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/ar.ftl"))),
+                ("fr", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/fr.ftl"))),
+                ("pt-BR", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/pt-BR.ftl"))),
+                ("ru", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/ru.ftl"))),
+                ("ja", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/ja.ftl"))),
+                ("de", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/de.ftl"))),
+                ("bn", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/bn.ftl"))),
             ],
         )
     };
