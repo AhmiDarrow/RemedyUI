@@ -3966,9 +3966,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "remedy-lua"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c896ddeaa5170f14a42cd6267cb239ab743cbaf44f2580bb5ff1ccb2fb57091e"
+checksum = "05f62ebc12920bf41b9edfbc6256f2b79ec5c970b593b7e6f9d8dbf2aa40c1a2"
 
 [[package]]
 name = "remedy-ui"
