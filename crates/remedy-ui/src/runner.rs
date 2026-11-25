@@ -853,6 +853,8 @@ struct Shared {
     on_leaving: Option<Rc<dyn Fn(Leaving)>>,
     /// Asked before a window closes ([`Window::on_close_request`]), by window key.
     close_asks: HashMap<u64, CloseAsk>,
+    /// Told when the app is back after [`Leaving::Hidden`] or [`Leaving::Frozen`].
+    on_return: Option<Rc<dyn Fn()>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
     /// Hears the app's language (its own, or the system's) when it changes.
@@ -1057,6 +1059,15 @@ impl App {
     /// [`Leaving::Quitting`] only. A second call replaces `f`.
     pub fn on_leave(&self, f: impl Fn(Leaving) + 'static) {
         self.0.borrow_mut().on_leaving = Some(Rc::new(f));
+    }
+
+    /// Calls `f` when the app is back in front of the person after [`on_leave`](Self::on_leave)
+    /// reported [`Leaving::Hidden`] or [`Leaving::Frozen`]: a window is in sight again, the
+    /// page's tab is shown again, a phone app returns to the foreground. Work stopped on
+    /// leaving (playback, a microphone, polling) starts again here. Not called at launch.
+    /// A second call replaces `f`.
+    pub fn on_return(&self, f: impl Fn() + 'static) {
+        self.0.borrow_mut().on_return = Some(Rc::new(f));
     }
 
     /// Calls `f(prefers_dark, high_contrast)` with the system's appearance now (once the
@@ -2447,6 +2458,8 @@ pub struct Runner {
     midnight_timer: Option<TimerId>,
     /// Between `Suspended` and the next `Resumed`: the windows have no surfaces to draw in.
     suspended: bool,
+    /// The app was told it is hidden or frozen and has not been told it is back.
+    away: bool,
     /// File dialogs the platform answers later, and what to call with the choice.
     dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
     /// Permission requests the platform answers later, and what to call with the answer.
@@ -2579,6 +2592,7 @@ impl Runner {
             idle_timer: None,
             midnight_timer: None,
             suspended: false,
+            away: false,
             dialogs: HashMap::new(),
             permissions: HashMap::new(),
             shares: HashMap::new(),
@@ -3205,6 +3219,7 @@ impl Runner {
     /// Geometry is written when a write is due (or `always`, when the app quits).
     fn save_now(&mut self, host: &mut dyn Host, why: Leaving) {
         let always = why == Leaving::Quitting;
+        self.away |= matches!(why, Leaving::Hidden | Leaving::Frozen);
         self.leaving(why);
         let due = self.save_timer.take().inspect(|t| host.cancel_timer(*t)).is_some();
         if due || always {
@@ -3213,6 +3228,16 @@ impl Runner {
         let store = self.app.0.borrow().persist.clone();
         if let Some(s) = store {
             let _ = s.flush();
+        }
+    }
+
+    /// Tells the app it is back, once, after it was told it was hidden or frozen.
+    fn returned(&mut self) {
+        if std::mem::take(&mut self.away) {
+            let f = self.app.0.borrow().on_return.clone();
+            if let Some(f) = f {
+                f();
+            }
         }
     }
 
@@ -3751,6 +3776,7 @@ impl remedy_ui_host::App for Runner {
         match event {
             HostEvent::Resumed => {
                 self.suspended = false;
+                self.returned();
                 remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
                     #[cfg(all(
@@ -3847,6 +3873,8 @@ impl remedy_ui_host::App for Runner {
                 // system may end the app from here on, so what it keeps is written now.
                 if covered && self.wins.values().all(|w| w.ui.is_occluded()) {
                     self.save_now(host, Leaving::Hidden);
+                } else if !covered {
+                    self.returned();
                 }
             }
             HostEvent::Moved(window, _) => {
