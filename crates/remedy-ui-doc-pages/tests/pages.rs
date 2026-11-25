@@ -525,3 +525,25 @@ fn the_app_sets_wheel_zoom_and_shortcuts_and_hears_taps() {
     w.pointer(0, PointerKind::Mouse, PointerPhase::Up, at, Buttons::default());
     assert_eq!(*taps.borrow(), vec![Some(0)]);
 }
+
+#[test]
+fn changed_pages_render_again_and_a_new_document_keeps_the_place() {
+    let mut w = Win::new(doc(300), WINDOW);
+    w.view.go_to_page(7);
+    assert!(w.settle(LONG));
+    let (zoom, scroll) = (w.view.zoom().get_untracked().ok(), w.view.scroll_offset());
+    let before = w.view.stats();
+    w.view.pages_changed(&[7]);
+    assert!(w.view.stats().cached_tiles < before.cached_tiles, "page 8's tiles are gone");
+    assert!(w.settle(LONG));
+    assert!(w.view.stats().rendered > before.rendered, "and drawn again");
+    assert_eq!((w.view.zoom().get_untracked().ok(), w.view.scroll_offset()), (zoom, scroll));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(7));
+    // Another document with fewer pages: the view stays as near as it can.
+    w.view.set_source(doc(3));
+    assert_eq!(w.view.page_count(), 3);
+    assert_eq!(w.view.page_count_signal().get_untracked().ok(), Some(3));
+    assert!(w.settle(LONG));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(2));
+    assert!(w.view.is_sharp());
+}

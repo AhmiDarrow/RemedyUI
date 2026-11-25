@@ -182,6 +182,14 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
         keys.go_to_page(to);
         true
     });
+    // A document that gains or loses pages has as many rows.
+    let count = view.page_count_signal();
+    let rail = rail.bind(move || {
+        let n = count.get();
+        if items.get_untracked().map(|v| v.len()).ok() != Some(n) {
+            let _ = items.try_set((0..n).collect());
+        }
+    });
     // Keep the current page's row in sight.
     let follow = view.current_page();
     let scroller = rail.clone();
