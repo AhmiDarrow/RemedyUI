@@ -52,6 +52,7 @@
 //!   last saves) finish when the app goes to the background instead of being frozen with it,
 //!   and the app's way out waits for them (up to 10 seconds), as on the desktop;
 //! - launch options from the starting intent (`launch_extra`);
+//! - the link that opened the app (`launch_url`, for `[app] url_schemes`);
 //! - the app's private data folder (`data_dir`), where `remedy_ui`'s `App::data_dir` and
 //!   persisted state live;
 //! - the system log (`log`), since Android discards a native app's standard output.
@@ -101,7 +102,7 @@ pub use crate::bridge_winit::winit::platform::android::activity::AndroidApp;
 #[cfg(target_os = "android")]
 pub use android::{
     AndroidHooks, ApkInstall, HELD_GRACE, attach, can_request_package_installs, data_dir, hold_process,
-    install_apk, launch_extra, log, run, set_held_grace,
+    install_apk, launch_extra, launch_url, log, run, set_held_grace,
 };
 
 /// Declares the app's Android entry point: the activity starts `entry` (a `fn()`) with the

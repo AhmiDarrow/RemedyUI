@@ -85,7 +85,8 @@ pub struct Project {
     /// The package depends on `remedy-ui` itself (so its `web` feature can be turned on).
     pub uses_remedy_ui: bool,
     /// The URL schemes that open the app (`[app] url_schemes`, `["hearth"]`): the macOS
-    /// bundle declares them, the way macOS requires (other desktops register at run time).
+    /// bundle declares them, the way macOS requires (other desktops register at run time),
+    /// and the Android manifest takes links in them (`remedy_ui::android::launch_url`).
     pub url_schemes: Vec<String>,
 }
 
