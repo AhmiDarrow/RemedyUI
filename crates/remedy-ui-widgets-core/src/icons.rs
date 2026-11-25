@@ -147,6 +147,12 @@ pub enum Icon {
     Stop,
     /// A five-pointed star: mark a favorite or pin.
     Star,
+    /// Headphones: listening, an audio output.
+    Headphones,
+    /// Upright bars of different heights: sound, a level, a voice.
+    AudioLines,
+    /// Two joined notes: music.
+    Music,
 }
 
 impl Icon {
@@ -249,6 +255,9 @@ impl Icon {
             Icon::Paperclip => "Paperclip",
             Icon::Stop => "Stop",
             Icon::Star => "Star",
+            Icon::Headphones => "Headphones",
+            Icon::AudioLines => "Audio",
+            Icon::Music => "Music",
         }
     }
 
@@ -330,6 +339,9 @@ impl Icon {
             Icon::Paperclip => "icon-paperclip",
             Icon::Stop => "icon-stop",
             Icon::Star => "icon-star",
+            Icon::Headphones => "icon-headphones",
+            Icon::AudioLines => "icon-audio",
+            Icon::Music => "icon-music",
         }
     }
 }
@@ -749,6 +761,30 @@ fn strokes(icon: Icon) -> Path {
             arc(&mut s, p(8.0, 8.0), 2.0, PI, PI * 1.5);
             s.close();
         }
+        Icon::Headphones => {
+            // The band over the head, and a cup hanging from each end.
+            arc(&mut s, p(12.0, 13.0), 8.0, PI, 2.0 * PI);
+            for (edge, inner) in [(4.0, 7.5), (20.0, 16.5)] {
+                s.move_to(p(edge, 13.0))
+                    .line_to(p(edge, 19.5))
+                    .line_to(p(inner, 19.5))
+                    .line_to(p(inner, 13.5))
+                    .line_to(p(edge, 13.5));
+            }
+        }
+        Icon::AudioLines => {
+            for (x, half) in [(4.0, 2.0), (8.0, 6.0), (12.0, 9.0), (16.0, 4.0), (20.0, 2.0)] {
+                s.move_to(p(x, 12.0 - half)).line_to(p(x, 12.0 + half));
+            }
+        }
+        Icon::Music => {
+            // Two stems joined by a beam, a head at the foot of each.
+            s.move_to(p(9.5, 17.0)).line_to(p(9.5, 5.5)).line_to(p(19.0, 3.5)).line_to(p(19.0, 15.0));
+            for r in [1.2, 2.5] {
+                circle(&mut s, p(7.0, 17.0), r);
+                circle(&mut s, p(16.5, 15.0), r);
+            }
+        }
         Icon::Star => {
             let (cx, cy, ro, ri) = (12.0, 12.2, 9.5, 3.8);
             for i in 0..10 {
@@ -1079,6 +1115,9 @@ mod tests {
             Icon::Paperclip,
             Icon::Stop,
             Icon::Star,
+            Icon::Headphones,
+            Icon::AudioLines,
+            Icon::Music,
         ];
         let mut names = Vec::new();
         for icon in ALL.into_iter().chain(more) {
