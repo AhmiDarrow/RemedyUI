@@ -115,7 +115,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-widgets-term`: the terminal element: VT and xterm emulation with true color, the kitty keyboard protocol, sixel pictures, reflow, scrollback sized from the machine, selection, links, input methods and screen readers; the PTY stays in the app
 - `remedy-ui-widgets::viz`: the speaking ring, level meters, sparklines and bars
 
-Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.0, [repository](https://github.com/AhmiDarrow/RemedyLua)), a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. `remedy-ui-engine::script_lua` is that engine. Prism effect bindings are designed for the same language. This workspace ships the RemedyLua and WebAssembly engines above.
+Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.2, [repository](https://github.com/AhmiDarrow/RemedyLua)), a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. `remedy-ui-engine::script_lua` is that engine. Prism effect bindings are designed for the same language. This workspace ships the RemedyLua and WebAssembly engines above.
 
 **Documents**
 - `remedy-ui-widgets::doc_rich`: Markdown, a rich text editor with links and mentions that saves Markdown, and a find bar
