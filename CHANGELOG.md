@@ -14,11 +14,86 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **Touch**: a finger dragged over a view that scrolls itself (a page view, a text area)
+  now scrolls it, as the wheel does, and a second finger brings the first with it, so a
+  pinch starts. A file dialog filter of `*` matches files without an extension on Linux
+  and lifts the filter on macOS.
+
+- **Page view keys are commands**: the scroll and zoom keys match their shortcuts exactly
+  (Shift+ArrowDown no longer scrolls); rebind them with `PageView::rebind`. `TabEvent` has a
+  `length` field and `FretMark` has `opacity` and `pulse`: build them with their
+  constructors. `Release` has a `page` field. `remedy_ui_bridge_web::history` entries carry
+  a fourth value, the entry's state.
+
 - **Handwritten widgets are RemedyLua.** Enable `script-lua` (it is part of `full`, where `script-rhai` was). The module is `remedy_ui::script_lua` (`LuaEngine`, `LuaWidget`, `Grants`). `Language::LUA` and `Package::lua` are the package language; `Language::for_extension` accepts `lua` and `rlua` (the typed dialect, selected when the source's first non-empty line is `-- rlua`). `cargo remedy migrate` rewrites `remedy_ui::script_rhai` to `script_lua`, `Language::RHAI` to `LUA` and `Package::rhai` to `lua`. A path that names the old type, such as `remedy_ui::script_rhai::RhaiEngine`, has to be edited by hand to `remedy_ui::script_lua::LuaEngine`. `ScriptWidget` gains `advance`, `unmount` and `next_frame` (defaults: no clock). `Limits::expr_depth` is ignored by RemedyLua, whose parser does not recurse.
 
 - **Colorblind palette names**: the `protan`, `deutan` and `tritan` palettes are labelled **Protan**, **Deutan** and **Tritan** (ids unchanged, so a saved theme still matches).
 
 ### Added
+
+- **Page view: a page at a time, input the app sets, and taps**: `PageMode::Paged`
+  (`PageView::set_page_mode`) shows one row of pages (a page or a spread) and turns it with
+  `next_page` / `previous_page`, the wheel at the page's edge, the scroll keys and a swipe;
+  the current-page signal is the row's first page. `PageInput` sets the wheel's zoom step
+  (with and without Shift, or none so an ancestor takes Ctrl+wheel), the key zoom step and
+  the reset zoom. `PageCommand` names what the keys do, with ids and default shortcuts;
+  `rebind`, `chords` and `run` change and run them. `on_tap`, `on_double_tap`,
+  `on_long_press` and `on_swipe` give the page and the point on it. `Fit::Height` and
+  `fit_once` fit to the current page or spread without following later resizes.
+
+- **Page view: a colour filter on the pages alone, changed pages, images**:
+  `set_page_filter` recolours page pixels (paper, tiles, thumbnails) and nothing around them;
+  `ColorMatrix` gains `warm`, `cool` and `ink_paper`. `pages_changed`, `document_changed` and
+  `set_source` render and read again while keeping zoom, scroll and page (the thumbnail rail
+  follows `page_count_signal`). `AnnotationKind::Image` places a picture, moved by dragging
+  and resized by a corner, with undo, named in every locale.
+
+- **A window can refuse to close**: `Window::on_close_request` hears the title-bar button,
+  Alt+F4, the Back key and `App::quit` (`CloseReason`), and answers whether to close, for a
+  Save / Discard / Cancel prompt. `Window::close` and `App::quit_now` do not ask.
+  `App::on_return` pairs with `on_leave`.
+
+- **Tab staff**: `tab_staff_view` and `tab_staff_editor_view` take a `TabView`: a playhead
+  signal in quarter notes that lights the whole column and scrolls it into view, and a
+  `TabDecor` of per-note colour, faint notes, tooltips and a dimmed column range.
+  `TabOptions::flow(TabFlow::Row)` lays the piece out as one line for a sideways scroller,
+  `column_numbers` numbers the events, `tab_columns` gives every column's rectangle and
+  time, and `TabEvent::free` holds a length in free beats.
+
+- **Fretboard and chord diagram**: `FretboardOptions::on_pick` hears every press (the same
+  fret twice too), `FretMark::dimmed` and `pulsing`, `shaded` frets, `sounding_classes`
+  (pitch classes ringed in every octave) and `reverse_strings`. `ChordShape::with_roots`,
+  `with_labels` and `with_string_names`.
+
+- **Sound an app makes**: `MediaHost::audio_output_with(format, Latency::Interactive)` opens
+  a short device buffer on every platform (WASAPI two periods with a 1 ms timer, AAudio's
+  low-latency mode with a two-burst buffer, a 12 ms Audio Queue, a 20 ms GStreamer queue,
+  WebAudio's interactive hint). `AudioFeed` feeds an output by callback from a worker of
+  its own. `synth` has `Wave`, `Adsr`, `Sound` (tones and clicks), a polyphonic `Mixer`, a
+  `Sequencer` (tempo, loop, count-in, metronome with subdivisions; sounds start on the
+  exact frame of their beat) and `Transport`, which plays one and gives the position as a
+  signal.
+
+- **Media as samples, and from memory**: `decode_pcm` decodes a source to mono at any rate
+  (in a browser page the browser decodes it, so mp3, wav, ogg and flac work there);
+  `resample` is band-limited, so 44.1 kHz brought to 16 kHz does not alias; `to_mono`.
+  `MediaSource::bytes` plays a file held in memory. `MicrophoneOptions::raw` (the default)
+  turns the system's voice processing off on every platform, WASAPI included; on Android a
+  device that refuses the unprocessed preset is opened with its own.
+
+- **Pointer shapes**: `El::cursor(Cursor::…)` gives the mouse pointer a shape over an
+  element (the standard set: pointer, text, grab, not-allowed, the resize arrows and the
+  rest); `Ui::cursor` is the shape now, and `Host::set_cursor` shows it on Windows, Linux,
+  macOS and the web. Links have the hand and text the I-beam.
+
+- **Smaller additions**: `El::animate_keyframes` loops steps (`Repeat`, `Keyframes::stop`)
+  and `Target::ShadowSpread` animates a shadow's spread. `BarsOptions::min_bar` and
+  `tween`. `number_input_within` takes its bounds from signals. Markdown headings have ids
+  (`heading_id`, `headings`, `scroll_to_heading`; links to `#an-id` scroll). `Router`
+  entries carry a state (`push_with`, `state`, `set_state`), and `Router::for_window_at`
+  keeps a browser page's routes in the address's path. `PartTooltip` shows tooltips for the
+  parts of a widget that paints them itself. Icons `Headphones`, `AudioLines` and `Music`.
+  `services-update`: `download_with` and `CancelDownload`, and `Release::page`.
 
 - **A text field's selection can be set, and what a search found highlighted**:
   `TextField::set_selection` selects a byte range and scrolls it into view at the next
