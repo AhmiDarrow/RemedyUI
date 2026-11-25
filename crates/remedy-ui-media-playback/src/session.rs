@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
+use remedy_ui_core::reactive::{Effect, Scope};
 use remedy_ui_core::time::Instant;
-use remedy_ui_reactive::{Effect, Scope};
-use remedy_ui_services_desktop::DesktopError;
-use remedy_ui_services_desktop::media_session::{
+use remedy_ui_platform::services_desktop::DesktopError;
+use remedy_ui_platform::services_desktop::media_session::{
     MediaCommand, MediaSession, MediaState, NowPlaying, NowPlayingSink,
 };
 
@@ -117,8 +117,8 @@ impl Player {
             sink.set_now_playing(Some(&now));
             return Ok(());
         }
-        let waker =
-            remedy_ui_reactive::waker().map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
+        let waker = remedy_ui_core::reactive::waker()
+            .map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
         let session = MediaSession::new(move |c| {
             let _ = waker.post(move || {
                 if let Some(p) = Player::by_id(id) {
@@ -234,10 +234,10 @@ mod tests {
 
     #[test]
     fn the_controls_follow_a_remote_player_and_press_the_device() {
-        let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-        let ui = remedy_ui_view::Ui::new(
+        let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
+        let ui = remedy_ui_engine::view::Ui::new(
             theme.clone(),
-            remedy_ui_themes::sheet(&theme),
+            remedy_ui_widgets::themes::sheet(&theme),
             remedy_ui_text::FontCollection::new(),
         );
         let frame = || {

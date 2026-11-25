@@ -13,10 +13,10 @@ use std::time::Duration;
 use remedy_ui::core::{CornerRadii, Rect};
 use remedy_ui::reactive::Signal;
 use remedy_ui::{App, AppConfig, GeometryStore, RendererKind, Runner, WindowSpec};
-use remedy_ui_bridge_windows::WindowsHooks;
-use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
-use remedy_ui_bridge_winit::{UserEvent, run_on};
+use remedy_ui_platform::bridge_windows::WindowsHooks;
+use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
 
 /// Repaints a heavy scene every few milliseconds.
 fn tick(app: &App, t: Signal<u32>) {
@@ -65,7 +65,7 @@ fn a_slow_window_moves_from_the_cpu_to_the_gpu() {
                             cx.list.fill_rounded(
                                 Rect::new(x, y, x + 40.0, y + 24.0),
                                 CornerRadii::all(8.0),
-                                remedy_ui_paint::Brush::Solid(c),
+                                remedy_ui_engine::paint::Brush::Solid(c),
                             );
                         }
                     });

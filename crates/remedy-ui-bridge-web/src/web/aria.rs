@@ -11,8 +11,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use remedy_ui_host::accesskit::{Action, ActionRequest, Node, NodeId, Rect, TreeId, TreeUpdate};
-use remedy_ui_host::{AccessibilityEvent, HostEvent, WindowId};
+use remedy_ui_core::host::accesskit::{Action, ActionRequest, Node, NodeId, Rect, TreeId, TreeUpdate};
+use remedy_ui_core::host::{AccessibilityEvent, HostEvent, WindowId};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 

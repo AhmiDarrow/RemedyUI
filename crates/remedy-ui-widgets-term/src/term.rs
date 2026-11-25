@@ -50,7 +50,7 @@ impl Scrollback {
 
 /// The machine's memory, when the platform said.
 fn machine_memory() -> Option<u64> {
-    remedy_ui_view::device::total_memory()
+    remedy_ui_engine::view::device::total_memory()
 }
 
 /// The longest string a program may send in one sequence (a title, a link, a clipboard
@@ -1772,8 +1772,8 @@ impl State {
 
     /// Lets go of scrollback when the system is short of memory: the older half when
     /// memory is short, all of it when it is critical.
-    pub(crate) fn relieve(&mut self, level: remedy_ui_view::device::MemoryPressure) {
-        use remedy_ui_view::device::MemoryPressure;
+    pub(crate) fn relieve(&mut self, level: remedy_ui_engine::view::device::MemoryPressure) {
+        use remedy_ui_engine::view::device::MemoryPressure;
         let drop = match level {
             MemoryPressure::Normal => 0,
             MemoryPressure::Moderate => self.history.len() / 2,
@@ -2695,7 +2695,7 @@ impl Emulator {
 
     /// Gives scrollback back under memory pressure: the older half when memory is short,
     /// all of it when critical.
-    pub fn relieve(&mut self, level: remedy_ui_view::device::MemoryPressure) {
+    pub fn relieve(&mut self, level: remedy_ui_engine::view::device::MemoryPressure) {
         self.state.relieve(level);
     }
 

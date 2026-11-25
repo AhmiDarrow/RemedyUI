@@ -1,7 +1,7 @@
 //! `cargo remedy rui check|compile|elements`.
 
-use remedy_tools::Workspace;
-use remedy_tools::markup::{ElementSpec, MarkupInput, built_in, check, compile};
+use cargo_remedy::devkit::Workspace;
+use cargo_remedy::devkit::markup::{ElementSpec, MarkupInput, built_in, check, compile};
 
 use super::{Args, err};
 

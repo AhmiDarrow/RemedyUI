@@ -168,7 +168,7 @@ entry point is `remedy_ui::android::main!`, which compiles to nothing on other p
 `cargo remedy new my-app --template android` makes one app for Android and the desktop,
 ready for `cargo remedy package --target android`.
 
-The APK carries the bridge's own Java (`classes.dex` from the `remedy-ui-bridge-android`
+The APK carries the bridge's own Java (`classes.dex` from the `remedy-ui-platform::bridge_android`
 release the app builds with, found with `cargo metadata`), and its manifest declares:
 
 - `dev.remedyui.android.RemedyActivity`, Android's `NativeActivity` loading the app's

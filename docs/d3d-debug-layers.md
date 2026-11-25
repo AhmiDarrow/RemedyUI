@@ -7,7 +7,7 @@ decoder's D3D11 device under the Direct3D debug layers. It needs Windows Graphic
 
 ```powershell
 $env:CARGO_HOME="$HOME/.cargo"; $env:WGPU_BACKEND="dx12"; $env:REMEDY_D3D_DEBUG="1"
-cargo test -p remedy-ui-render-gpu
+cargo test -p remedy-ui-engine --features render-gpu
 cargo test -p remedy-ui-media-playback
 cargo test --release -p remedy-ui --test windows_auto_gpu
 ```

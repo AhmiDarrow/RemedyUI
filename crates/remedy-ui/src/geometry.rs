@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use remedy_ui_core::reactive::{JsonValue, Persist, PersistStore};
 use remedy_ui_core::{Point, Size};
-use remedy_ui_reactive::{JsonValue, Persist, PersistStore};
 
 /// The key window geometry is kept under in a [`PersistStore`]
 /// ([`GeometryStore::persisted_in`]).
@@ -141,7 +141,7 @@ pub(crate) fn data_dir(name: &str) -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
         let _ = name;
-        remedy_ui_bridge_android::data_dir()
+        remedy_ui_platform::bridge_android::data_dir()
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -158,7 +158,7 @@ pub(crate) fn cache_dir(name: &str) -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
         let _ = name;
-        remedy_ui_bridge_android::data_dir().and_then(|d| d.parent().map(|p| p.join("cache")))
+        remedy_ui_platform::bridge_android::data_dir().and_then(|d| d.parent().map(|p| p.join("cache")))
     }
     #[cfg(not(target_os = "android"))]
     {

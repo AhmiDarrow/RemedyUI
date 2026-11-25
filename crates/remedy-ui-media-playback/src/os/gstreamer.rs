@@ -609,8 +609,10 @@ impl GstDecoder {
             dma: None,
         };
         // DMA-BUFs in the layouts the renderer imports, when one has said it takes them.
-        let modifiers = match remedy_ui_paint::gpu_video_adapter() {
-            Some(remedy_ui_paint::GpuAdapter::Uuid(_)) => remedy_ui_paint::gpu_video_dma_buf_modifiers(),
+        let modifiers = match remedy_ui_engine::paint::gpu_video_adapter() {
+            Some(remedy_ui_engine::paint::GpuAdapter::Uuid(_)) => {
+                remedy_ui_engine::paint::gpu_video_dma_buf_modifiers()
+            }
             _ => Vec::new(),
         };
         d.dma = (!modifiers.is_empty()).then(super::gst_dmabuf::fns).flatten();

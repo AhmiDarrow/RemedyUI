@@ -8,8 +8,8 @@
 //! the user picked or dropped is read from the web bridge's file store.
 //!
 //! Decoded pictures stay on the GPU when the page draws with the GPU renderer (it announces
-//! [`GpuAdapter::Browser`](remedy_ui_paint::GpuAdapter::Browser)): each `VideoFrame` is handed
-//! over as it is ([`GpuTexture::WebVideoFrame`](remedy_ui_paint::GpuTexture::WebVideoFrame)),
+//! [`GpuAdapter::Browser`](remedy_ui_engine::paint::GpuAdapter::Browser)): each `VideoFrame` is handed
+//! over as it is ([`GpuTexture::WebVideoFrame`](remedy_ui_engine::paint::GpuTexture::WebVideoFrame)),
 //! for the renderer to import, and closed when the last clone of its picture goes. Otherwise
 //! (the CPU renderer, or more frames held than the browser's decoder can spare) its pixels are
 //! copied out with `copyTo` and the frame is closed at once.
@@ -30,7 +30,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use js_sys::{Array, Float32Array, Object, Promise, Reflect, Uint8Array};
-use remedy_ui_paint::{CpuPixels, GpuAdapter, GpuPicture, GpuTexture};
+use remedy_ui_engine::paint::{CpuPixels, GpuAdapter, GpuPicture, GpuTexture};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::convert::IntoWasmAbi;
 use wasm_bindgen::prelude::*;
@@ -356,7 +356,8 @@ impl Drop for WebFrame {
 /// `frame` as a picture on the GPU, when a renderer takes it there and the decoder can spare it.
 fn gpu_picture(out: &Shared, frame: VideoFrame) -> Result<Picture, VideoFrame> {
     let held = out.borrow().held.clone();
-    if remedy_ui_paint::gpu_video_adapter() != Some(GpuAdapter::Browser) || held.get() >= HELD_FRAMES {
+    if remedy_ui_engine::paint::gpu_video_adapter() != Some(GpuAdapter::Browser) || held.get() >= HELD_FRAMES
+    {
         return Err(frame);
     }
     let (width, height) = (frame.display_width(), frame.display_height());

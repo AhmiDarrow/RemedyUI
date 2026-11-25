@@ -356,8 +356,8 @@ impl MfDecoder {
             }
         };
         // Pictures stay on the GPU when a renderer takes them there.
-        let mut gpu = match remedy_ui_paint::gpu_video_adapter() {
-            Some(remedy_ui_paint::GpuAdapter::Luid(l)) => {
+        let mut gpu = match remedy_ui_engine::paint::gpu_video_adapter() {
+            Some(remedy_ui_engine::paint::GpuAdapter::Luid(l)) => {
                 super::d3d11::Gpu::new(l).map_err(|e| copy_path(&e)).ok()
             }
             _ => None,

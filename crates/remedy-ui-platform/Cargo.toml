@@ -1,0 +1,254 @@
+[package]
+name = "remedy-ui-platform"
+description = "RemedyUI on each platform: the window bridges (Windows, macOS, Linux, Android, headless), desktop services, networking, localization data, web storage and embedded web views and GPU surfaces."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+bridge-android = ["bridge-winit", "dep:accesskit_android", "dep:jni", "dep:libc", "dep:remedy-ui-core", "dep:winit"]
+bridge-headless = ["dep:remedy-ui-core"]
+bridge-linux = ["bridge-winit", "dep:arboard", "dep:futures-core", "dep:libc", "dep:remedy-ui-core", "dep:serde", "dep:wayland-backend", "dep:wayland-client", "dep:wayland-protocols", "dep:x11rb", "dep:zbus"]
+bridge-macos = ["bridge-winit", "dep:block2", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-user-notifications", "dep:remedy-ui-core", "dep:rfd"]
+bridge-windows = ["bridge-winit", "dep:png", "dep:remedy-ui-core", "dep:rfd", "dep:windows", "dep:windows-collections", "dep:windows-core", "dep:windows-sys"]
+bridge-winit = ["dep:accesskit_winit", "dep:remedy-ui-core", "dep:softbuffer", "dep:winit"]
+embed-gpu = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/render-gpu", "remedy-ui-engine/view"]
+embed-webview = ["dep:libc", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:webview2-com", "dep:windows", "dep:windows-core", "remedy-ui-engine/view"]
+services-desktop = ["dep:futures-core", "dep:jni", "dep:js-sys", "dep:ndk-context", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:wasm-bindgen", "dep:web-sys", "dep:windows", "dep:windows-core", "dep:windows-sys", "dep:zbus"]
+services-i18n = ["dep:fluent-bundle", "dep:fluent-langneg", "dep:fluent-syntax", "dep:icu_calendar", "dep:icu_datetime", "dep:icu_decimal", "dep:icu_locale_core", "dep:intl-memoizer", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:unic-langid", "remedy-ui-engine/view"]
+services-i18n-language-names = ["dep:icu_locale", "dep:js-sys", "dep:wasm-bindgen", "dep:writeable"]
+services-net = ["dep:js-sys", "dep:remedy-ui-core", "dep:rustls", "dep:serde", "dep:serde_json", "dep:ureq", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
+services-webstorage = ["dep:js-sys", "dep:snap", "dep:wasm-bindgen", "dep:web-sys"]
+
+[dependencies]
+accesskit_winit = { version = "=0.34.2", optional = true }
+fluent-bundle = { version = "=0.16.0", optional = true }
+fluent-langneg = { version = "=0.13.1", optional = true }
+fluent-syntax = { version = "=0.12.0", optional = true }
+icu_calendar = { version = "=2.3.0", default-features = false, features = ["compiled_data"], optional = true }
+icu_datetime = { version = "=2.3.0", default-features = false, features = ["compiled_data"], optional = true }
+icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data", "unstable"], optional = true }
+icu_locale_core = { version = "=2.4.0", default-features = false, optional = true }
+intl-memoizer = { version = "=0.5.3", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
+serde = { version = "=1.0.229", optional = true }
+serde_json = { version = "=1.0.154", optional = true }
+snap = { version = "=1.1.2", optional = true }
+softbuffer = { version = "=0.4.8", optional = true }
+unic-langid = { version = "=0.9.6", features = ["likelysubtags"], optional = true }
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"], optional = true }
+
+[dev-dependencies]
+remedy-ui = { path = "../remedy-ui" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["themes"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+remedy-ui-platform = { path = ".", features = ["bridge-android", "bridge-headless", "bridge-linux", "bridge-macos", "bridge-windows", "bridge-winit", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-i18n-language-names", "services-net", "services-webstorage"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = { version = "=0.3.107", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag", "Url", "Window", "Navigator"], optional = true }
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"], optional = true }
+futures-core = { version = "=0.3.34", optional = true }
+libc = { version = "=0.2.191", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+wayland-backend = { version = "=0.3.17", features = ["client_system"], optional = true }
+wayland-client = { version = "=0.31.15", optional = true }
+wayland-protocols = { version = "=0.32.13", features = ["client", "staging"], optional = true }
+x11rb = { version = "=0.13.2", features = ["xkb"], optional = true }
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"], optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+icu_locale = { version = "=2.3.1", default-features = false, features = ["compiled_data", "unstable"], optional = true }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"], optional = true }
+writeable = { version = "=0.6.4", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.107", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+wasm-bindgen-futures = { version = "=0.4.80", optional = true }
+web-sys = { version = "=0.3.107", features = ["AbortController", "AbortSignal", "Headers", "Location", "Request", "RequestCredentials", "RequestInit", "Response", "Storage", "Window"], optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+accesskit_android = { version = "=0.9.1", features = ["embedded-dex"], optional = true }
+jni = { version = "=0.21.1", optional = true }
+libc = { version = "=0.2.191", optional = true }
+ndk-context = { version = "=0.1.1", optional = true }
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "android-native-activity"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = { version = "=0.6.2", optional = true }
+objc2 = { version = "=0.6.5", optional = true }
+objc2-app-kit = { version = "=0.3.2", optional = true }
+objc2-foundation = { version = "=0.3.2", optional = true }
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "bitflags", "UNError", "UNNotification", "UNNotificationAttachment", "UNNotificationAction", "UNNotificationCategory", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"], optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+rfd = { version = "=0.18.0", default-features = false, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+png = { version = "=0.18.1", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+rfd = { version = "=0.18.0", default-features = false, optional = true }
+webview2-com = { version = "=0.39.1", optional = true }
+windows = { version = "=0.62.2", features = ["ApplicationModel_DataTransfer", "Data_Xml_Dom", "Foundation", "Gaming_Input", "Media", "Media_Playback", "Storage", "Storage_Streams", "UI_Notifications", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Registry", "Win32_System_SystemServices", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_TextServices", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-collections = { version = "=0.3.2", optional = true }
+windows-core = { version = "=0.62.2", optional = true }
+windows-sys = { version = "=0.61.2", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_XboxController", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-futures = { version = "=0.4.80" }
+wasm-bindgen-test = { version = "=0.3.80" }
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dev-dependencies]
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets"] }
+x11rb = { version = "=0.13.2", features = ["xkb", "xtest"] }
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = { version = "=0.3.80" }
+
+[target.'cfg(windows)'.dev-dependencies]
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets"] }
+windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collections", "Media", "Media_Control"] }
+
+[[test]]
+name = "instance"
+path = "tests/bridge_windows/instance.rs"
+required-features = ["bridge-windows"]
+
+[[test]]
+name = "window"
+path = "tests/bridge_windows/window.rs"
+required-features = ["bridge-windows"]
+
+[[test]]
+name = "host"
+path = "tests/bridge_headless/host.rs"
+required-features = ["bridge-headless"]
+
+[[test]]
+name = "autostart"
+path = "tests/services_desktop/autostart.rs"
+required-features = ["services-desktop"]
+
+[[test]]
+name = "keep_awake_web"
+path = "tests/services_desktop/keep_awake_web.rs"
+required-features = ["services-desktop"]
+
+[[test]]
+name = "media_session"
+path = "tests/services_desktop/media_session.rs"
+required-features = ["services-desktop"]
+
+[[test]]
+name = "media_session_mpris"
+path = "tests/services_desktop/media_session_mpris.rs"
+required-features = ["services-desktop"]
+
+[[test]]
+name = "media_session_web"
+path = "tests/services_desktop/media_session_web.rs"
+required-features = ["services-desktop"]
+
+[[test]]
+name = "native"
+path = "tests/services_net/native.rs"
+required-features = ["services-net"]
+
+[[test]]
+name = "pool"
+path = "tests/services_net/pool.rs"
+required-features = ["services-net"]
+
+[[test]]
+name = "web"
+path = "tests/services_net/web.rs"
+required-features = ["services-net"]
+
+[[test]]
+name = "formats"
+path = "tests/services_i18n/formats.rs"
+required-features = ["services-i18n"]
+
+[[test]]
+name = "messages"
+path = "tests/services_i18n/messages.rs"
+required-features = ["services-i18n"]
+
+[[test]]
+name = "strings"
+path = "tests/services_i18n/strings.rs"
+required-features = ["services-i18n"]
+
+[[test]]
+name = "browser"
+path = "tests/services_webstorage/browser.rs"
+required-features = ["services-webstorage"]
+
+[[test]]
+name = "fixtures"
+path = "tests/services_webstorage/fixtures.rs"
+required-features = ["services-webstorage"]
+
+[[test]]
+name = "linux_webview"
+path = "tests/embed_webview/linux_webview.rs"
+required-features = ["embed-webview"]
+
+[[test]]
+name = "windows_webview"
+path = "tests/embed_webview/windows_webview.rs"
+required-features = ["embed-webview"]
+
+[[test]]
+name = "device_loss"
+path = "tests/embed_gpu/device_loss.rs"
+required-features = ["embed-gpu"]
+
+[[test]]
+name = "errors"
+path = "tests/embed_gpu/errors.rs"
+required-features = ["embed-gpu"]
+
+[[test]]
+name = "triangle"
+path = "tests/embed_gpu/triangle.rs"
+required-features = ["embed-gpu"]
+
+[[example]]
+name = "android-demo"
+path = "examples/bridge_android/android-demo.rs"
+crate-type = ["cdylib"]
+required-features = ["bridge-android"]
+
+[[example]]
+name = "android-keep-awake-check"
+path = "examples/services_desktop/android-keep-awake-check/main.rs"
+crate-type = ["cdylib"]
+required-features = ["services-desktop"]
+
+[[example]]
+name = "android-media-check"
+path = "examples/services_desktop/android-media-check/main.rs"
+crate-type = ["cdylib"]
+required-features = ["services-desktop"]
+
+[lints]
+workspace = true

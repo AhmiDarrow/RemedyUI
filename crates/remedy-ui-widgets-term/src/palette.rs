@@ -4,7 +4,7 @@
 //! roles, balanced for contrast against the terminal's background.
 
 use remedy_ui_core::Color;
-use remedy_ui_style::{Theme, ensure_contrast};
+use remedy_ui_core::style::{Theme, ensure_contrast};
 
 use crate::cell::TermColor;
 use crate::term::xterm_color;

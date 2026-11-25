@@ -6,23 +6,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
 
 fn ui() -> Ui {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn wait(what: &str, ok: impl Fn() -> bool) {
     let start = Instant::now();
     loop {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if ok() {
             return;
         }
@@ -165,7 +165,7 @@ fn stopping_lets_the_device_go_and_no_sound_follows() {
     wait("the device let go", || dropped.load(Ordering::Acquire));
     let after = calls.load(Ordering::Acquire);
     std::thread::sleep(Duration::from_millis(50));
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     assert_eq!(calls.load(Ordering::Acquire), after, "nothing is heard after stopping");
     assert_eq!(mic.error(), None);
 }

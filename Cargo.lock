@@ -649,18 +649,28 @@ dependencies = [
 name = "cargo-remedy"
 version = "1.0.0-rc.1"
 dependencies = [
+ "bytes",
+ "cargo-remedy",
  "flate2",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "minisign",
  "png",
  "proc-macro2",
- "remedy-templates",
- "remedy-tools",
  "remedy-ui",
  "remedy-ui-build",
+ "remedy-ui-core",
+ "remedy-ui-engine",
+ "remedy-ui-widgets",
+ "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "syn 2.0.119",
+ "tokio",
  "toml",
+ "tower-service",
  "zip",
 ]
 
@@ -3961,115 +3971,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c896ddeaa5170f14a42cd6267cb239ab743cbaf44f2580bb5ff1ccb2fb57091e"
 
 [[package]]
-name = "remedy-mcp"
-version = "1.0.0-rc.1"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "png",
- "remedy-tools",
- "remedy-ui",
- "remedy-ui-core",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "tower-service",
-]
-
-[[package]]
-name = "remedy-templates"
-version = "1.0.0-rc.1"
-dependencies = [
- "png",
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-tools"
-version = "1.0.0-rc.1"
-dependencies = [
- "flate2",
- "png",
- "remedy-templates",
- "remedy-ui-effects",
- "remedy-ui-paint",
- "remedy-ui-rui",
- "schemars",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "remedy-ui"
 version = "1.0.0-rc.1"
 dependencies = [
  "js-sys",
  "png",
  "remedy-ui",
- "remedy-ui-a11y",
- "remedy-ui-automation",
- "remedy-ui-bridge-android",
- "remedy-ui-bridge-headless",
- "remedy-ui-bridge-linux",
- "remedy-ui-bridge-macos",
  "remedy-ui-bridge-web",
- "remedy-ui-bridge-windows",
- "remedy-ui-bridge-winit",
- "remedy-ui-compositor",
  "remedy-ui-core",
- "remedy-ui-customize",
- "remedy-ui-devtools",
- "remedy-ui-doc-code",
- "remedy-ui-doc-pages",
- "remedy-ui-doc-rich",
- "remedy-ui-effects",
- "remedy-ui-embed-gpu",
- "remedy-ui-embed-webview",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
  "remedy-ui-macros",
- "remedy-ui-media-anim",
- "remedy-ui-media-effects",
- "remedy-ui-media-image",
- "remedy-ui-media-isolated",
+ "remedy-ui-media",
  "remedy-ui-media-playback",
- "remedy-ui-media-video",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-rui",
- "remedy-ui-script",
- "remedy-ui-script-lua",
- "remedy-ui-script-wasm",
- "remedy-ui-services-desktop",
- "remedy-ui-services-i18n",
- "remedy-ui-services-net",
- "remedy-ui-services-spell",
- "remedy-ui-services-update",
- "remedy-ui-services-webstorage",
- "remedy-ui-style",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-tree",
- "remedy-ui-view",
- "remedy-ui-viz",
- "remedy-ui-widgets-board",
- "remedy-ui-widgets-core",
- "remedy-ui-widgets-data",
- "remedy-ui-widgets-extra",
- "remedy-ui-widgets-forms",
- "remedy-ui-widgets-music",
- "remedy-ui-widgets-nav",
- "remedy-ui-widgets-stage",
+ "remedy-ui-widgets",
  "remedy-ui-widgets-term",
  "serde",
  "serde_json",
@@ -4081,105 +3999,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-a11y"
-version = "1.0.0-rc.1"
-dependencies = [
- "accesskit",
- "accesskit_consumer",
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-ui-automation"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "remedy-ui-widgets-nav",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-bridge-android"
-version = "1.0.0-rc.1"
-dependencies = [
- "accesskit_android",
- "jni 0.21.1",
- "libc",
- "remedy-ui",
- "remedy-ui-bridge-winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "winit",
-]
-
-[[package]]
-name = "remedy-ui-bridge-headless"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
-]
-
-[[package]]
-name = "remedy-ui-bridge-linux"
-version = "1.0.0-rc.1"
-dependencies = [
- "arboard",
- "futures-core",
- "libc",
- "remedy-ui-bridge-winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "serde",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "x11rb",
- "zbus 6.3.0",
-]
-
-[[package]]
-name = "remedy-ui-bridge-macos"
-version = "1.0.0-rc.1"
-dependencies = [
- "block2 0.6.2",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "objc2-user-notifications 0.3.2",
- "remedy-ui-bridge-winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "rfd",
-]
-
-[[package]]
 name = "remedy-ui-bridge-web"
 version = "1.0.0-rc.1"
 dependencies = [
  "js-sys",
  "remedy-ui",
  "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4187,211 +4012,61 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-bridge-windows"
-version = "1.0.0-rc.1"
-dependencies = [
- "png",
- "remedy-ui-bridge-winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "rfd",
- "windows",
- "windows-collections",
- "windows-core",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "remedy-ui-bridge-winit"
-version = "1.0.0-rc.1"
-dependencies = [
- "accesskit_winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-input",
- "softbuffer",
- "winit",
-]
-
-[[package]]
 name = "remedy-ui-build"
 version = "1.0.0-rc.1"
-
-[[package]]
-name = "remedy-ui-compositor"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-input",
- "remedy-ui-motion",
- "remedy-ui-paint",
-]
 
 [[package]]
 name = "remedy-ui-core"
 version = "1.0.0-rc.1"
 dependencies = [
+ "accesskit",
+ "accesskit_consumer",
  "cpu-time",
+ "raw-window-handle",
+ "remedy-ui-core",
+ "serde",
+ "serde_json",
+ "stacker",
+ "taffy",
  "tracing",
+ "wasm-bindgen",
+ "web-sys",
  "web-time",
 ]
 
 [[package]]
-name = "remedy-ui-customize"
+name = "remedy-ui-engine"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-doc-code",
- "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-media-image",
- "remedy-ui-reactive",
- "remedy-ui-rui",
- "remedy-ui-services-i18n",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "remedy-ui-widgets-forms",
- "remedy-ui-widgets-nav",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-devtools"
-version = "1.0.0-rc.1"
-dependencies = [
+ "ash",
+ "fluent-bundle",
+ "fluent-syntax",
+ "glow",
+ "intl-memoizer",
+ "intl_pluralrules",
+ "js-sys",
+ "log",
  "png",
- "remedy-ui-a11y",
- "remedy-ui-compositor",
+ "raw-window-handle",
+ "remedy-lua",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-fonts-cjk",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-macros",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "remedy-ui-widgets-forms",
- "serde",
+ "remedy-ui-widgets",
+ "remedy-vello-cpu",
  "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-doc-code"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "syntect",
-]
-
-[[package]]
-name = "remedy-ui-doc-pages"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-doc-rich"
-version = "1.0.0-rc.1"
-dependencies = [
- "pulldown-cmark",
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-effects"
-version = "1.0.0-rc.1"
-dependencies = [
- "png",
- "remedy-ui-core",
- "remedy-ui-paint",
-]
-
-[[package]]
-name = "remedy-ui-embed-gpu"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-embed-webview"
-version = "1.0.0-rc.1"
-dependencies = [
- "libc",
- "remedy-ui",
- "remedy-ui-a11y",
- "remedy-ui-bridge-linux",
- "remedy-ui-bridge-windows",
- "remedy-ui-bridge-winit",
- "remedy-ui-core",
- "remedy-ui-host",
- "remedy-ui-reactive",
- "remedy-ui-view",
- "serde_json",
- "webview2-com",
+ "stacker",
+ "unic-langid",
+ "vello_gpu",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasmi",
+ "wat",
+ "web-sys",
+ "wgpu",
  "windows",
- "windows-core",
 ]
 
 [[package]]
@@ -4411,123 +4086,41 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-host"
-version = "1.0.0-rc.1"
-dependencies = [
- "accesskit",
- "raw-window-handle",
- "remedy-ui-core",
- "remedy-ui-input",
-]
-
-[[package]]
-name = "remedy-ui-input"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-ui-layout"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "stacker",
- "taffy",
-]
-
-[[package]]
 name = "remedy-ui-macros"
 version = "1.0.0-rc.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "remedy-ui-reactive",
+ "remedy-ui-core",
  "syn 2.0.119",
 ]
 
 [[package]]
-name = "remedy-ui-media-anim"
+name = "remedy-ui-media"
 version = "1.0.0-rc.1"
 dependencies = [
  "gif",
- "image-webp",
- "png",
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-media-image",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-media-effects"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-effects",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-media-image"
-version = "1.0.0-rc.1"
-dependencies = [
  "image",
+ "image-webp",
+ "jni 0.21.1",
  "js-sys",
+ "libc",
  "moxcms",
- "remedy-ui-a11y",
+ "ndk-context",
+ "png",
  "remedy-ui-core",
- "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-services-net",
+ "remedy-ui-media",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
+ "remedy-ui-widgets",
  "resvg",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
-]
-
-[[package]]
-name = "remedy-ui-media-isolated"
-version = "1.0.0-rc.1"
-dependencies = [
- "gif",
- "image",
- "jni 0.21.1",
- "libc",
- "ndk-context",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-media-anim",
- "remedy-ui-media-image",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
  "windows-sys 0.61.2",
 ]
 
@@ -4544,26 +4137,14 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "remedy-ui",
- "remedy-ui-a11y",
  "remedy-ui-bridge-web",
- "remedy-ui-compositor",
  "remedy-ui-core",
- "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-media-image",
- "remedy-ui-media-video",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-services-desktop",
- "remedy-ui-style",
+ "remedy-ui-media",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
+ "remedy-ui-widgets",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4573,282 +4154,63 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-media-video"
+name = "remedy-ui-platform"
 version = "1.0.0-rc.1"
 dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-motion"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-ui-paint"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-text",
-]
-
-[[package]]
-name = "remedy-ui-reactive"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-reactive",
- "serde",
- "serde_json",
- "stacker",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "remedy-ui-render-cpu"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-paint",
- "remedy-ui-text",
- "remedy-vello-cpu",
-]
-
-[[package]]
-name = "remedy-ui-render-gpu"
-version = "1.0.0-rc.1"
-dependencies = [
- "ash",
- "glow",
- "js-sys",
- "log",
- "raw-window-handle",
- "remedy-ui-bridge-linux",
- "remedy-ui-bridge-windows",
- "remedy-ui-bridge-winit",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-effects",
- "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-paint",
- "remedy-ui-render-cpu",
- "remedy-ui-render-gpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "vello_gpu",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
- "windows",
-]
-
-[[package]]
-name = "remedy-ui-rui"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-layout",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-script"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-script-lua"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-lua",
- "remedy-ui-core",
- "remedy-ui-motion",
- "remedy-ui-script",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-script-wasm"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-script",
- "serde_json",
- "wasmi",
- "wat",
-]
-
-[[package]]
-name = "remedy-ui-services-desktop"
-version = "1.0.0-rc.1"
-dependencies = [
- "futures-core",
- "jni 0.21.1",
- "js-sys",
- "ndk-context",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "windows",
- "windows-core",
- "windows-sys 0.61.2",
- "zbus 6.3.0",
-]
-
-[[package]]
-name = "remedy-ui-services-i18n"
-version = "1.0.0-rc.1"
-dependencies = [
+ "accesskit_android",
+ "accesskit_winit",
+ "arboard",
+ "block2 0.6.2",
  "fluent-bundle",
  "fluent-langneg",
  "fluent-syntax",
+ "futures-core",
  "icu_calendar",
  "icu_datetime",
  "icu_decimal",
  "icu_locale",
  "icu_locale_core",
  "intl-memoizer",
+ "jni 0.21.1",
  "js-sys",
+ "libc",
+ "ndk-context",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-user-notifications 0.3.2",
+ "png",
+ "remedy-ui",
  "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-reactive",
- "remedy-ui-style",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-view",
- "serde_json",
- "unic-langid",
- "wasm-bindgen",
- "writeable",
-]
-
-[[package]]
-name = "remedy-ui-services-net"
-version = "1.0.0-rc.1"
-dependencies = [
- "js-sys",
- "remedy-ui-reactive",
+ "remedy-ui-widgets",
+ "rfd",
  "rustls",
  "serde",
  "serde_json",
+ "snap",
+ "softbuffer",
+ "unic-langid",
  "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "web-sys",
-]
-
-[[package]]
-name = "remedy-ui-services-spell"
-version = "1.0.0-rc.1"
-dependencies = [
- "encoding_rs",
- "icu_locale_core",
- "icu_normalizer",
- "icu_segmenter",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "spellbook",
+ "webview2-com",
  "windows",
-]
-
-[[package]]
-name = "remedy-ui-services-update"
-version = "1.0.0-rc.1"
-dependencies = [
- "base64",
- "minisign",
- "minisign-verify",
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-reactive",
- "remedy-ui-services-net",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "rustls",
- "semver",
- "serde_json",
- "sha2 0.11.1",
- "ureq",
+ "windows-collections",
+ "windows-core",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "remedy-ui-services-webstorage"
-version = "1.0.0-rc.1"
-dependencies = [
- "js-sys",
- "snap",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
-name = "remedy-ui-style"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-ui-test"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-reactive",
- "remedy-ui-tree",
+ "winit",
+ "writeable",
+ "x11rb",
+ "zbus 6.3.0",
 ]
 
 [[package]]
@@ -4874,238 +4236,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-themes"
+name = "remedy-ui-widgets"
 version = "1.0.0-rc.1"
 dependencies = [
+ "base64",
+ "encoding_rs",
+ "icu_locale_core",
+ "icu_normalizer",
+ "icu_segmenter",
+ "minisign",
+ "minisign-verify",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "png",
+ "pulldown-cmark",
  "remedy-ui-core",
- "remedy-ui-style",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-tree"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-core",
- "remedy-ui-reactive",
-]
-
-[[package]]
-name = "remedy-ui-view"
-version = "1.0.0-rc.1"
-dependencies = [
- "fluent-bundle",
- "fluent-syntax",
- "intl-memoizer",
- "intl_pluralrules",
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-motion",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
+ "remedy-ui-fonts-cjk",
+ "remedy-ui-macros",
+ "remedy-ui-media",
+ "remedy-ui-platform",
  "remedy-ui-text",
- "remedy-ui-tree",
- "stacker",
- "unic-langid",
-]
-
-[[package]]
-name = "remedy-ui-viz"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-widgets-board"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-reactive",
- "remedy-ui-script",
- "remedy-ui-script-lua",
- "remedy-ui-script-wasm",
- "remedy-ui-services-i18n",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "remedy-ui-widgets-data",
- "remedy-ui-widgets-forms",
+ "remedy-ui-widgets",
+ "rustls",
+ "semver",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "spellbook",
+ "syntect",
+ "ureq",
  "wasm-bindgen-test",
  "wat",
-]
-
-[[package]]
-name = "remedy-ui-widgets-core"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
-]
-
-[[package]]
-name = "remedy-ui-widgets-data"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-tree",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-widgets-extra"
-version = "1.0.0-rc.1"
-dependencies = [
- "encoding_rs",
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-viz",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-widgets-forms"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-services-i18n",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-widgets-music"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
-]
-
-[[package]]
-name = "remedy-ui-widgets-nav"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-reactive",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-widgets-core",
- "serde_json",
-]
-
-[[package]]
-name = "remedy-ui-widgets-stage"
-version = "1.0.0-rc.1"
-dependencies = [
- "remedy-ui-a11y",
- "remedy-ui-compositor",
- "remedy-ui-core",
- "remedy-ui-devtools",
- "remedy-ui-fonts",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-render-cpu",
- "remedy-ui-style",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "remedy-ui-viz",
+ "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5113,20 +4279,11 @@ name = "remedy-ui-widgets-term"
 version = "1.0.0-rc.1"
 dependencies = [
  "base64",
- "remedy-ui-a11y",
- "remedy-ui-compositor",
  "remedy-ui-core",
- "remedy-ui-devtools",
+ "remedy-ui-engine",
  "remedy-ui-fonts",
- "remedy-ui-host",
- "remedy-ui-input",
- "remedy-ui-layout",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-style",
  "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
+ "remedy-ui-widgets",
  "unicode-width",
  "vte",
 ]

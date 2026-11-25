@@ -4,13 +4,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Rect, Size};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     AccessibilityEvent, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent,
     LocalTime, Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState,
     TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
-use remedy_ui_input::Platform;
+use remedy_ui_core::input::Platform;
+use remedy_ui_core::{Point, Rect, Size};
 
 use super::window::{Kind, Win};
 use super::{Driver, clipboard, dialog, driver, notify, now, post, print, settings, share};
@@ -57,8 +57,8 @@ impl Host for WebHost<'_> {
         }
     }
 
-    fn time_zone(&self) -> remedy_ui_host::TimeZone {
-        remedy_ui_host::TimeZone::new(|unix_seconds| {
+    fn time_zone(&self) -> remedy_ui_core::host::TimeZone {
+        remedy_ui_core::host::TimeZone::new(|unix_seconds| {
             // The browser's own zone rules, that instant's daylight saving included.
             let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(unix_seconds as f64 * 1000.0));
             let west = date.get_timezone_offset();
@@ -208,7 +208,7 @@ impl Host for WebHost<'_> {
         }
     }
 
-    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_core::host::Cursor) {
         if let Some(w) = self.win(window) {
             w.set_cursor(cursor);
         }
@@ -292,7 +292,11 @@ impl Host for WebHost<'_> {
         Ok(())
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
+    fn update_accessibility(
+        &mut self,
+        window: WindowId,
+        update: remedy_ui_core::host::accesskit::TreeUpdate,
+    ) {
         if let Some(w) = self.win(window) {
             w.aria.update(update);
         }
@@ -347,7 +351,10 @@ impl Host for WebHost<'_> {
         }
     }
 
-    fn show_notification(&mut self, notification: &remedy_ui_host::Notification) -> Result<(), Unsupported> {
+    fn show_notification(
+        &mut self,
+        notification: &remedy_ui_core::host::Notification,
+    ) -> Result<(), Unsupported> {
         notify::show(notification)
     }
 
@@ -356,18 +363,24 @@ impl Host for WebHost<'_> {
         Ok(())
     }
 
-    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_input::GamepadTuning) {
+    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_core::input::GamepadTuning) {
         super::gamepad::set_tuning(tuning);
     }
 
-    fn set_badge(&mut self, _app_id: &str, badge: Option<remedy_ui_host::Badge>) -> Result<(), Unsupported> {
+    fn set_badge(
+        &mut self,
+        _app_id: &str,
+        badge: Option<remedy_ui_core::host::Badge>,
+    ) -> Result<(), Unsupported> {
         // The Badging API: on the icon of an installed web app (Chromium browsers, Safari).
         let Some(window) = web_sys::window() else {
             return Err(Unsupported::new("app badges", "no browser window"));
         };
         let navigator: wasm_bindgen::JsValue = window.navigator().into();
         let (name, arg) = match badge {
-            Some(remedy_ui_host::Badge::Count(n)) => ("setAppBadge", Some(wasm_bindgen::JsValue::from(n))),
+            Some(remedy_ui_core::host::Badge::Count(n)) => {
+                ("setAppBadge", Some(wasm_bindgen::JsValue::from(n)))
+            }
             Some(_) => ("setAppBadge", None),
             None => ("clearAppBadge", None),
         };
@@ -385,17 +398,17 @@ impl Host for WebHost<'_> {
 
     fn request_permission(
         &mut self,
-        permission: remedy_ui_host::Permission,
-    ) -> Result<remedy_ui_host::PermissionStarted, Unsupported> {
+        permission: remedy_ui_core::host::Permission,
+    ) -> Result<remedy_ui_core::host::PermissionStarted, Unsupported> {
         match permission {
-            remedy_ui_host::Permission::Notifications => notify::request(),
+            remedy_ui_core::host::Permission::Notifications => notify::request(),
             // The microphone's own `getUserMedia` call asks the person.
-            _ => Ok(remedy_ui_host::PermissionStarted::Finished(true)),
+            _ => Ok(remedy_ui_core::host::PermissionStarted::Finished(true)),
         }
     }
 
     fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
-        if !remedy_ui_host::is_openable_url(url) {
+        if !remedy_ui_core::host::is_openable_url(url) {
             return Err(Unsupported::new("opening links", "only web and mail links open"));
         }
         let win = web_sys::window()

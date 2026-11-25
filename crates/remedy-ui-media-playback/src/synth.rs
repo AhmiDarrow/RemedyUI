@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 
 use crate::feed::AudioFeed;
 use crate::host::{AudioFormat, Latency, MediaError, MediaHost};
@@ -534,7 +534,7 @@ impl Transport {
         let id = NEXT_TRANSPORT.fetch_add(1, Ordering::Relaxed);
         let position = Signal::new(None);
         POSITIONS.with(|p| p.borrow_mut().insert(id, position));
-        let waker = remedy_ui_reactive::waker().ok();
+        let waker = remedy_ui_core::reactive::waker().ok();
         let audio = seq.clone();
         let mut told: Option<(u64, Option<f32>)> = None;
         let feed = AudioFeed::start(host, format, Latency::Interactive, move |out, at| {

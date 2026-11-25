@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_view::Ui;
 
 struct Nothing;
 
@@ -26,8 +26,8 @@ impl MediaHost for Nothing {
 
 #[test]
 fn the_subtitle_file_limit_is_the_apps() {
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-    let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), FontCollection::new());
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
+    let ui = Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), FontCollection::new());
     let p = Player::empty(&ui, Arc::new(Nothing), PlayerOptions::default());
     let path = std::env::temp_dir().join(format!("remedy-limits-{}.srt", std::process::id()));
     let cue = "1\n00:00:01,000 --> 00:00:02,000\nhello\n\n";

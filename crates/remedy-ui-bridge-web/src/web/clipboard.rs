@@ -10,8 +10,8 @@
 
 use std::rc::Rc;
 
-use remedy_ui_host::{HostEvent, Unsupported};
-use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform};
+use remedy_ui_core::host::{HostEvent, Unsupported};
+use remedy_ui_core::input::{Key, KeyEvent, Modifiers, Platform};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 

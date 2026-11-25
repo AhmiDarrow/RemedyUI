@@ -6,8 +6,8 @@
 //! [`Player::request_pip`]: remedy_ui_media_playback::Player::request_pip
 
 use remedy_ui_core::Size;
-use remedy_ui_host::ResizeEdge;
-use remedy_ui_input::{Key, PointerPhase};
+use remedy_ui_core::host::ResizeEdge;
+use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_media_playback::{Player, player_picture, set_pip_window};
 
 use crate::runner::{App, WindowSpec};

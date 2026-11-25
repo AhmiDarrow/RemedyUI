@@ -1,7 +1,7 @@
 //! What a page's share hands to `navigator.share`, decided from what the browser can share.
 //! Platform-neutral, so it is tested on every machine.
 
-use remedy_ui_host::{ShareOptions, Unsupported};
+use remedy_ui_core::host::{ShareOptions, Unsupported};
 
 /// What goes to `navigator.share`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub(crate) fn payload(share: &ShareOptions, browser: Browser) -> Result<Payload,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remedy_ui_host::ShareFile;
+    use remedy_ui_core::host::ShareFile;
 
     fn recipe() -> ShareOptions {
         ShareOptions::new().title("Lavender").text("Lavender soap").file(ShareFile::new(

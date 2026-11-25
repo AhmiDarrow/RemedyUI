@@ -7,7 +7,7 @@ use super::{call, get, has_global, obj};
 use crate::host::Picture;
 use crate::player::Player;
 use js_sys::{Array, Reflect, Uint8ClampedArray};
-use remedy_ui_paint::{GpuTexture, VideoFrame};
+use remedy_ui_engine::paint::{GpuTexture, VideoFrame};
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::sync::Arc;

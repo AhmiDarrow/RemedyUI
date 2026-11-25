@@ -8,31 +8,86 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme.workspace = true
-keywords = ["cargo", "gui", "remedy", "package", "migrate"]
-categories = ["development-tools::cargo-plugins", "gui"]
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+# `cargo install cargo-remedy` builds the command. The MCP server is the `remedy-mcp` binary:
+# add `--features mcp-full` for all of it, or `mcp` with the `mcp-*` tool groups wanted.
+default = ["cli"]
+# The `cargo remedy` command: its own code and the tools and templates it presents.
+cli = ["dep:flate2", "dep:minisign", "dep:png", "dep:proc-macro2", "dep:remedy-ui-build", "dep:serde", "dep:serde_json", "dep:syn", "dep:toml", "dep:zip", "devkit", "devkit-full", "templates"]
+# The developer tools' logic (`cargo_remedy::devkit`); each `devkit-*` feature is a tool group.
+devkit = []
+# The app templates (`cargo_remedy::templates`).
+templates = ["dep:png", "dep:remedy-ui-core"]
+# The MCP server (`cargo_remedy::mcp` and the `remedy-mcp` binary); each `mcp-*` feature is a tool group.
+mcp = ["dep:rmcp", "dep:schemars", "dep:serde", "dep:serde_json", "dep:tokio", "devkit", "devkit-schema"]
+devkit-devtools = ["dep:serde", "dep:serde_json"]
+devkit-docs = ["dep:flate2", "dep:serde", "dep:serde_json"]
+devkit-effects = ["dep:png", "dep:remedy-ui-engine", "dep:serde", "remedy-ui-engine/effects", "remedy-ui-engine/paint"]
+devkit-full = ["devkit-devtools", "devkit-docs", "devkit-effects", "devkit-live", "devkit-markup", "devkit-preview", "devkit-scaffold", "devkit-testing"]
+devkit-live = ["dep:serde", "dep:serde_json"]
+devkit-markup = ["dep:remedy-ui-widgets", "dep:serde", "remedy-ui-widgets/rui"]
+devkit-preview = ["dep:serde", "dep:serde_json", "dep:toml"]
+devkit-scaffold = ["dep:serde", "dep:serde_json", "templates"]
+devkit-schema = ["dep:schemars"]
+devkit-testing = ["dep:serde", "dep:serde_json"]
+mcp-devtools = ["devkit", "devkit-devtools"]
+mcp-docs = ["devkit", "devkit-docs"]
+mcp-effects = ["devkit", "devkit-effects"]
+mcp-full = ["mcp", "mcp-devtools", "mcp-docs", "mcp-effects", "mcp-http", "mcp-live", "mcp-markup", "mcp-preview", "mcp-scaffold", "mcp-testing"]
+mcp-http = ["dep:bytes", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:remedy-ui-core", "dep:tower-service", "rmcp/transport-streamable-http-server"]
+mcp-live = ["devkit", "devkit-live"]
+mcp-markup = ["devkit", "devkit-markup"]
+mcp-preview = ["devkit", "devkit-preview"]
+mcp-scaffold = ["devkit", "devkit-scaffold"]
+mcp-testing = ["devkit", "devkit-testing"]
+
+[dependencies]
+bytes = { version = "=1.12.1", optional = true }
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"], optional = true }
+http-body-util = { version = "=0.1.5", optional = true }
+hyper = { version = "=1.12.0", features = ["server", "http1"], optional = true }
+hyper-util = { version = "=0.1.21", features = ["tokio"], optional = true }
+minisign = { version = "=0.10.0", optional = true }
+png = { version = "=0.18.1", optional = true }
+proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"], optional = true }
+remedy-ui-build = { path = "../remedy-ui-build", version = "1.0.0-rc.1", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", optional = true }
+rmcp = { version = "=3.11.0", default-features = false, features = ["server", "macros", "transport-io"], optional = true }
+schemars = { version = "=1.2.3", optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.154", optional = true }
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit"], optional = true }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net", "io-std", "sync"], optional = true }
+toml = { version = "=1.2.1", optional = true }
+tower-service = { version = "=0.3.3", optional = true }
+zip = { version = "=9.6.1", default-features = false, features = ["deflate"], optional = true }
+
+[dev-dependencies]
+png = { version = "=0.18.1" }
+remedy-ui = { path = "../remedy-ui", version = "1.0.0-rc.1", default-features = false, features = ["agents", "devtools", "headless", "nav", "widgets"] }
+rmcp = { version = "=3.11.0", default-features = false, features = ["client", "transport-child-process"] }
+cargo-remedy = { path = ".", features = ["cli", "devkit", "devkit-devtools", "devkit-docs", "devkit-effects", "devkit-full", "devkit-live", "devkit-markup", "devkit-preview", "devkit-scaffold", "devkit-schema", "devkit-testing", "mcp", "mcp-devtools", "mcp-docs", "mcp-effects", "mcp-full", "mcp-http", "mcp-live", "mcp-markup", "mcp-preview", "mcp-scaffold", "mcp-testing", "templates"] }
+
+[[test]]
+name = "mcp"
+path = "tests/mcp/mcp.rs"
+required-features = ["mcp"]
+
 
 [[bin]]
 name = "cargo-remedy"
 path = "src/main.rs"
+required-features = ["cli"]
 
-[dependencies]
-flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
-minisign = "=0.10.0"
-png = "=0.18.1"
-proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
-remedy-templates = { path = "../remedy-templates", version = "1.0.0-rc.1" }
-remedy-tools = { path = "../remedy-tools", version = "1.0.0-rc.1" }
-remedy-ui-build = { path = "../remedy-ui-build", version = "1.0.0-rc.1" }
-serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
-syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit"] }
-toml = "=1.2.1"
-zip = { version = "=9.6.1", default-features = false, features = ["deflate"] }
-
-[dev-dependencies]
-# The tool commands' tests run an app on the in-memory host that opens its window to agents
-# and devtools.
-remedy-ui = { path = "../remedy-ui", version = "1.0.0-rc.1", default-features = false, features = ["widgets", "nav", "agents", "devtools", "headless"] }
+[[bin]]
+name = "remedy-mcp"
+path = "src/bin/remedy-mcp.rs"
+required-features = ["mcp"]
 
 [lints]
 workspace = true

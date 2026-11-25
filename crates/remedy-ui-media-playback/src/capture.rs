@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use remedy_ui_core::exec::{Next, Worker};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 
 use crate::host::{AudioFormat, AudioInput, MediaError, MediaHost};
 
@@ -122,7 +122,7 @@ impl Inner {
             let mut s = lock(&self.shared.status);
             (s.state, s.error.clone(), std::mem::take(&mut s.peak))
         };
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.state.set_if_changed(state);
             self.error.set_if_changed(error);
             self.level.set_if_changed(if state == MicrophoneState::Listening { peak } else { 0.0 });
@@ -252,7 +252,7 @@ impl Capture {
 ///
 /// `on_sound` runs on the worker (natively a thread of its own; in a browser page a
 /// cooperative task), never on the UI thread, so analysis such as pitch detection does not
-/// hold up drawing; send results back with [`remedy_ui_reactive::waker`] or a channel. Its
+/// hold up drawing; send results back with [`remedy_ui_core::reactive::waker`] or a channel. Its
 /// state, error and level are signals on the UI thread. Cheap to clone; capturing stops when
 /// [`Microphone::stop`] is called or the last clone is dropped.
 ///
@@ -313,7 +313,7 @@ impl Microphone {
         let format = options.format;
         let unprocessed = options.raw;
         let shared = Arc::new(Shared::default());
-        let waker = remedy_ui_reactive::waker();
+        let waker = remedy_ui_core::reactive::waker();
         let started = match (host, waker) {
             _ if format.channels == 0 || format.sample_rate == 0 => {
                 Err(MediaError::Device("a sound format with no channels or no rate".into()))

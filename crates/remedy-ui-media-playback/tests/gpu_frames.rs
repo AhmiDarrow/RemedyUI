@@ -11,9 +11,9 @@
 use std::time::Duration;
 
 use remedy_ui_core::{Color, CornerRadii, Rect};
+use remedy_ui_engine::paint::{DisplayList, Item, VideoFrame};
+use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
 use remedy_ui_media_playback::*;
-use remedy_ui_paint::{DisplayList, Item, VideoFrame};
-use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
 
 fn clip() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clip.mp4")
@@ -71,13 +71,13 @@ fn worst(a: &[u8], b: &[u8]) -> u8 {
 fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     let host = platform_host().unwrap_or_else(|e| unreachable!("Media Foundation: {e}"));
     // No renderer has said it takes pictures on the GPU yet: they come in CPU memory.
-    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    assert_eq!(remedy_ui_engine::paint::gpu_video_adapter(), None);
     let cpu = pictures(&*host);
     assert!(cpu.iter().all(|(_, f)| f.gpu.is_none() && !f.data.is_empty()));
 
     let ctx = GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}"));
     let mut g = GpuRenderer::new(ctx, None);
-    if remedy_ui_paint::gpu_video_adapter().is_none() {
+    if remedy_ui_engine::paint::gpu_video_adapter().is_none() {
         eprintln!("this GPU cannot sample NV12 textures shared from D3D11, skipping");
         return;
     }
@@ -130,7 +130,7 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
 fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     let host = platform_host().unwrap_or_else(|e| unreachable!("MediaCodec: {e}"));
     // No renderer has said it takes pictures on the GPU yet: they come in CPU memory.
-    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    assert_eq!(remedy_ui_engine::paint::gpu_video_adapter(), None);
     let cpu = pictures(&*host);
     assert!(cpu.iter().all(|(_, f)| f.gpu.is_none() && !f.data.is_empty()));
     let new = || {
@@ -141,7 +141,7 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     };
     let mut w = new();
     let copied: Vec<Vec<u8>> = cpu.iter().map(|(_, c)| draw(&mut w, c)).collect();
-    if remedy_ui_paint::gpu_video_adapter().is_none() {
+    if remedy_ui_engine::paint::gpu_video_adapter().is_none() {
         eprintln!("this GPU cannot import hardware buffers, skipping");
         return;
     }
@@ -213,7 +213,7 @@ fn measure_a_clip() {
     let ctx = GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}"));
     let mut g = GpuRenderer::new(ctx, None);
     if path == "copy" {
-        remedy_ui_paint::set_gpu_video_adapter(None);
+        remedy_ui_engine::paint::set_gpu_video_adapter(None);
     }
     let mut dec = host.open(&MediaSource::file(&clip)).unwrap_or_else(|e| unreachable!("open: {e}"));
     let v = dec.info().video.clone().unwrap_or_else(|| unreachable!("a picture"));
@@ -230,11 +230,11 @@ fn measure_a_clip() {
         let mut list = DisplayList::new();
         let f = frame(times.len() as u64, &picture);
         list.push(Item::Video { frame: f.clone(), rect, radii: CornerRadii::ZERO });
-        g.draw(&list, remedy_ui_paint::Affine::IDENTITY, Color::BLACK, &target)
+        g.draw(&list, remedy_ui_engine::paint::Affine::IDENTITY, Color::BLACK, &target)
             .unwrap_or_else(|e| unreachable!("draw {}: {e}", times.len()));
         // Held until the next one shows, as a video surface holds its current frame.
         shown = Some(f);
-        let _ = g.context().device.poll(remedy_ui_render_gpu::wgpu::PollType::wait_indefinitely());
+        let _ = g.context().device.poll(remedy_ui_engine::render_gpu::wgpu::PollType::wait_indefinitely());
         times.push((start.elapsed(), t.elapsed()));
     }
     drop(shown);

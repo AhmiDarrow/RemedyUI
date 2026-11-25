@@ -38,7 +38,7 @@ element paint() ──▶ display list ──▶ layer tree ──commit──�
   nothing re-records while content scrolls by whole pixels. The compositor puts every layer on
   whole device pixels, so this holds inside scroll containers and isolated layers too. Text
   keeps its fractional horizontal place; its baseline is rounded, as browsers draw it.
-  Pictures (`remedy-ui-media-image`) are decoded at exactly the device size they show and
+  Pictures (`remedy-ui-media::media_image`) are decoded at exactly the device size they show and
   placed on the grid, so they are drawn one pixel to one pixel, as an `<img>` is.
 - **Scroll bars** are the compositor's: a scroll container's layer carries `Scrollbars`
   (resolved from its `scrollbar-*` style) and the compositor draws track and thumb
@@ -298,7 +298,7 @@ a tested tolerance.
   frame it keeps (`GpuCompositor::read_surface`), so the picture holds what the screen does,
   Prism effects, video, `gpu_view` textures, blurs and glass included; a window the CPU draws
   draws its frame once more.
-- **Paged documents** (`remedy-ui-doc-pages`) show pages the app parses (a PDF through
+- **Paged documents** (`remedy-ui-widgets::doc_pages`) show pages the app parses (a PDF through
   MuPDF, an e-book) as display lists.
 
 ## Not yet in code
@@ -307,7 +307,7 @@ Planned, not implemented; nothing above relies on them:
 
 - **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
   and layers that cover a tiny area squashed back into their parent. Measured and not worth
-  it yet (`tests/layers.rs` in `remedy-ui-render-gpu`; release, 1280 × 800, CPU compositor
+  it yet (`tests/layers.rs` in `remedy-ui-engine::render_gpu`; release, 1280 × 800, CPU compositor
   and llvmpipe): a small layer costs the compositor's plan about 0.8 µs a frame (1,000 icon
   layers: 0.83 ms against 0.07 ms merged) and its first frame a texture each (GPU 104 ms
   against 57 ms), but with one icon changing a frame, merged icons re-raster their shared tile

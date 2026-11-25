@@ -10,7 +10,7 @@
 //!   monotonic wall clock.
 //!
 //! The UI thread talks to them with commands and hears back through [`Status`], posted with
-//! the reactive [`Waker`](remedy_ui_reactive::Waker) so only the player's signals change.
+//! the reactive [`Waker`](remedy_ui_core::reactive::Waker) so only the player's signals change.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +22,7 @@ use std::time::Duration;
 use remedy_ui_core::exec::{Bell, Next, Worker};
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_media_video::{Picture, VideoSink};
+use remedy_ui_media::media_video::{Picture, VideoSink};
 
 use crate::host::{
     AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Playout, Sample,
@@ -741,7 +741,7 @@ impl Presenter {
                 // Decoded pictures may take a sixty-fourth of the machine's memory (a quarter
                 // GB on a 16 GB machine): far more than look-ahead needs, but room for files
                 // whose sound runs well ahead of their pictures. Never less than the look-ahead.
-                let machine = remedy_ui_view::device::total_memory()
+                let machine = remedy_ui_engine::view::device::total_memory()
                     .map(|m| usize::try_from(m / 64).unwrap_or(usize::MAX))
                     .unwrap_or(wanted.saturating_mul(8));
                 f.budget_bytes = machine.max(wanted.saturating_mul(2));

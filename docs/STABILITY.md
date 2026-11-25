@@ -78,7 +78,7 @@ Third-party types stay behind RemedyUI's own types, so a dependency upgrade does
 apps. The exceptions are deliberate interop, re-exported so apps name the exact version
 RemedyUI uses, and versioned with it:
 
-- `remedy_ui::gpu_embed::wgpu` (and `remedy_ui_render_gpu::wgpu`): an app's own GPU rendering
+- `remedy_ui::gpu_embed::wgpu` (and `remedy_ui_engine::render_gpu::wgpu`): an app's own GPU rendering
   is wgpu; a wgpu major upgrade is a RemedyUI major release.
 - `remedy_ui::webview::serde_json`: the one JSON message channel between an app and its page.
 - `remedy_ui::host::{accesskit, raw_window_handle}`: the accessibility tree and native window
@@ -92,11 +92,11 @@ RemedyUI uses, and versioned with it:
   (`rich`, `code`, `pages`), media (`image`, `svg`, `anim`, `video`, `playback`, `isolated`),
   `viz`, `customize`, `markup`, `i18n`, `spell`, `update`, `webstorage`, `agents`, `devtools`,
   `gpu_embed`, `webview`, `testing`, and `cargo-remedy`'s commands and `remedy.toml`.
-- **Engine crates** (`remedy-ui-host`, `-compositor`, `-render-cpu`, `-render-gpu`, the
+- **Engine crates** (`remedy-ui-core::host`, `-compositor`, `-render-cpu`, `-render-gpu`, the
   `-bridge-*` crates, `-trace`, `-tree`): published, semver-checked, and stable for what the
   facade exposes of them; their engine-to-engine surface follows the release cadence of the
   renderers and bridges.
-- **Experimental:** scripted widgets (`remedy-ui-script`, `remedy-ui-widgets-board`) are being
+- **Experimental:** scripted widgets (`remedy-ui-engine::script`, `remedy-ui-widgets::board`) are being
   built on RemedyLua and WebAssembly engines behind one interface, and are not covered by the
-  1.0 promise until that lands. The stage pack (`remedy-ui-widgets-stage`, `stage`) is new
+  1.0 promise until that lands. The stage pack (`remedy-ui-widgets::stage`, `stage`) is new
   and may still change while the first presentations are built on it.

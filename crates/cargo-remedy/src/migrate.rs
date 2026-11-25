@@ -47,6 +47,8 @@ pub struct CallRewrite {
 pub struct Table {
     /// Facade module → engine crate.
     pub crates: HashMap<String, String>,
+    /// Engine crate that became a module → its new path (`remedy_ui_widgets::viz`).
+    pub moved: HashMap<String, Vec<String>>,
     /// Path renames.
     pub paths: Vec<PathRename>,
     /// Method renames.
@@ -67,6 +69,11 @@ impl Table {
         if let Some(c) = doc.get("crates").and_then(|c| c.as_table()) {
             for (k, v) in c {
                 t.crates.insert(k.clone(), v.as_str().ok_or("[crates] values are crate names")?.to_owned());
+            }
+        }
+        if let Some(m) = doc.get("moved").and_then(|m| m.as_table()) {
+            for (k, v) in m {
+                t.moved.insert(k.clone(), segments(v.as_str().ok_or("[moved] values are paths")?));
             }
         }
         let field = |e: &toml::Value, k: &str| -> Result<String, String> {
@@ -95,6 +102,16 @@ impl Table {
             let mut out = vec!["remedy_ui".to_owned(), module.clone()];
             out.extend(rest.iter().cloned());
             return out;
+        }
+        // The same crate under its new path: `remedy_ui_core::a11y::X` is `remedy_ui::a11y::X`.
+        for (module, krate) in &self.crates {
+            if let Some(now) = self.moved.get(krate)
+                && let Some(rest) = path.strip_prefix(now.as_slice())
+            {
+                let mut out = vec!["remedy_ui".to_owned(), module.clone()];
+                out.extend(rest.iter().cloned());
+                return out;
+            }
         }
         path.to_vec()
     }
@@ -225,6 +242,13 @@ impl Migrator<'_> {
         }
     }
 
+    /// A path that starts with a crate that became a module starts with its new place.
+    fn moved_crate(&mut self, first: &syn::Ident) {
+        if let Some(now) = self.table.moved.get(&first.to_string()).map(|p| p.join("::")) {
+            self.rename_ident(first, &now);
+        }
+    }
+
     fn path_rename(&self, full: &[String]) -> Option<&PathRename> {
         self.table.paths.iter().find(|r| r.old == full)
     }
@@ -232,11 +256,17 @@ impl Migrator<'_> {
     fn use_tree(&mut self, tree: &syn::UseTree, prefix: &mut Vec<String>) {
         match tree {
             syn::UseTree::Path(p) => {
+                if prefix.is_empty() {
+                    self.moved_crate(&p.ident);
+                }
                 prefix.push(p.ident.to_string());
                 self.use_tree(&p.tree, prefix);
                 prefix.pop();
             }
             syn::UseTree::Name(n) => {
+                if prefix.is_empty() {
+                    self.moved_crate(&n.ident);
+                }
                 let mut full = prefix.clone();
                 full.push(n.ident.to_string());
                 let full = self.table.canonical(&full);
@@ -245,6 +275,9 @@ impl Migrator<'_> {
                 }
             }
             syn::UseTree::Rename(r) => {
+                if prefix.is_empty() {
+                    self.moved_crate(&r.ident);
+                }
                 let mut full = prefix.clone();
                 full.push(r.ident.to_string());
                 let full = self.table.canonical(&full);
@@ -269,6 +302,13 @@ impl<'ast> Visit<'ast> for Migrator<'_> {
 
     fn visit_path(&mut self, p: &'ast syn::Path) {
         let segs: Vec<String> = p.segments.iter().map(|s| s.ident.to_string()).collect();
+        // The crate itself, written out (not a local name a `use` gave something else).
+        if segs.len() > 1
+            && let Some(first) = p.segments.first()
+            && !self.aliases.contains_key(&first.ident.to_string())
+        {
+            self.moved_crate(&first.ident);
+        }
         // A bare name brought in by `use` was renamed there; a path is renamed at its last
         // segment, or at the segment naming the item when more follows (`StylePatch::bold`).
         for n in (1..=segs.len()).rev() {
@@ -456,6 +496,25 @@ mod tests {
             Ok(None) => src.to_owned(),
             Err(e) => unreachable!("{e}"),
         }
+    }
+
+    #[test]
+    fn crates_that_became_modules_are_followed_to_their_new_place() {
+        let src = "use remedy_ui_viz::bars;\nuse remedy_ui_view::{El, Ui};\nuse remedy_ui_reactive as rx;\nfn f(ui: &Ui) -> El {\n    let s = rx::Signal::new(0);\n    remedy_ui_widgets_core::text(ui, \"remedy_ui_viz stays in strings\")\n}\n";
+        let out = migrate(src);
+        assert!(out.contains("use remedy_ui_widgets::viz::bars;"), "{out}");
+        assert!(out.contains("use remedy_ui_engine::view::{El, Ui};"), "{out}");
+        assert!(out.contains("use remedy_ui_core::reactive as rx;"), "{out}");
+        assert!(
+            out.contains("remedy_ui_widgets::base::text(ui, \"remedy_ui_viz stays in strings\")"),
+            "{out}"
+        );
+        assert!(out.contains("rx::Signal::new(0)"), "a local name is left as it is: {out}");
+        // Migrating twice changes nothing more, and an item renamed earlier is still found
+        // under the crate's new path.
+        assert_eq!(migrate(&out), out);
+        let renamed = migrate("fn f() { let _ = remedy_ui_engine::view::TextPatch::default(); }\n");
+        assert!(!renamed.is_empty());
     }
 
     #[test]

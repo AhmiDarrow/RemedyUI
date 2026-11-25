@@ -1,9 +1,9 @@
 //! Icons: reading a PNG, resampling it and writing Windows `.ico` files. The default icon new
-//! apps start with is drawn by `remedy-templates`. An app's icon is an [`IconSet`]: one
+//! apps start with is drawn by `cargo-remedy::templates`. An app's icon is an [`IconSet`]: one
 //! drawing that is resampled to every size, or several drawn sizes (pixel art, or small sizes
 //! simplified by hand) that are used as they are.
 
-pub use remedy_templates::image::{Rgba, default_icon};
+pub use cargo_remedy::templates::image::{Rgba, default_icon};
 
 /// Sizes a Windows icon carries (Explorer, taskbar, Start, alt-tab at every DPI).
 pub const ICO_SIZES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -44,7 +44,7 @@ pub fn read_png(bytes: &[u8]) -> Result<Rgba, String> {
 
 /// Writes straight RGBA8 as a PNG.
 pub fn write_png(img: &Rgba) -> Result<Vec<u8>, String> {
-    remedy_templates::image::write_png(img).map_err(|e| e.to_string())
+    cargo_remedy::templates::image::write_png(img).map_err(|e| e.to_string())
 }
 
 /// Resamples to `size`×`size` by averaging the source area under each pixel, in

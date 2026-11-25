@@ -20,7 +20,7 @@ use crate::host::{
     Decoder, MediaError, MediaInfo, Picture, PixelFormat, Playout, Sample, VideoInfo, YuvMatrix,
 };
 use js_sys::{Array, Reflect, Uint8Array};
-use remedy_ui_paint::{CpuPixels, GpuPicture, GpuTexture, Plane};
+use remedy_ui_engine::paint::{CpuPixels, GpuPicture, GpuTexture, Plane};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -188,7 +188,7 @@ const HIDDEN: &str =
 
 /// Shows `video` under the window's canvas at `at` (window logical pixels, which are the CSS
 /// pixels of the canvas's box), or out of the way again for `None`.
-fn place_element(video: &JsValue, at: Option<remedy_ui_paint::PagePlacement>) {
+fn place_element(video: &JsValue, at: Option<remedy_ui_engine::paint::PagePlacement>) {
     let doc = get(&js_sys::global(), "document");
     let style = get(video, "style");
     let Some(at) = at else {
@@ -256,7 +256,7 @@ impl GpuPicture for ElementFrame {
         true
     }
 
-    fn place(&self, at: Option<remedy_ui_paint::PagePlacement>) {
+    fn place(&self, at: Option<remedy_ui_engine::paint::PagePlacement>) {
         place_element(&self.video, at);
     }
 

@@ -5,7 +5,7 @@
 /// where the system refuses or the `keep-awake` feature is off.
 #[cfg(feature = "keep-awake")]
 pub(crate) fn platform_hold(reason: &str) -> Option<Box<dyn std::any::Any>> {
-    use remedy_ui_services_desktop::power::{Inhibit, inhibit};
+    use remedy_ui_platform::services_desktop::power::{Inhibit, inhibit};
     let app = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))

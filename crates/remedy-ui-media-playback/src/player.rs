@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use remedy_ui_media_video::VideoSink;
-use remedy_ui_reactive::{Memo, Signal};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_core::reactive::{Memo, Signal};
+use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::VideoSink;
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
@@ -368,7 +368,7 @@ impl RemoteStatus {
 #[derive(Clone)]
 pub struct RemoteStatusSender {
     id: u64,
-    waker: Option<remedy_ui_reactive::Waker>,
+    waker: Option<remedy_ui_core::reactive::Waker>,
 }
 
 impl std::fmt::Debug for RemoteStatusSender {
@@ -636,7 +636,7 @@ type PickHandler = Rc<dyn Fn(&CaptionPick)>;
 
 struct Inner {
     id: u64,
-    ui: remedy_ui_view::WeakUi,
+    ui: remedy_ui_engine::view::WeakUi,
     /// The engine playing the current media: replaced when the next one plays.
     tx: RefCell<Option<engine::Control>>,
     shared: RefCell<Arc<Shared>>,
@@ -804,7 +804,7 @@ impl Inner {
                 (s.pip_able, s.in_pip),
             )
         };
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             if info.is_some() && self.info.get_untracked().ok().flatten().is_none() {
                 self.on_opened(info.as_ref());
             }
@@ -917,7 +917,7 @@ impl Inner {
             if handlers.is_empty() || self.remote.with_untracked(Option::is_some).unwrap_or(false) {
                 return;
             }
-            remedy_ui_reactive::batch(|| {
+            remedy_ui_core::reactive::batch(|| {
                 self.next_error.set_if_changed(None);
                 self.starting_detail.set_if_changed(None);
                 self.end_cancel();
@@ -955,7 +955,7 @@ impl Inner {
     fn begin_skip(&self, at: Duration, holding: bool) {
         self.queued_skip.set(None);
         self.end_cancel();
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.holding.set_if_changed(holding);
             self.skipping.set(Some(at));
         });
@@ -1138,7 +1138,7 @@ impl Inner {
                 Some(e)
             }
         };
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.state.set(if failed.is_some() { PlaybackState::Failed } else { PlaybackState::Opening });
             self.error.set(failed);
             self.position.set(Duration::ZERO);
@@ -1283,7 +1283,7 @@ impl Drop for Inner {
 /// step. Cheap to clone; the player stops when the last clone is dropped.
 ///
 /// ```no_run
-/// # fn demo(ui: &remedy_ui_view::Ui) {
+/// # fn demo(ui: &remedy_ui_engine::view::Ui) {
 /// use remedy_ui_media_playback::{MediaSource, Player, PlayerOptions, player};
 /// let p = Player::open_platform(ui, MediaSource::file("talk.mp4"), PlayerOptions::default());
 /// ui.root().child(player(ui, &p, "Talk recording"));
@@ -1498,7 +1498,7 @@ impl Player {
         let held = self.0.holding.get_untracked().unwrap_or(false);
         self.0.queued_skip.set(None);
         self.0.end_cancel();
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.0.holding.set_if_changed(false);
             self.0.skipping.set_if_changed(None);
         });
@@ -1649,7 +1649,7 @@ impl Player {
             // The next is starting, or the app is busy: nothing here to play.
             None if self.0.is_starting() || self.0.busy_untracked() => {}
             None if self.0.failed_untracked() => {
-                let at = remedy_ui_reactive::untrack(|| self.position());
+                let at = remedy_ui_core::reactive::untrack(|| self.position());
                 let handlers = self.0.retry_handlers.borrow().clone();
                 for h in handlers {
                     h(at);
@@ -1727,7 +1727,7 @@ impl Player {
         *self.0.tx.borrow_mut() = None;
         self.0.queued_skip.set(None);
         self.0.play_on_open.set(false);
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.0.end_cancel();
             self.0.holding.set_if_changed(false);
             self.0.skipping.set_if_changed(None);
@@ -1765,7 +1765,7 @@ impl Player {
     /// [skipping](Self::skipping) or [starting the next](Self::starting_next) it does nothing.
     pub fn seek(&self, to: Duration) {
         let timeline = self.0.timeline.get_untracked().ok().flatten();
-        let length = remedy_ui_reactive::untrack(|| self.duration());
+        let length = remedy_ui_core::reactive::untrack(|| self.duration());
         let to = if timeline.is_some() { clamp_skip(to, length) } else { to };
         if let Some(c) = self.control() {
             let to = length.map_or(to, |d| to.min(d));
@@ -1821,7 +1821,7 @@ impl Player {
             self.0.queued_skip.set(Some(self.0.queued_skip.get().unwrap_or(0.0) + seconds));
             return;
         }
-        let now = remedy_ui_reactive::untrack(|| self.position());
+        let now = remedy_ui_core::reactive::untrack(|| self.position());
         let to = (now.as_secs_f64() + seconds).max(0.0);
         self.seek(Duration::try_from_secs_f64(to).unwrap_or_default());
     }
@@ -1995,7 +1995,7 @@ impl Player {
 
     /// A track timed to the stream, moved onto the work's time.
     fn on_work_time(&self, mut track: SubtitleTrack) -> SubtitleTrack {
-        let origin = remedy_ui_reactive::untrack(|| self.origin());
+        let origin = remedy_ui_core::reactive::untrack(|| self.origin());
         for c in &mut track.cues {
             c.start += origin;
             c.end += origin;
@@ -2045,7 +2045,7 @@ impl Player {
         };
         let before = self.0.caption.get_untracked().ok().flatten();
         let after = before.filter(|&j| j != i).map(shift);
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.0.tracks.update(|t| {
                 t.remove(i);
             });
@@ -2240,9 +2240,9 @@ impl Player {
     }
 
     /// Calls `f` with the cast button when it is pressed: the app opens its menu of devices
-    /// anchored to it (with [`menu`](remedy_ui_widgets_core::menu)), and on a choice puts the
+    /// anchored to it (with [`menu`](remedy_ui_widgets::base::menu)), and on a choice puts the
     /// player in [remote mode](Self::set_remote). The widget shows the button only once an app
-    /// listens. Opened with [`menu_press_through`](remedy_ui_widgets_core::menu_press_through),
+    /// listens. Opened with [`menu_press_through`](remedy_ui_widgets::base::menu_press_through),
     /// a press on the picture that closes the menu also plays or pauses, as in a web page's
     /// player.
     pub fn on_cast(&self, f: impl Fn(&El) + 'static) {
@@ -2256,7 +2256,7 @@ impl Player {
     /// [remote mode](Self::set_remote) on the device. True when the key was the player's;
     /// keys with Ctrl, Alt or the system key held never are. Each key pressed wakes the
     /// full-screen controls, as a key inside the widget does.
-    pub fn handle_key(&self, e: &remedy_ui_input::KeyEvent) -> bool {
+    pub fn handle_key(&self, e: &remedy_ui_core::input::KeyEvent) -> bool {
         if e.pressed {
             self.0.key_wakes.update(|n| *n += 1);
         }
@@ -2423,7 +2423,8 @@ impl Player {
             return;
         }
         if on {
-            let (full, theater) = remedy_ui_reactive::untrack(|| (self.is_fullscreen(), self.is_theater()));
+            let (full, theater) =
+                remedy_ui_core::reactive::untrack(|| (self.is_fullscreen(), self.is_theater()));
             if full {
                 self.request_fullscreen(false);
             }
@@ -2680,7 +2681,7 @@ impl Player {
 
     /// A handle that hands [`RemoteStatus`] news to this player from any thread.
     pub fn remote_status_sender(&self) -> RemoteStatusSender {
-        RemoteStatusSender { id: self.0.id, waker: remedy_ui_reactive::waker().ok() }
+        RemoteStatusSender { id: self.0.id, waker: remedy_ui_core::reactive::waker().ok() }
     }
 
     /// The player's number on its UI thread (what a post from another thread carries).
@@ -2961,7 +2962,7 @@ impl Player {
     /// again, and the end does not ask again by itself.
     pub fn next_failed(&self, message: impl Into<String>) {
         self.0.declined.set(true);
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.0.end_cancel();
             self.0.starting.set_if_changed(None);
             self.0.starting_detail.set_if_changed(None);
@@ -2973,7 +2974,7 @@ impl Player {
     /// paused or ended, next up stays queued, and the end does not ask again by itself.
     pub fn cancel_next(&self) {
         self.0.declined.set(true);
-        remedy_ui_reactive::batch(|| {
+        remedy_ui_core::reactive::batch(|| {
             self.0.end_cancel();
             self.0.starting.set_if_changed(None);
             self.0.starting_detail.set_if_changed(None);
@@ -2984,9 +2985,9 @@ impl Player {
 /// Whether what has focus keeps `e` from [`Player::keys_from`], as Portal's `typingTarget`:
 /// a text field every key, a slider its own, a button Space and Enter; and a menu or dialog
 /// every key while one has focus or, with nothing focused, is open.
-fn focus_keeps(ui: &Ui, e: &remedy_ui_input::KeyEvent) -> bool {
-    use remedy_ui_a11y::{Action, Role};
-    use remedy_ui_input::Key;
+fn focus_keeps(ui: &Ui, e: &remedy_ui_core::input::KeyEvent) -> bool {
+    use remedy_ui_core::a11y::{Action, Role};
+    use remedy_ui_core::input::Key;
     let tree = ui.tree();
     let Some(focused) = tree.focused() else {
         // Menus and dialogs sit in the overlay layers beside the content, as focus scopes.
@@ -3045,7 +3046,7 @@ fn launch(
     shared: Arc<Shared>,
     after: Option<Arc<crate::hls::Retired>>,
 ) -> Result<engine::Control, MediaError> {
-    let waker = remedy_ui_reactive::waker();
+    let waker = remedy_ui_core::reactive::waker();
     match (host, waker) {
         (Ok(host), Ok(waker)) => {
             let notify: engine::Notify = Box::new(move || waker.post(move || deliver(id)).is_ok());

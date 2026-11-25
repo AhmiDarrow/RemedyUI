@@ -1,9 +1,9 @@
-//! `cargo remedy new`: an app from a template. The templates live in `remedy-templates`,
+//! `cargo remedy new`: an app from a template. The templates live in `cargo-remedy::templates`,
 //! shared with the developer tools' `new_app`.
 
 use std::path::PathBuf;
 
-use remedy_templates::{Dependency, title};
+use cargo_remedy::templates::{Dependency, title};
 
 use crate::flag_value;
 
@@ -18,9 +18,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(p) => {
             Dependency::Path(std::fs::canonicalize(&p).map_err(|e| format!("--remedy-path {p}: {e}"))?)
         }
-        None => Dependency::Git(remedy_templates::REPOSITORY.to_owned()),
+        None => Dependency::Git(cargo_remedy::templates::REPOSITORY.to_owned()),
     };
-    remedy_templates::create(&dir, name, &template, &remedy).map_err(|e| e.to_string())?;
+    cargo_remedy::templates::create(&dir, name, &template, &remedy).map_err(|e| e.to_string())?;
     println!("Created {} ({template}) in {}", title(name), dir.display());
     println!("  cd {}", dir.display());
     println!("  cargo remedy run        # F12 in a window opens the inspector");

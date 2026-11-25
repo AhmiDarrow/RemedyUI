@@ -13,11 +13,11 @@ use std::time::Duration;
 
 use remedy_ui::gpu_embed::{EmbedStatus, Gpu, GpuContent, GpuView, Target, gpu_view, wgpu};
 use remedy_ui::{App, AppConfig, GeometryStore, RendererKind, Runner, WindowSpec};
-use remedy_ui_bridge_windows::WindowsHooks;
-use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
-use remedy_ui_bridge_winit::{UserEvent, run_on};
-use remedy_ui_render_gpu::GpuContext;
+use remedy_ui_engine::render_gpu::GpuContext;
+use remedy_ui_platform::bridge_windows::WindowsHooks;
+use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
 
 /// Clears to a color that cycles with the frame number, and remembers which device it was
 /// given.

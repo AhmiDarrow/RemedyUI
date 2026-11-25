@@ -36,9 +36,9 @@ use remedy_ui::host::{HostEvent, SystemSettings, WindowId};
 use remedy_ui::input::ScrollPhysics;
 use remedy_ui::view::{AmbientMode, AmbientPolicy, Request};
 use remedy_ui::{App, AppConfig, GeometryStore, Runner, Ui, WindowSpec};
-use remedy_ui_bridge_headless::HeadlessHost;
-use remedy_ui_compositor::Compositor;
-use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 
 /// The virtual display's refresh.
 const REFRESH: Duration = Duration::from_micros(16_667);
@@ -170,7 +170,7 @@ impl Breakdown {
 fn breakdown(
     drive: Drive,
     beam: bool,
-    mut render: impl FnMut(&remedy_ui_compositor::FramePlan) -> u64,
+    mut render: impl FnMut(&remedy_ui_engine::compositor::FramePlan) -> u64,
 ) -> Breakdown {
     let ui = Ui::new(
         remedy_ui::style::Theme::dark_forest(),
@@ -225,7 +225,7 @@ fn cpu_breakdown(drive: Drive, beam: bool) -> Breakdown {
 /// The same on the GPU renderer, waiting for the GPU to finish each frame. `None` without a
 /// GPU adapter of any kind.
 fn gpu_breakdown(drive: Drive, beam: bool) -> Option<(Breakdown, String)> {
-    use remedy_ui_render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions, wgpu};
+    use remedy_ui_engine::render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions, wgpu};
     let ctx = GpuContext::new(&LadderOptions::default()).ok()?;
     let name = ctx.describe();
     let device = ctx.device.clone();

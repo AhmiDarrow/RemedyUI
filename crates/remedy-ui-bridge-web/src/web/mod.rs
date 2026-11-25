@@ -23,7 +23,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_host::{App, HostEvent, SystemSettings, TimerId, WindowId};
+use remedy_ui_core::host::{App, HostEvent, SystemSettings, TimerId, WindowId};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 

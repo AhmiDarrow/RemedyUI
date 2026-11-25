@@ -7,7 +7,7 @@ RemedyUI is meant to carry every Remedy app for years. The codebase has to stay 
 - **The layer graph** from [00](00-principles-and-modularity.md) is enforced. A CI check fails any dependency that points upward or sideways between feature packs.
 - **Crates are small and named for one job.** A module longer than about 1,500 lines, or a function longer than about 80, is a signal to split. These are not hard rules, but review asks why.
 - **Public API is deliberate.** Each crate exports through one `lib.rs` with explicit `pub use`. Internal helpers are `pub(crate)`. Third-party types never appear in public signatures: taffy, parley, wgpu and winit stay behind RemedyUI types, so they can be upgraded or replaced.
-- **Tests sit beside the code they test**, with integration tests per crate and cross-crate scenario tests in `remedy-ui-test`.
+- **Tests sit beside the code they test**, with integration tests per crate and cross-crate scenario tests in `remedy-ui-core::testing`.
 
 ## Standards
 

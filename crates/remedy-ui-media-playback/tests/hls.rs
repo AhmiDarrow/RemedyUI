@@ -259,7 +259,7 @@ fn plays_a_growing_playlist() {
 fn wait_for(what: &str, ok: impl Fn() -> bool) {
     let start = std::time::Instant::now();
     while !ok() {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         assert!(start.elapsed() < Duration::from_secs(20), "waited for {what}");
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -275,10 +275,10 @@ fn a_player_follows_a_growing_playlist() {
     let set = |p: String| {
         files.lock().unwrap_or_else(PoisonError::into_inner).insert("index.m3u8".into(), p.into_bytes())
     };
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
-    let ui = remedy_ui_view::Ui::new(
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
+    let ui = remedy_ui_engine::view::Ui::new(
         theme.clone(),
-        remedy_ui_themes::sheet(&theme),
+        remedy_ui_widgets::themes::sheet(&theme),
         remedy_ui_text::FontCollection::new(),
     );
     let p = Player::open(&ui, host, MediaSource::url(&url), PlayerOptions::default());
@@ -293,7 +293,7 @@ fn a_player_follows_a_growing_playlist() {
     p.seek(secs(2.5));
     wait_for("the seek", || p.position() == secs(2.5));
     std::thread::sleep(Duration::from_millis(300));
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     assert_eq!(p.position(), secs(2.5), "the seek waits for the playlist to get there");
     set(playlist());
     wait_for("the playlist's end", || length() == Some((Some(secs(3.0)), false)));
@@ -618,10 +618,10 @@ fn plays_a_local_playlist() {
 #[cfg(windows)]
 #[test]
 fn pictures_on_the_gpu() {
-    use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+    use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
     let ctx = GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}"));
     let _renderer = GpuRenderer::new(ctx, None);
-    if remedy_ui_paint::gpu_video_adapter().is_none() {
+    if remedy_ui_engine::paint::gpu_video_adapter().is_none() {
         return eprintln!("skipped: this GPU cannot sample NV12 textures shared from D3D11");
     }
     let (url, _files) = server(playlist());
@@ -631,8 +631,14 @@ fn pictures_on_the_gpu() {
         let Sample::Video { at, picture: p, .. } = s else { continue };
         assert!(p.gpu.is_some() && p.data.is_empty(), "the picture at {at:?} came through CPU memory");
         if n % 25 == 10 {
-            let mut f =
-                remedy_ui_paint::VideoFrame::packed(1, n, p.width, p.height, p.format, p.data.clone());
+            let mut f = remedy_ui_engine::paint::VideoFrame::packed(
+                1,
+                n,
+                p.width,
+                p.height,
+                p.format,
+                p.data.clone(),
+            );
             f.matrix = p.matrix;
             f.full_range = p.full_range;
             f.gpu = p.gpu.clone();

@@ -40,7 +40,7 @@ fn unlock_screen(ui: &Ui, vault: Vault) -> El {
 
 ## Tools for people and agents
 
-Every developer tool has one logic, in `remedy-tools`, and two front ends: `cargo remedy`'s commands for people and scripts ([CLI.md](../CLI.md)), and `remedy-mcp` for AI agents over the Model Context Protocol ([MCP.md](../MCP.md)). The tools:
+Every developer tool has one logic, in `cargo-remedy::devkit`, and two front ends: `cargo remedy`'s commands for people and scripts ([CLI.md](../CLI.md)), and `remedy-mcp` for AI agents over the Model Context Protocol ([MCP.md](../MCP.md)). The tools:
 
 - docs search
 - the widget catalog

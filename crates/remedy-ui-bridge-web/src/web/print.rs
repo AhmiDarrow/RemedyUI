@@ -1,6 +1,6 @@
 //! Printing: the page goes into a hidden frame, and the browser's print dialog prints it.
 
-use remedy_ui_host::Unsupported;
+use remedy_ui_core::host::Unsupported;
 use wasm_bindgen::JsCast;
 
 /// Marks the frames this module adds, so the next print removes the last one.
