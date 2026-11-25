@@ -7,11 +7,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
-use remedy_ui_widgets::doc_pages::*;
 use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerKind, PointerPhase, ScrollPhysics};
+use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
+use remedy_ui_widgets::doc_pages::*;
 
 mod common;
 use common::*;

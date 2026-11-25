@@ -1,7 +1,7 @@
 //! Layout behavior.
 
-use remedy_ui_core::{Insets, Scale};
 use remedy_ui_core::layout::*;
+use remedy_ui_core::{Insets, Scale};
 
 type R = Result<(), LayoutError>;
 

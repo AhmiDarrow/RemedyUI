@@ -1,15 +1,19 @@
 //! The toolbar and text editors, the notices, and the settings page that brings every editor
 //! together.
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::reactive::{Memo, Signal, untrack};
-use remedy_ui_platform::services_i18n::MessageEntry;
-use remedy_ui_engine::view::{Align, El, Ui};
 use crate::base as w;
 use crate::nav::{Tab, fuzzy_score, tabs, toolbar, toolbar_editor};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::reactive::{Memo, Signal, untrack};
+use remedy_ui_engine::view::{Align, El, Ui};
+use remedy_ui_platform::services_i18n::MessageEntry;
 
-use crate::customize::theme_editor::{follow_label, reset_button, reset_named, search, section, status_line, words};
-use crate::customize::{Area, Customizations, CustomizeError, shortcut_editor, theme_editor, tr, tr_now, trf};
+use crate::customize::theme_editor::{
+    follow_label, reset_button, reset_named, search, section, status_line, words,
+};
+use crate::customize::{
+    Area, Customizations, CustomizeError, shortcut_editor, theme_editor, tr, tr_now, trf,
+};
 
 /// "`id`: what went wrong" in the window's locale now, for a status line.
 fn failed(ui: &Ui, id: &str, e: &CustomizeError) -> String {

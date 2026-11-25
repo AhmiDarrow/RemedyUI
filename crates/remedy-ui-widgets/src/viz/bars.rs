@@ -5,9 +5,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_engine::paint::Brush;
-use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Ui};
 
 use crate::viz::drive::{Clock, Moved, Smoothing, Ticker};

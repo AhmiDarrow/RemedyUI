@@ -7,12 +7,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Color, Point, Size, Vec2};
 use remedy_ui_core::host::ImeEvent;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::{Color, Point, Size, Vec2};
 use remedy_ui_engine::paint::Item;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets_term::*;
 
 fn ui() -> Ui {

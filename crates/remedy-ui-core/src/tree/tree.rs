@@ -7,8 +7,8 @@ use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
-use crate::{Arena, Id, Point, Rect};
 use crate::reactive::{Scope, Signal, batch};
+use crate::{Arena, Id, Point, Rect};
 
 use crate::tree::dirty::Dirty;
 

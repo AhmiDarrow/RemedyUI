@@ -25,8 +25,8 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_core::token::{TOKEN_LEN, random_token, same_secret};
 use remedy_ui_core::reactive::debug::NodeInfo;
+use remedy_ui_core::token::{TOKEN_LEN, random_token, same_secret};
 use remedy_ui_engine::view::Ui;
 use serde::{Deserialize, Serialize};
 

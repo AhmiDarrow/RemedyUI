@@ -10,13 +10,13 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_core::input::{
     Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase,
     WheelEvent,
 };
-use remedy_ui_engine::paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_engine::paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_engine::view::{ElementId, PaintCx, WeakUi};
 
 use crate::doc_pages::annot::{self, Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
@@ -947,7 +947,10 @@ impl PageView {
                 })
                 .collect();
             if !lines.is_empty() {
-                lines.insert(0, crate::doc_pages::say(&locale, "annotation-count", &[("count", lines.len().into())]));
+                lines.insert(
+                    0,
+                    crate::doc_pages::say(&locale, "annotation-count", &[("count", lines.len().into())]),
+                );
             }
             lines.join("\n")
         };
@@ -1764,7 +1767,8 @@ impl PageView {
     }
 
     pub(crate) fn wheel(&self, e: &WheelEvent) -> bool {
-        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
+        let apple =
+            self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
         let zoom_key = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         if zoom_key {
             let input = self.0.input.get();
@@ -2036,7 +2040,8 @@ impl PageView {
         if !e.pressed {
             return false;
         }
-        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
+        let apple =
+            self.host().is_some_and(|el| el.ui().platform() == remedy_ui_core::input::Platform::Apple);
         let cmd = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         let ch = match &e.key {
             Key::Character(c) => Some(c.as_str()),
@@ -2665,8 +2670,8 @@ impl State {
         let h = self.viewport.height * self.dpr + 2.0 * t;
         let screen = (w.max(t) * h.max(t) * 4.0) as u64;
         let floor = screen.saturating_mul(3);
-        let share =
-            remedy_ui_engine::view::device::total_memory().map_or(floor.saturating_mul(4), |m| m / MEMORY_SHARE);
+        let share = remedy_ui_engine::view::device::total_memory()
+            .map_or(floor.saturating_mul(4), |m| m / MEMORY_SHARE);
         usize::try_from(floor.max(share)).unwrap_or(usize::MAX)
     }
 

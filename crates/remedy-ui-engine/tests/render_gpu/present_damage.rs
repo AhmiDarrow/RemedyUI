@@ -11,15 +11,15 @@ mod common;
 
 use std::time::Duration;
 
-use remedy_ui_platform::bridge_winit::run_on;
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Rect, Size};
 use remedy_ui_core::host::{App, Host, HostEvent, WindowOptions};
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, CornerRadii, Rect, Size};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_engine::paint::{Brush, DisplayList};
 use remedy_ui_engine::render_gpu::{
     GpuCompositor, GpuContext, GpuRenderer, GpuSurface, LadderOptions, PresentChecks, Presented,
 };
+use remedy_ui_platform::bridge_winit::run_on;
 
 /// Stripes, and a dot at `x` (frames where `x` is unchanged change nothing).
 fn tree(x: f32) -> LayerTree {

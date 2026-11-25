@@ -8,15 +8,15 @@ use std::rc::Rc;
 
 use common::*;
 use remedy_ui_core::a11y::{Action, Role};
-use remedy_ui_core::{Point, Vec2};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase, WheelEvent};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Point, Vec2};
 use remedy_ui_engine::view::{El, Ui};
-use remedy_ui_widgets::viz::Clock;
 use remedy_ui_widgets::stage::{
     BigButtonOptions, ButtonLook, FaderOptions, KnobOptions, Station, TunerOptions, TunerShape, big_button,
     big_toggle, fader, knob, tuner,
 };
+use remedy_ui_widgets::viz::Clock;
 
 fn mount(ui: &Ui, el: &El) {
     let _ = ui.root().child(ui.el("holder").padding(20.0).child(el.clone()));

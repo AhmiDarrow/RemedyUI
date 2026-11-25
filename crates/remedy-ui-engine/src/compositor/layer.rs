@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use remedy_ui_core::{CornerRadii, Rect, Size, Vec2};
 use crate::paint::{Affine, DisplayList};
+use remedy_ui_core::{CornerRadii, Rect, Size, Vec2};
 
 /// Frosted glass under a layer: what the window shows below its box, blurred, before its own
 /// content (CSS `backdrop-filter: blur()`). It sees every layer drawn before it, back to the

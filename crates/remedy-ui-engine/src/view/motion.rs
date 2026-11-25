@@ -21,11 +21,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::time::Instant;
-use remedy_ui_core::{Color, Insets, Vec2};
 pub use remedy_ui_core::motion::{Animatable, Animation, CubicBezier, Easing, FrameClock, Motion, Spring};
 use remedy_ui_core::style::StylePatch;
+use remedy_ui_core::time::Instant;
 use remedy_ui_core::tree::Dirty;
+use remedy_ui_core::{Color, Insets, Vec2};
 
 use crate::view::element::{El, ElData, Ui};
 

@@ -4,10 +4,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_engine::paint::{Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, Sampling, Stop, Stroke};
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
+use remedy_ui_engine::paint::{
+    Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, Sampling, Stop, Stroke,
+};
 use remedy_ui_engine::render_cpu::{CpuCompositor, CpuRenderer, Frame};
 use remedy_ui_engine::render_gpu::*;
 use remedy_ui_text::{Antialias, FontCollection, Hinting, ParagraphOptions, RichText, TextEngine, TextStyle};
@@ -137,7 +139,10 @@ fn page() -> LayerTree {
     let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 240.0, 900.0), {
         let mut l = DisplayList::new();
         for i in 0..5 {
-            l.push(Item::PushTransform(remedy_ui_engine::paint::Affine::translate(Vec2::new(0.0, i as f32 * 180.0))));
+            l.push(Item::PushTransform(remedy_ui_engine::paint::Affine::translate(Vec2::new(
+                0.0,
+                i as f32 * 180.0,
+            ))));
             l.extend(&scene());
             l.push(Item::PopTransform);
         }
@@ -394,7 +399,11 @@ fn uploads_of_images_the_app_drops_are_freed() {
 }
 
 /// A 64 × 48 frame: a horizontal ramp of luma with four colored quarters of chroma.
-fn video_frame(stream: u64, id: u64, format: remedy_ui_engine::paint::PixelFormat) -> remedy_ui_engine::paint::VideoFrame {
+fn video_frame(
+    stream: u64,
+    id: u64,
+    format: remedy_ui_engine::paint::PixelFormat,
+) -> remedy_ui_engine::paint::VideoFrame {
     use remedy_ui_engine::paint::{PixelFormat, VideoFrame, YuvMatrix};
     let (w, h) = (64u32, 48u32);
     let (cw, ch) = (w / 2, h / 2);
@@ -556,8 +565,8 @@ fn turned_text_matches_the_cpu_and_turns_its_glyphs() {
     let p = engine.layout(&RichText::plain("HHHHHHHH"), &style, ParagraphOptions::default());
     let list = |deg: f32, at: Vec2| {
         let mut l = DisplayList::new();
-        let t =
-            remedy_ui_engine::paint::Affine::rotate(deg.to_radians()).then(remedy_ui_engine::paint::Affine::translate(at));
+        let t = remedy_ui_engine::paint::Affine::rotate(deg.to_radians())
+            .then(remedy_ui_engine::paint::Affine::translate(at));
         l.push(Item::PushTransform(t));
         for run in p.glyph_runs() {
             l.push(Item::Glyphs(GlyphRun {

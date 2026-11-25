@@ -4,13 +4,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_core::host::{
     AccessibilityEvent, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent,
     LocalTime, Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState,
     TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_core::input::Platform;
+use remedy_ui_core::{Point, Rect, Size};
 
 use super::window::{Kind, Win};
 use super::{Driver, clipboard, dialog, driver, notify, now, post, print, settings, share};
@@ -292,7 +292,11 @@ impl Host for WebHost<'_> {
         Ok(())
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_core::host::accesskit::TreeUpdate) {
+    fn update_accessibility(
+        &mut self,
+        window: WindowId,
+        update: remedy_ui_core::host::accesskit::TreeUpdate,
+    ) {
         if let Some(w) = self.win(window) {
             w.aria.update(update);
         }
@@ -347,7 +351,10 @@ impl Host for WebHost<'_> {
         }
     }
 
-    fn show_notification(&mut self, notification: &remedy_ui_core::host::Notification) -> Result<(), Unsupported> {
+    fn show_notification(
+        &mut self,
+        notification: &remedy_ui_core::host::Notification,
+    ) -> Result<(), Unsupported> {
         notify::show(notification)
     }
 
@@ -360,14 +367,20 @@ impl Host for WebHost<'_> {
         super::gamepad::set_tuning(tuning);
     }
 
-    fn set_badge(&mut self, _app_id: &str, badge: Option<remedy_ui_core::host::Badge>) -> Result<(), Unsupported> {
+    fn set_badge(
+        &mut self,
+        _app_id: &str,
+        badge: Option<remedy_ui_core::host::Badge>,
+    ) -> Result<(), Unsupported> {
         // The Badging API: on the icon of an installed web app (Chromium browsers, Safari).
         let Some(window) = web_sys::window() else {
             return Err(Unsupported::new("app badges", "no browser window"));
         };
         let navigator: wasm_bindgen::JsValue = window.navigator().into();
         let (name, arg) = match badge {
-            Some(remedy_ui_core::host::Badge::Count(n)) => ("setAppBadge", Some(wasm_bindgen::JsValue::from(n))),
+            Some(remedy_ui_core::host::Badge::Count(n)) => {
+                ("setAppBadge", Some(wasm_bindgen::JsValue::from(n)))
+            }
             Some(_) => ("setAppBadge", None),
             None => ("clearAppBadge", None),
         };

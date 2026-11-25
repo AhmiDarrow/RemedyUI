@@ -6,15 +6,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Size};
+use crate::base as w;
 use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_core::layout::Direction;
-use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::Theme;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Size};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_engine::view::{El, Ui};
-use crate::base as w;
+use remedy_ui_text::FontCollection;
 
 /// Builds the UI under preview into a [`Ui`] (theme, locale and fonts are already set).
 pub type PreviewBuilder = Rc<dyn Fn(&Ui) -> El>;
@@ -134,8 +134,7 @@ impl Variation {
 impl Preview {
     /// A preview of what `build` makes, in the first palette, en-US, 400×300, at 1×.
     pub fn new(name: impl Into<String>, build: impl Fn(&Ui) -> El + 'static) -> Self {
-        let first =
-            crate::themes::PALETTES.first().map_or_else(|| "forest".to_owned(), |p| p.id.to_owned());
+        let first = crate::themes::PALETTES.first().map_or_else(|| "forest".to_owned(), |p| p.id.to_owned());
         Preview {
             name: name.into(),
             build: Rc::new(build),
@@ -268,8 +267,7 @@ fn bundled_fonts() -> FontCollection {
 fn theme_for(v: &Variation) -> Theme {
     // `portal:<id>` is Portal's own palette of that id (crate::themes::portal_theme).
     let portal = v.theme.strip_prefix("portal:").and_then(crate::themes::portal_theme);
-    let shared =
-        || crate::themes::palette(&v.theme).map_or_else(Theme::dark_forest, crate::themes::theme);
+    let shared = || crate::themes::palette(&v.theme).map_or_else(Theme::dark_forest, crate::themes::theme);
     let mut t = portal.unwrap_or_else(shared);
     let s = v.text_scale.clamp(0.5, 4.0);
     t.type_scale.small *= s;

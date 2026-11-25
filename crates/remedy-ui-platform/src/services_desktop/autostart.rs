@@ -106,7 +106,8 @@ pub fn set_in(dir: &Path, e: &Entry, on: bool) -> Result<(), DesktopError> {
         .map_err(|err| DesktopError::Io { path: dir.to_path_buf(), reason: err.to_string() })?;
     let io = |err: std::io::Error| DesktopError::Io { path: file.clone(), reason: err.to_string() };
     if cfg!(windows) {
-        crate::services_desktop::os::shortcut(&file, &e.program, &e.args).map_err(|reason| DesktopError::Platform { reason })
+        crate::services_desktop::os::shortcut(&file, &e.program, &e.args)
+            .map_err(|reason| DesktopError::Platform { reason })
     } else if cfg!(target_os = "macos") {
         std::fs::write(&file, launch_agent(e)).map_err(io)
     } else {
@@ -125,7 +126,8 @@ fn remove(file: &Path) -> Result<(), DesktopError> {
 /// [`enabled`] with the folder `dir` and, on Windows, the Run key `HKCU\<run_key>` (tests point
 /// both elsewhere): an entry in either counts.
 pub fn enabled_at(dir: &Path, run_key: &str, e: &Entry) -> bool {
-    enabled_in(dir, e) || (cfg!(windows) && crate::services_desktop::os::run_value(run_key, &e.name).is_some())
+    enabled_in(dir, e)
+        || (cfg!(windows) && crate::services_desktop::os::run_value(run_key, &e.name).is_some())
 }
 
 /// [`set`] with the folder `dir` and, on Windows, the Run key `HKCU\<run_key>`. Turning it off
@@ -141,7 +143,8 @@ pub fn set_at(dir: &Path, run_key: &str, e: &Entry, on: bool) -> Result<(), Desk
         return crate::services_desktop::os::set_run_value(run_key, &e.name, None).map_err(platform);
     }
     if e.run_key {
-        crate::services_desktop::os::set_run_value(run_key, &e.name, Some((&e.program, &e.args))).map_err(platform)?;
+        crate::services_desktop::os::set_run_value(run_key, &e.name, Some((&e.program, &e.args)))
+            .map_err(platform)?;
         return set_in(dir, e, false);
     }
     if crate::services_desktop::os::run_value(run_key, &e.name).is_some() {

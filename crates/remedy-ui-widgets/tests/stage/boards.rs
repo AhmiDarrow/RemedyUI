@@ -10,10 +10,10 @@ use common::*;
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, RichText, Ui};
-use remedy_ui_widgets::viz::Clock;
 use remedy_ui_widgets::stage::{
     Board, DisplayOptions, Marquee, NewestAt, Timeline, TimelineOptions, display_text, timeline,
 };
+use remedy_ui_widgets::viz::Clock;
 
 fn mount(ui: &Ui, el: &El) {
     let _ = ui.root().child(ui.el("holder").padding(20.0).child(el.clone()));

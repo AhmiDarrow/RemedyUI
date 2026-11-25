@@ -1,11 +1,11 @@
 //! Values: sliders and steppers.
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::Align;
-use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{CornerRadii, Rect};
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::{El, Ui};
 
 fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
@@ -130,9 +130,9 @@ pub fn reveal_on_hover(group: El, target: &El, width: f32) -> El {
         .on_focus_within(move |on| focus.set_if_changed(on))
         .bind(move || {
             let shown = hover.get() || focus.get();
-            let _ = t
-                .clone()
-                .layout(move |l| l.width = remedy_ui_core::layout::Length::Px(if shown { width } else { 0.0 }));
+            let _ = t.clone().layout(move |l| {
+                l.width = remedy_ui_core::layout::Length::Px(if shown { width } else { 0.0 })
+            });
             let to = remedy_ui_engine::view::motion::Target::Opacity(if shown { 1.0 } else { 0.0 });
             match ui.reduced_motion() {
                 true => t.set_animated(to),

@@ -4,8 +4,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Size;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Justify};
 use remedy_ui_engine::view::Ui;

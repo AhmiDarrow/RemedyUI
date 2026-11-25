@@ -5,16 +5,16 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Insets, Point, Size, Vec2};
 use remedy_ui_core::host::ImeEvent;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Insets, Point, Size, Vec2};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_engine::view::{FieldKind, Request, Ui};
+use remedy_ui_text::FontCollection;
 
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 const BLUE: Color = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };
@@ -597,8 +597,8 @@ fn focus_within_is_told_once_on_entering_and_once_on_leaving() {
 
 #[test]
 fn text_rendering_follows_the_app_and_the_system() {
-    use remedy_ui_text::{Antialias, Hinting};
     use remedy_ui_engine::view::{TextAntialias, TextRendering};
+    use remedy_ui_text::{Antialias, Hinting};
     let ui = ui();
     assert_eq!(ui.text_rendering(), TextRendering::default(), "sharp and grayscale unless asked");
     let system = TextRendering::new(true, TextAntialias::System);
@@ -627,10 +627,9 @@ fn truncated_text_is_cut_short_to_its_box_and_keeps_its_words() {
     let free = ui.el("label").text(remedy_ui_engine::view::RichText::plain(words)).nowrap();
     ui.root()
         .child(
-            ui.el("box")
-                .row()
-                .width(120.0)
-                .child(label.clone().grow(1.0).layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(0.0))),
+            ui.el("box").row().width(120.0).child(
+                label.clone().grow(1.0).layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(0.0)),
+            ),
         )
         .child(ui.el("box").row().child(free.clone()));
     let _ = ui.frame(Size::new(600.0, 200.0), 1.0);
@@ -653,7 +652,8 @@ fn clamped_and_cased_text_draws_short_or_in_capitals_and_reads_as_written() {
         .el("label")
         .text(remedy_ui_engine::view::RichText::plain(words))
         .style(remedy_ui_engine::view::Style::default().max_lines(3));
-    let upper = ui.el("label").text("straße").nowrap().text_transform(remedy_ui_engine::view::TextTransform::Upper);
+    let upper =
+        ui.el("label").text("straße").nowrap().text_transform(remedy_ui_engine::view::TextTransform::Upper);
     let caps = ui.el("label").text("STRASSE").nowrap();
     let card = ui.el("box").column().width(120.0);
     for e in [&line, &two, &all, &styled] {
@@ -721,7 +721,8 @@ fn line_height_sets_how_tall_each_line_is_and_is_inherited() {
 #[test]
 fn data_text_is_left_alone_by_pseudo_locales() {
     let ui = ui();
-    let name = ui.el("label").text(remedy_ui_engine::view::RichText::plain("Ada Lovelace")).nowrap().data_text();
+    let name =
+        ui.el("label").text(remedy_ui_engine::view::RichText::plain("Ada Lovelace")).nowrap().data_text();
     let app = ui.el("label").text(remedy_ui_engine::view::RichText::plain("Ada Lovelace")).nowrap();
     ui.root().child(ui.el("box").row().child(name.clone())).child(ui.el("box").row().child(app.clone()));
     ui.set_locale("en-XA");
@@ -1014,8 +1015,10 @@ fn hover_hints_hear_drags_come_and_go_even_when_refused() {
 #[test]
 fn text_people_wrote_selects_across_messages_and_copies() {
     let ui = ui();
-    let first = ui.el("label").text(remedy_ui_engine::view::RichText::plain("Dinner at seven")).selectable(true);
-    let second = ui.el("label").text(remedy_ui_engine::view::RichText::plain("bring the salad")).selectable(true);
+    let first =
+        ui.el("label").text(remedy_ui_engine::view::RichText::plain("Dinner at seven")).selectable(true);
+    let second =
+        ui.el("label").text(remedy_ui_engine::view::RichText::plain("bring the salad")).selectable(true);
     let plain = ui.el("label").text(remedy_ui_engine::view::RichText::plain("not selectable"));
     let button = ui.el("button").width(80.0).height(24.0).on_click(|| {});
     ui.root().child(
@@ -1793,7 +1796,8 @@ fn a_lifted_finger_hovers_nothing() {
     ui.root().child(button(&ui, clicks.clone()).on_hover(move |inside| h2.set(inside)));
     let mut s = Screen::new(ui.clone());
     s.frame();
-    let touch = |phase, down| pointer(phase, 10.0, 10.0, down).with_kind(remedy_ui_core::input::PointerKind::Touch);
+    let touch =
+        |phase, down| pointer(phase, 10.0, 10.0, down).with_kind(remedy_ui_core::input::PointerKind::Touch);
     ui.pointer(&touch(PointerPhase::Down, true));
     s.frame();
     assert!(hovered.get(), "a finger on the button hovers it (a long press shows its tooltip)");
@@ -1854,7 +1858,8 @@ fn fields_tell_input_methods_their_purpose() {
     let pass = ui.text_field("secret_input", FieldKind::Secret);
     let code = ui.text_field("secret_input", FieldKind::Secret).purpose(InputPurpose::OneTimeCode);
     let amount = ui.text_field("text_input", FieldKind::Single).numeric();
-    let find = ui.text_field("text_input", FieldKind::Single).purpose(remedy_ui_engine::view::InputPurpose::Search);
+    let find =
+        ui.text_field("text_input", FieldKind::Single).purpose(remedy_ui_engine::view::InputPurpose::Search);
     let note = ui.text_field("text_input", FieldKind::Multi);
     for f in [&user, &pass, &code, &amount, &find, &note] {
         ui.root().child(f.el().layout(|l| l.width = Length::Px(150.0)));

@@ -7,10 +7,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::a11y::Role;
-use remedy_ui_core::{Size, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Size, Vec2};
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::base::{self as w, Icon};
 use remedy_ui_widgets::data::*;

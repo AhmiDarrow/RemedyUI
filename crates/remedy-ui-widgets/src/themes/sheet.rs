@@ -1,7 +1,7 @@
 //! The style sheet for RemedyUI's widgets, built only from theme tokens.
 
-use remedy_ui_core::{Color, Insets};
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme, ensure_contrast};
+use remedy_ui_core::{Color, Insets};
 
 /// Text on a filled color: the theme's text or background, whichever reads better.
 fn on(fill: Color, t: &Theme) -> Color {

@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_media::media_image::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{El, Ui};
 
 fn png(w: u32, h: u32) -> Vec<u8> {
     let raw: Vec<u8> = (0..w * h).flat_map(|i| [(i % 255) as u8, 40, 90, 255]).collect();

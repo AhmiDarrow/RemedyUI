@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::Ui;
 
 static TURN: Mutex<()> = Mutex::new(());
 

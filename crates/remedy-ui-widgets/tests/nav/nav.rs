@@ -4,11 +4,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Point, Size};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base::{self as w, Icon};
 use remedy_ui_widgets::nav::*;
 
@@ -62,7 +62,10 @@ fn audit_clean(ui: &Ui) {
             format!(
                 "{} [{}]",
                 p.message(),
-                ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
+                ui.element(p.element)
+                    .info()
+                    .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                    .unwrap_or_default()
             )
         })
         .collect();
@@ -366,7 +369,10 @@ fn audit_clean_at(ui: &Ui, size: Size) {
             format!(
                 "{} [{}]",
                 p.message(),
-                ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
+                ui.element(p.element)
+                    .info()
+                    .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                    .unwrap_or_default()
             )
         })
         .collect();
@@ -480,7 +486,8 @@ fn open_menus_pass_the_audit_in_narrow_windows_and_long_languages() {
         let _ = ui.key(&KeyEvent::press(Key::End));
         let _ = ui.key(&KeyEvent::press(Key::ArrowRight));
         frames_at(&ui, size);
-        let menus = ui.reader_view().into_iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Menu).count();
+        let menus =
+            ui.reader_view().into_iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Menu).count();
         assert!(menus >= 2, "the submenu opened at {size:?}");
         audit_clean_at(&ui, size);
     }

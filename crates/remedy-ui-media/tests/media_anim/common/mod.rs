@@ -4,12 +4,12 @@
 
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::compositor::{Layer, LayerTree};
 use remedy_ui_core::Size;
 use remedy_ui_core::input::{Key, KeyEvent};
+use remedy_ui_engine::compositor::{Layer, LayerTree};
 use remedy_ui_engine::paint::{Image, Item};
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 
 #[path = "../../../src/media_anim/testing.rs"]
 pub mod testing;
@@ -207,7 +207,10 @@ pub fn audit(s: &mut Screen) -> Vec<String> {
             format!(
                 "{} [{}]",
                 p.message(),
-                s.ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
+                s.ui.element(p.element)
+                    .info()
+                    .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                    .unwrap_or_default()
             )
         })
         .collect()

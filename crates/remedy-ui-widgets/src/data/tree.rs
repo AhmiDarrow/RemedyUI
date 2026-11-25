@@ -9,14 +9,14 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
+use crate::base::{self as w, Icon, Rejection};
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_core::style::States;
+use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_engine::view::{Align, Drag, DragData, DropEffect, El, Ui};
-use crate::base::{self as w, Icon, Rejection};
 
 use crate::data::model::Selection;
 use crate::data::rows::{RowBuilder, Rows};
@@ -330,7 +330,8 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             }
             row = row.child(w::text(&ui2, line.item.label.clone()).nowrap().grow(1.0));
             if line.loading {
-                row = row.child(w::text(&ui2, crate::data::tr_fn(&ui2, "tree-loading")).variant("muted").nowrap());
+                row = row
+                    .child(w::text(&ui2, crate::data::tr_fn(&ui2, "tree-loading")).variant("muted").nowrap());
             }
             let sem = {
                 let (k, sel, line, u) = (k.clone(), sel.clone(), line.clone(), ui2.clone());

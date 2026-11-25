@@ -14,11 +14,11 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
+use remedy_ui_engine::paint::{GpuAdapter, GpuTexture};
 use remedy_ui_media_playback::{
     Decoder, MediaHost, MediaSource, Picture, PixelFormat, PlaybackState, Player, PlayerOptions, Sample,
     WebBackend, platform_host_with,
 };
-use remedy_ui_engine::paint::{GpuAdapter, GpuTexture};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;

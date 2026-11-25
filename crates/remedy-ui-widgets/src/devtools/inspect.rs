@@ -4,14 +4,14 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Color, Insets, Rect};
 use remedy_ui_core::input::PointerPhase;
 use remedy_ui_core::layout::Position;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::{Color, Insets, Rect};
 use remedy_ui_engine::view::{El, ElementId, ElementInfo, Ui};
-use crate::base as w;
 
 /// Builds a style sheet for a theme (the app's own, so live edits restyle it correctly).
 pub type SheetFn = Rc<dyn Fn(&Theme) -> StyleSheet>;
@@ -127,7 +127,10 @@ impl Problem {
 }
 
 /// True when someone looking would see the change from `a` to `b`.
-fn visibly_differs(a: &remedy_ui_core::style::ResolvedStyle, b: &remedy_ui_core::style::ResolvedStyle) -> bool {
+fn visibly_differs(
+    a: &remedy_ui_core::style::ResolvedStyle,
+    b: &remedy_ui_core::style::ResolvedStyle,
+) -> bool {
     let border = |s: &remedy_ui_core::style::ResolvedStyle| {
         if s.border_width > 0.0 && s.border.a > 0.0 { Some((s.border, s.border_width)) } else { None }
     };
@@ -348,7 +351,10 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
             } else if !reader.contains(&el.node_id()) {
                 Some(if merged_away(&el) { Unreachable::Merged } else { Unreachable::Hidden })
             } else if i.clickable
-                && !i.semantics.as_ref().is_some_and(|s| s.actions().contains(&remedy_ui_core::a11y::Action::Click))
+                && !i
+                    .semantics
+                    .as_ref()
+                    .is_some_and(|s| s.actions().contains(&remedy_ui_core::a11y::Action::Click))
             {
                 Some(Unreachable::NoAction)
             } else {
@@ -583,8 +589,9 @@ impl Inspector {
             (true, false) => {
                 // The display's own rate, or one the developer chose.
                 let follow = self.0.budget_follow.get_untracked().unwrap_or(true);
-                let budget = (!follow)
-                    .then(|| crate::devtools::panels::budget_of(self.0.budget_hz.get_untracked().unwrap_or(60.0)));
+                let budget = (!follow).then(|| {
+                    crate::devtools::panels::budget_of(self.0.budget_hz.get_untracked().unwrap_or(60.0))
+                });
                 *slot = Some(crate::devtools::PerfOverlay::show(&self.0.target, rec, budget));
             }
             (false, true) => *slot = None,

@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Point, Size};
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 
 pub fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
@@ -83,7 +83,10 @@ pub fn audit(ui: &Ui) -> Vec<String> {
             format!(
                 "{} [{}]",
                 p.message(),
-                ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
+                ui.element(p.element)
+                    .info()
+                    .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                    .unwrap_or_default()
             )
         })
         .collect()

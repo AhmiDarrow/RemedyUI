@@ -1,6 +1,8 @@
 //! Start-with-the-session entries, written into a temporary folder.
 
-use remedy_ui_platform::services_desktop::autostart::{Entry, desktop_entry, enabled_in, launch_agent, set_in};
+use remedy_ui_platform::services_desktop::autostart::{
+    Entry, desktop_entry, enabled_in, launch_agent, set_in,
+};
 #[cfg(windows)]
 use remedy_ui_platform::services_desktop::autostart::{enabled_at, set_at};
 

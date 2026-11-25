@@ -256,7 +256,9 @@ fn the_fuel_rate_is_measured_on_this_device() {
     assert!(remedy_ui_engine::script_wasm::rate().is_calibrated());
     assert!((1_000..1_000_000_000).contains(&per_ms), "{per_ms} fuel a millisecond");
     // A machine half as fast (the same run taking twice as long) gets half the budget.
-    let Some((steps, took)) = remedy_ui_engine::script_wasm::measure() else { unreachable!("calibration runs") };
+    let Some((steps, took)) = remedy_ui_engine::script_wasm::measure() else {
+        unreachable!("calibration runs")
+    };
     let (here, slower) = (StepRate::new(1), StepRate::new(1));
     assert!(here.record(steps, took) && slower.record(steps, took * 2));
     let limits = Limits::default();

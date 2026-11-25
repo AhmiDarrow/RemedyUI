@@ -2,14 +2,14 @@
 //! the keyboard, clashes shown before anything changes and resolved by the person; reset per
 //! command and for all.
 
+use crate::base::{self as w, Icon};
+use crate::forms::key_capture;
+use crate::nav::{Commands, fuzzy_score};
 use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::input::{Chord, Clash};
 use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_engine::view::strings::StrArg;
 use remedy_ui_engine::view::{Align, El, Ui};
-use crate::base::{self as w, Icon};
-use crate::forms::key_capture;
-use crate::nav::{Commands, fuzzy_score};
 
 use crate::customize::theme_editor::{reset_button, search, status_line, words};
 use crate::customize::{Customizations, CustomizeError, clauses_in, list_in, locale_of, tr_in, tr_now, trf};

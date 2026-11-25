@@ -6,17 +6,19 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Color, Insets};
-use remedy_ui_core::host::FileDialog;
-use remedy_ui_core::reactive::{Signal, untrack};
-use remedy_ui_platform::services_i18n::Decimal;
-use remedy_ui_core::style::{Density, StylePatch};
-use remedy_ui_engine::view::{Align, El, FieldKind, TextField, Ui};
 use crate::base as w;
 use crate::forms::{NumberOptions, color_picker, number_input};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::host::FileDialog;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::{Density, StylePatch};
+use remedy_ui_core::{Color, Insets};
+use remedy_ui_engine::view::{Align, El, FieldKind, TextField, Ui};
+use remedy_ui_platform::services_i18n::Decimal;
 
-use crate::customize::theme::{COLOR_ROLES, ImportPolicy, Refusal, RefusalKind, Token, TokenValue, contrast_warnings};
+use crate::customize::theme::{
+    COLOR_ROLES, ImportPolicy, Refusal, RefusalKind, Token, TokenValue, contrast_warnings,
+};
 use crate::customize::{Customizations, CustomizeError, tr, tr_now, trf};
 
 /// A button reading "Reset" whose accessible name (`name`, kept current as the window's
@@ -316,7 +318,9 @@ fn number_row(
         }
         let n = v.to_f64();
         let tv = match t2.kind() {
-            crate::customize::TokenKind::Duration => TokenValue::Duration(Duration::from_secs_f64(n.max(0.0) / 1000.0)),
+            crate::customize::TokenKind::Duration => {
+                TokenValue::Duration(Duration::from_secs_f64(n.max(0.0) / 1000.0))
+            }
             _ => TokenValue::Px(n as f32),
         };
         untrack(|| report(&u2, status, c2.set_token(&u2, &t2, tv)));

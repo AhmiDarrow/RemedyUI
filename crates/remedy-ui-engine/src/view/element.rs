@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{A11yTree, Semantics};
-use remedy_ui_core::{Insets, Size, Vec2};
-use remedy_ui_core::layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
 use crate::paint::DisplayList;
+use remedy_ui_core::a11y::{A11yTree, Semantics};
+use remedy_ui_core::layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
 use remedy_ui_core::reactive::{Effect, Reaction};
 use remedy_ui_core::style::{ResolvedStyle, States, StyleKey, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::{FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextStyle};
 use remedy_ui_core::tree::{Dirty, ElementId, HitMode, Phase, Tree};
+use remedy_ui_core::{Insets, Size, Vec2};
+use remedy_ui_text::{FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextStyle};
 
 use crate::view::Request;
 use crate::view::events::Click;
@@ -830,7 +830,8 @@ pub(crate) struct Inner {
     /// The frame clock: set by the runner each frame, or wall time since the view was made.
     pub(crate) clock: crate::view::motion::Clock,
     /// Error boundaries ([`crate::view::catch_errors`]) by element, with the failure each holds.
-    pub(crate) boundaries: HashMap<ElementId, remedy_ui_core::reactive::Signal<Option<crate::view::CaughtError>>>,
+    pub(crate) boundaries:
+        HashMap<ElementId, remedy_ui_core::reactive::Signal<Option<crate::view::CaughtError>>>,
     /// Failures caught in this window, oldest first, for the inspector.
     pub(crate) failures: Vec<crate::view::CaughtError>,
     /// Changes whenever the failure list does (readers of [`Ui::failures`] follow it).
@@ -1271,7 +1272,8 @@ impl Ui {
             WindowDirection::LeftToRight => false,
             WindowDirection::RightToLeft => true,
         };
-        let want = if rtl { remedy_ui_core::layout::Direction::Rtl } else { remedy_ui_core::layout::Direction::Ltr };
+        let want =
+            if rtl { remedy_ui_core::layout::Direction::Rtl } else { remedy_ui_core::layout::Direction::Ltr };
         let same = signal.get_untracked().ok() == Some(rtl)
             && self.0.borrow().els.get(&root).is_some_and(|d| d.layout.direction == want);
         if same {
@@ -2419,12 +2421,13 @@ impl El {
     /// work even while a text field has focus (a way back, a panic key); keep them to
     /// chords a text field would not use, since the field loses them.
     pub fn on_key_capture(self, f: impl Fn(&remedy_ui_core::input::KeyEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_core::input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
-            if f(e) {
-                cx.set_handled();
-                cx.stop_propagation();
-            }
-        });
+        let _ =
+            self.ui.tree().on::<remedy_ui_core::input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
+                if f(e) {
+                    cx.set_handled();
+                    cx.stop_propagation();
+                }
+            });
         self
     }
 
@@ -2445,31 +2448,32 @@ impl El {
     /// begins the platform's window move).
     pub fn drag_region(self, start: impl Fn() + 'static) -> Self {
         let ui = self.ui.clone();
-        let _ = self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
-            if e.phase != remedy_ui_core::input::PointerPhase::Down
-                || !e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
-            {
-                return;
-            }
-            let tree = ui.tree();
-            let interactive = |id: ElementId| {
-                tree.is_focusable(id)
-                    || ui.0.borrow().els.get(&id).is_some_and(|d| d.click.is_some() || d.field.is_some())
-            };
-            // Anything between the press and the handle that takes input keeps the press.
-            let mut cur = Some(cx.target());
-            while let Some(id) = cur {
-                if id == cx.current() {
-                    break;
-                }
-                if interactive(id) {
+        let _ =
+            self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+                if e.phase != remedy_ui_core::input::PointerPhase::Down
+                    || !e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
+                {
                     return;
                 }
-                cur = tree.parent(id);
-            }
-            start();
-            cx.set_handled();
-        });
+                let tree = ui.tree();
+                let interactive = |id: ElementId| {
+                    tree.is_focusable(id)
+                        || ui.0.borrow().els.get(&id).is_some_and(|d| d.click.is_some() || d.field.is_some())
+                };
+                // Anything between the press and the handle that takes input keeps the press.
+                let mut cur = Some(cx.target());
+                while let Some(id) = cur {
+                    if id == cx.current() {
+                        break;
+                    }
+                    if interactive(id) {
+                        return;
+                    }
+                    cur = tree.parent(id);
+                }
+                start();
+                cx.set_handled();
+            });
         self
     }
 
@@ -2479,23 +2483,25 @@ impl El {
     /// elements that do their own scrolling or zooming (a paged document, Ctrl and the wheel)
     /// need this.
     pub fn on_wheel(self, f: impl Fn(&remedy_ui_core::input::WheelEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_core::input::WheelEvent>(self.id, Phase::Bubble, move |cx, e| {
-            if f(e) {
-                cx.set_handled();
-                cx.stop_propagation();
-            }
-        });
+        let _ =
+            self.ui.tree().on::<remedy_ui_core::input::WheelEvent>(self.id, Phase::Bubble, move |cx, e| {
+                if f(e) {
+                    cx.set_handled();
+                    cx.stop_propagation();
+                }
+            });
         self
     }
 
     /// Calls `f` with touchpad pinches over the element; `f` returns true when it zoomed.
     pub fn on_pinch(self, f: impl Fn(&remedy_ui_core::input::PinchEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_core::input::PinchEvent>(self.id, Phase::Bubble, move |cx, e| {
-            if f(e) {
-                cx.set_handled();
-                cx.stop_propagation();
-            }
-        });
+        let _ =
+            self.ui.tree().on::<remedy_ui_core::input::PinchEvent>(self.id, Phase::Bubble, move |cx, e| {
+                if f(e) {
+                    cx.set_handled();
+                    cx.stop_propagation();
+                }
+            });
         self
     }
 
@@ -2504,12 +2510,13 @@ impl El {
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.pointer = true;
         }
-        let _ = self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
-            if f(e) {
-                cx.set_handled();
-                cx.stop_propagation();
-            }
-        });
+        let _ =
+            self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+                if f(e) {
+                    cx.set_handled();
+                    cx.stop_propagation();
+                }
+            });
         self
     }
 

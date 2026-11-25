@@ -1,11 +1,11 @@
 //! Recording a keyboard shortcut.
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
 use remedy_ui_engine::view::{El, Ui};
-use crate::base as w;
 
 fn is_modifier(k: &Key) -> bool {
     matches!(k, Key::Named(n) if matches!(n.as_str(), "Shift" | "Control" | "Alt" | "AltGraph" | "Meta" | "Super" | "Hyper" | "Fn" | "CapsLock" | "NumLock"))

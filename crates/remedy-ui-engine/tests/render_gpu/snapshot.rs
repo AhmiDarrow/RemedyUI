@@ -4,10 +4,10 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Rect, Vec2};
-use remedy_ui_engine::effects::{CpuEffect, FrameInput, Instance};
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, CornerRadii, Rect, Vec2};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
+use remedy_ui_engine::effects::{CpuEffect, FrameInput, Instance};
 use remedy_ui_engine::paint::{Brush, DisplayList, ExternalTexture, Filter, Image, Item, Sampling};
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_engine::render_gpu::effects::GpuEffect;

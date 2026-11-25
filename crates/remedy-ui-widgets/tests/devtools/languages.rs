@@ -5,10 +5,10 @@
 //! `REMEDY_UPDATE_GOLDEN=1` after a deliberate change, and look at every one.
 
 use remedy_ui_core::Insets;
-use remedy_ui_widgets::devtools::{GoldenError, Preview, check_golden};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::base as w;
+use remedy_ui_widgets::devtools::{GoldenError, Preview, check_golden};
 use remedy_ui_widgets::forms::{CalendarSymbols, Date, Decimal, NumberSymbols};
 
 /// The top languages, as a person in each would have their system set.

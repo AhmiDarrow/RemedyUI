@@ -12,8 +12,8 @@ use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::script::{
     Action, Language, Limits, Node, ScriptError, ScriptWidget, SettingSpec, describe_with, serde_json,
 };
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, FailurePhase, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::board::*;
 use serde_json::{Map, Value, json};
 

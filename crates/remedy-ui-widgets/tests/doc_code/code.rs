@@ -2,10 +2,10 @@
 //! added at run time, and what screen readers get.
 
 use remedy_ui_core::Size;
-use remedy_ui_widgets::doc_code::*;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
+use remedy_ui_widgets::doc_code::*;
 
 fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);

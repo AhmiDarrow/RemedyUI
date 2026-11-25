@@ -85,11 +85,7 @@ impl WorkerPool {
             }
         };
         let size = threads.max(1);
-        WorkerPool {
-            queue,
-            pool: Arc::new(crate::exec::Pool::new("remedy-worker", size, step)),
-            size,
-        }
+        WorkerPool { queue, pool: Arc::new(crate::exec::Pool::new("remedy-worker", size, step)), size }
     }
 
     /// The process's shared pool, sized from the machine's processors.

@@ -300,7 +300,10 @@ pub(crate) fn set_run_value(
 }
 /// Replaces the jump list's Tasks with shortcuts to `program` (`ICustomDestinationList`).
 #[cfg(windows)]
-pub(crate) fn set_jump_tasks(program: &Path, tasks: &[crate::services_desktop::jump::Task]) -> Result<(), String> {
+pub(crate) fn set_jump_tasks(
+    program: &Path,
+    tasks: &[crate::services_desktop::jump::Task],
+) -> Result<(), String> {
     use windows::Win32::Storage::EnhancedStorage::PKEY_Title;
     use windows::Win32::System::Com::{
         CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,

@@ -25,11 +25,11 @@ pub use surface::{ImageKey, Surface};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use crate::paint::{
     Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, Path, PathEl,
     Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
+use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{self, BezPath, Shape};

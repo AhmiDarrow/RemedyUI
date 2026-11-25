@@ -82,10 +82,14 @@ impl Kind {
             Kind::String => remedy_ui_core::style::ensure_contrast(c.ok, c.card, 4.5),
             Kind::Comment => d.muted,
             Kind::Constant => remedy_ui_core::style::ensure_contrast(c.warn, c.card, 4.5),
-            Kind::Function => remedy_ui_core::style::ensure_contrast(c.accent.mix_oklab(d.text, 0.45), c.card, 4.5),
+            Kind::Function => {
+                remedy_ui_core::style::ensure_contrast(c.accent.mix_oklab(d.text, 0.45), c.card, 4.5)
+            }
             Kind::Type => remedy_ui_core::style::ensure_contrast(c.ok.mix_oklab(c.accent, 0.5), c.card, 4.5),
             Kind::Tag => remedy_ui_core::style::ensure_contrast(c.danger, c.card, 4.5),
-            Kind::Attribute => remedy_ui_core::style::ensure_contrast(c.warn.mix_oklab(c.accent, 0.5), c.card, 4.5),
+            Kind::Attribute => {
+                remedy_ui_core::style::ensure_contrast(c.warn.mix_oklab(c.accent, 0.5), c.card, 4.5)
+            }
         }
     }
 }

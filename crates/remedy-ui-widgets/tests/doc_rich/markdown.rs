@@ -6,9 +6,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::Role;
-use remedy_ui_widgets::doc_rich::*;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::El;
+use remedy_ui_widgets::doc_rich::*;
 
 mod common;
 use common::*;

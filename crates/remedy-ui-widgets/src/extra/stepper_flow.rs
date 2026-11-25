@@ -3,15 +3,15 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Length};
-use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
+use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_engine::view::{El, RichText, TextPaint, Ui};
-use crate::base as w;
 
 /// One step of a [`stepper_flow`].
 #[derive(Clone)]
@@ -343,8 +343,11 @@ pub fn stepper_flow(
             "stepper-step-of-titled",
             &[("step", step), ("count", count), ("title", title.into())],
         );
-        let shown =
-            crate::extra::STRINGS.format(&u, "stepper-step-of", &[("step", (cur + 1).into()), ("count", n.into())]);
+        let shown = crate::extra::STRINGS.format(
+            &u,
+            "stepper-step-of",
+            &[("step", (cur + 1).into()), ("count", n.into())],
+        );
         let _ = status.clone().text(RichText::plain(shown));
         let _ = b_root
             .clone()

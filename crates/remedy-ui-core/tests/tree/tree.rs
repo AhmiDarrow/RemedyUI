@@ -4,9 +4,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::{Point, Rect};
 use remedy_ui_core::reactive::{Effect, Signal, on_cleanup};
 use remedy_ui_core::tree::*;
+use remedy_ui_core::{Point, Rect};
 
 type R = Result<(), TreeError>;
 

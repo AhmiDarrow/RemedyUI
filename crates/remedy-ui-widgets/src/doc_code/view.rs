@@ -5,12 +5,12 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::Color;
-use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::{RichText, TextStylePatch};
-use remedy_ui_engine::view::{El, Ui};
 use crate::base as w;
+use remedy_ui_core::Color;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::{RichText, TextStylePatch};
 
 use crate::doc_code::diff::{DiffLine, diff_lines};
 use crate::doc_code::highlight::{Kind, highlight};
@@ -169,7 +169,8 @@ pub fn code_view(ui: &Ui, label: impl Into<String>, source: Signal<String>, opti
                         let id = if line.folded { "code-unfold-line" } else { "code-fold-line" };
                         let icon = if line.folded { w::Icon::ChevronRight } else { w::Icon::ChevronDown };
                         let (u, number) = (ui.clone(), line.number);
-                        let label = move || crate::doc_code::STRINGS.format(&u, id, &[("line", number.into())]);
+                        let label =
+                            move || crate::doc_code::STRINGS.format(&u, id, &[("line", number.into())]);
                         w::icon_button(&ui, icon, label, move || {
                             folded.update(|f| {
                                 if !f.remove(&n) {
@@ -251,7 +252,11 @@ pub fn diff_view(ui: &Ui, label: impl Into<String>, old: &str, new: &str, langua
                     let (u, code) = (ui.clone(), line.text.as_str().to_owned());
                     move || {
                         Semantics::new(Role::ListItem)
-                            .label(crate::doc_code::STRINGS.format(&u, said, &[("text", code.as_str().into())]))
+                            .label(crate::doc_code::STRINGS.format(
+                                &u,
+                                said,
+                                &[("text", code.as_str().into())],
+                            ))
                             .action(Action::Focus)
                     }
                 })

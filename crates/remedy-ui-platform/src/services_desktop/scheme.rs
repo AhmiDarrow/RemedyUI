@@ -105,7 +105,8 @@ mod platform {
     use super::{DesktopError, Entry};
 
     pub(super) fn register(app: &Entry, scheme: &str) -> Result<(), DesktopError> {
-        crate::services_desktop::os::register_scheme(scheme, &app.name, &app.program, &app.args).map_err(DesktopError::platform)
+        crate::services_desktop::os::register_scheme(scheme, &app.name, &app.program, &app.args)
+            .map_err(DesktopError::platform)
     }
 
     pub(super) fn unregister(app: &Entry, scheme: &str) -> Result<(), DesktopError> {

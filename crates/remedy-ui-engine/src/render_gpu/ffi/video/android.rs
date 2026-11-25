@@ -11,8 +11,8 @@
 
 use std::collections::HashMap;
 
-use ash::vk;
 use crate::paint::{GpuFrame, GpuTexture, YuvMatrix};
+use ash::vk;
 
 type Vk = wgpu::hal::api::Vulkan;
 

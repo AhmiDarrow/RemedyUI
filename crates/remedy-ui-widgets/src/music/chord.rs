@@ -1,10 +1,10 @@
 //! Chord diagrams: the box with strings, frets, fingers, barres, and open and muted strings.
 
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
 use remedy_ui_engine::view::{El, TextPaint, Ui};
 
 /// What a string does in a chord.
@@ -449,7 +449,13 @@ pub fn chord_diagram(
         let locale = u.locale();
         let name = ch.name.clone().map_or_else(
             || label.clone(),
-            |n| crate::music::say(&locale, "chord-named", &[("label", label.as_str().into()), ("name", n.into())]),
+            |n| {
+                crate::music::say(
+                    &locale,
+                    "chord-named",
+                    &[("label", label.as_str().into()), ("name", n.into())],
+                )
+            },
         );
         let _ = sem_el
             .clone()

@@ -64,7 +64,8 @@ pub(crate) fn claim(
 ) -> Result<Claimed, String> {
     #[cfg(windows)]
     {
-        let wait = wait.map(|w| remedy_ui_platform::bridge_windows::ReplyWait { reply: w.reply, exit: w.exit });
+        let wait =
+            wait.map(|w| remedy_ui_platform::bridge_windows::ReplyWait { reply: w.reply, exit: w.exit });
         remedy_ui_platform::bridge_windows::claim_single_instance_replying(app, args, wait, move |a, r| {
             deliver(&inbox, a, r);
         })

@@ -2,8 +2,8 @@
 
 use std::ops::Range;
 
-use remedy_ui_core::{Color, Point, Rect};
 use crate::paint::{Brush, DisplayList, Item, Path, Stroke};
+use remedy_ui_core::{Color, Point, Rect};
 
 /// How a decoration is drawn under its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

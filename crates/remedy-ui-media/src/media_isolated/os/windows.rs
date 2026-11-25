@@ -689,7 +689,8 @@ impl Child {
         let mut rest = Vec::new();
         // It has ended: its end of the pipe is closed (it could start no other process to
         // hold it), so this reads to the end.
-        let _ = (&self.err).take(crate::media_isolated::protocol::MAX_TEXT as u64 * 16).read_to_end(&mut rest);
+        let _ =
+            (&self.err).take(crate::media_isolated::protocol::MAX_TEXT as u64 * 16).read_to_end(&mut rest);
         self.keep_err(&rest);
         let how = match code {
             101 => "it panicked".to_owned(),

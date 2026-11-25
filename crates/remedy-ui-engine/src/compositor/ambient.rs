@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Vec2};
 use crate::paint::Affine;
+use remedy_ui_core::{Point, Vec2};
 
 /// How a loop moves through its period.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -6,13 +6,13 @@ use std::net::TcpStream;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Size;
-use remedy_ui_widgets::devtools::*;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base as w;
+use remedy_ui_widgets::devtools::*;
 
 /// Unwraps what a test needs, failing it with `why`.
 trait Must<T> {
@@ -158,7 +158,11 @@ fn a_frame_reports_what_it_redid() {
     let (text, row, _) = chat(&ui);
     frame(&ui);
     frame(&ui);
-    assert_eq!(ui.last_frame_stats(), remedy_ui_engine::view::FrameStats::default(), "an idle frame does nothing");
+    assert_eq!(
+        ui.last_frame_stats(),
+        remedy_ui_engine::view::FrameStats::default(),
+        "an idle frame does nothing"
+    );
     text.set("changed".into());
     frame(&ui);
     let stats = ui.last_frame_stats();

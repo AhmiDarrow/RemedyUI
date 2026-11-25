@@ -6,9 +6,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Insets, Point, Rect, Size};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
+use remedy_ui_core::{Insets, Point, Rect, Size};
 use remedy_ui_engine::view::{El, Ui};
 
 /// How long the pointer rests on an element before its tooltip shows.
@@ -120,8 +120,8 @@ pub(crate) fn place_fitted(
     // Measured (hidden) from the window's start edge, where it has the whole width: at its
     // anchor it would have only what is left of the window there, and text in it would wrap
     // to that. Placed, it always has at least the width it was measured at.
-    let el =
-        place_at(el, Point::new(0.0, first.y)).style(remedy_ui_core::style::StylePatch::default().opacity(0.0));
+    let el = place_at(el, Point::new(0.0, first.y))
+        .style(remedy_ui_core::style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
     let measured: Rc<Cell<Option<Size>>> = Rc::default();
     let place = {
@@ -205,7 +205,10 @@ pub fn tooltip(target: &El, text: impl remedy_ui_engine::view::IntoProp<String>)
             let id = ui.after(TOOLTIP_DELAY, move || {
                 let Some(b) = t2.bounds() else { return };
                 // Long tips wrap: at most a readable width, never past the window.
-                let tip = ui2.el("tooltip").text(remedy_ui_engine::view::RichText::plain(text.get())).pass_through();
+                let tip = ui2
+                    .el("tooltip")
+                    .text(remedy_ui_engine::view::RichText::plain(text.get()))
+                    .pass_through();
                 let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
                 *shown.borrow_mut() = Some(tip);
             });
@@ -496,7 +499,8 @@ pub fn trusted_prompt(
         }
     };
     let (u1, u2) = (ui.clone(), ui.clone());
-    let deny = crate::base::button(ui, move || crate::base::tr(&u1, "prompt-deny"), answer(false)).disabled(true);
+    let deny =
+        crate::base::button(ui, move || crate::base::tr(&u1, "prompt-deny"), answer(false)).disabled(true);
     let allow = crate::base::button(ui, move || crate::base::tr(&u2, "prompt-allow"), answer(true))
         .variant("primary")
         .disabled(true);

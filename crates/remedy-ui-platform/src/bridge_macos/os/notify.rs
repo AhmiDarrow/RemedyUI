@@ -27,7 +27,9 @@ use objc2_user_notifications::{
     UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse, UNNotificationSound,
     UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
-use remedy_ui_core::host::{HostEvent, Notification, NotificationResponse, TrayImage, Unsupported, Urgency, Waker};
+use remedy_ui_core::host::{
+    HostEvent, Notification, NotificationResponse, TrayImage, Unsupported, Urgency, Waker,
+};
 
 #[derive(Default)]
 struct Shared {

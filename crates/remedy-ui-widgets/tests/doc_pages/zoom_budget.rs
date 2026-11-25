@@ -7,12 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_widgets::doc_pages::*;
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, Point, Size};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_engine::render_gpu::{GpuCompositor, GpuContext, GpuRenderer, LadderOptions};
+use remedy_ui_widgets::doc_pages::*;
 
 mod common;
 use common::*;

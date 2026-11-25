@@ -6,14 +6,14 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Insets, Size, Vec2};
 use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::{StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Insets, Size, Vec2};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_engine::view::{Placement, Request, Ui};
+use remedy_ui_text::FontCollection;
 
 fn ui() -> Ui {
     let mut fonts = FontCollection::new();

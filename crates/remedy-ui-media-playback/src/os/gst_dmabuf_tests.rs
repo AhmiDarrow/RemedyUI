@@ -407,11 +407,15 @@ fn importing_renderer() -> Option<GpuRenderer> {
     let ctx = GpuContext::new(&LadderOptions::default()).ok()?;
     eprintln!("renderer on {:?}", ctx.adapter.get_info().name);
     let g = GpuRenderer::new(ctx, None);
-    let Some(remedy_ui_engine::paint::GpuAdapter::Uuid(_)) = remedy_ui_engine::paint::gpu_video_adapter() else {
+    let Some(remedy_ui_engine::paint::GpuAdapter::Uuid(_)) = remedy_ui_engine::paint::gpu_video_adapter()
+    else {
         eprintln!("this GPU does not import DMA-BUFs, skipping");
         return None;
     };
-    eprintln!("it imports NV12 planes in modifiers {:x?}", remedy_ui_engine::paint::gpu_video_dma_buf_modifiers());
+    eprintln!(
+        "it imports NV12 planes in modifiers {:x?}",
+        remedy_ui_engine::paint::gpu_video_dma_buf_modifiers()
+    );
     Some(g)
 }
 

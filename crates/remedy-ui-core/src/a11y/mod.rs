@@ -25,8 +25,8 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use accesskit::{Node, NodeId, Rect as AkRect, TreeId, TreeInfo, TreeUpdate};
 use crate::Rect;
+use accesskit::{Node, NodeId, Rect as AkRect, TreeId, TreeInfo, TreeUpdate};
 
 /// AccessKit's tree update, which platform adapters consume.
 pub use accesskit::TreeUpdate as AccessKitUpdate;

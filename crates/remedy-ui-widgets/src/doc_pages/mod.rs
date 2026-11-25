@@ -63,11 +63,11 @@ pub use text::{Match, SearchStatus, TextPos};
 pub use view::{MAX_ZOOM, MIN_ZOOM, PageView, SETTLE};
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Length, Position};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
+use remedy_ui_core::{Insets, Vec2};
 use remedy_ui_engine::view::strings::StrArg;
 use remedy_ui_engine::view::{El, Ui};
 
@@ -158,9 +158,7 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     let n = view.page_count();
     let items = Signal::new((0..n).collect::<Vec<usize>>());
     let (ui2, v) = (ui.clone(), view.clone());
-    let rail = crate::base::virtual_list(ui, "", items, THUMB_ROW, move |_, &page| {
-        thumb_row(&ui2, &v, page)
-    });
+    let rail = crate::base::virtual_list(ui, "", items, THUMB_ROW, move |_, &page| thumb_row(&ui2, &v, page));
     let u = ui.clone();
     let rail = rail.semantics(move || Semantics::new(Role::List).label(say(&u.locale(), "pages-list", &[])));
     let keys = view.clone();

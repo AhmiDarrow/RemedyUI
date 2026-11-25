@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
-use remedy_ui_media::media_image::*;
 use remedy_ui_core::reactive::Cancel;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::Ui;
+use remedy_ui_media::media_image::*;
+use remedy_ui_text::FontCollection;
 
 type Asked = Arc<Mutex<Vec<(FetchRequest, Cancel, Option<FetchDone>)>>>;
 

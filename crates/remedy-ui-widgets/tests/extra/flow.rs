@@ -8,15 +8,15 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use common::*;
-use remedy_ui_core::a11y::{Live, Role};
 use remedy_ui_core::Point;
+use remedy_ui_core::a11y::{Live, Role};
 use remedy_ui_core::input::{Buttons, Key, Modifiers, PointerPhase};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
 use remedy_ui_engine::view::{El, Ui};
-use remedy_ui_widgets::viz::Clock;
 use remedy_ui_widgets::base as w;
 use remedy_ui_widgets::extra::{CarouselOptions, Step, StepperLabels, carousel, stepper_flow};
+use remedy_ui_widgets::viz::Clock;
 
 fn mount(ui: &Ui, el: &El) {
     let _ = ui.root().child(el.clone());

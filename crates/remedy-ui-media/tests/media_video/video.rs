@@ -3,13 +3,13 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Size};
 use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_media::media_video::*;
+use remedy_ui_core::{Color, Size};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::*;
+use remedy_ui_text::FontCollection;
 
 fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);

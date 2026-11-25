@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::time::Instant;
 use remedy_ui_core::reactive::{Effect, Scope};
+use remedy_ui_core::time::Instant;
 use remedy_ui_platform::services_desktop::DesktopError;
 use remedy_ui_platform::services_desktop::media_session::{
     MediaCommand, MediaSession, MediaState, NowPlaying, NowPlayingSink,
@@ -117,8 +117,8 @@ impl Player {
             sink.set_now_playing(Some(&now));
             return Ok(());
         }
-        let waker =
-            remedy_ui_core::reactive::waker().map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
+        let waker = remedy_ui_core::reactive::waker()
+            .map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
         let session = MediaSession::new(move |c| {
             let _ = waker.post(move || {
                 if let Some(p) = Player::by_id(id) {

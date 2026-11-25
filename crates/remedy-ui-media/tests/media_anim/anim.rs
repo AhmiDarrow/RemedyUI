@@ -9,8 +9,8 @@ use std::time::Duration;
 use common::*;
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Axis, Display, Length};
-use remedy_ui_media::media_anim::{Fit, Source, animated, cached, resident_frames, trim_memory};
 use remedy_ui_engine::view::El;
+use remedy_ui_media::media_anim::{Fit, Source, animated, cached, resident_frames, trim_memory};
 
 fn src(bytes: Vec<u8>) -> Source {
     Source::Bytes(Arc::from(bytes))

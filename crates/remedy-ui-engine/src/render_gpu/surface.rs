@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use crate::compositor::FramePlan;
+use crate::render_cpu::Frame;
 use remedy_ui_core::Color;
 use remedy_ui_core::host::WindowHandles;
-use crate::render_cpu::Frame;
 
 use crate::render_gpu::renderer::submit_scene;
 use crate::render_gpu::{GpuCompositor, GpuContext, GpuError};
@@ -330,7 +330,9 @@ fn vk_error(e: crate::render_gpu::ffi::vulkan::ChainError) -> GpuError {
         crate::render_gpu::ffi::vulkan::ChainError::SurfaceLost => {
             GpuError::Surface("the window's surface was lost".into())
         }
-        crate::render_gpu::ffi::vulkan::ChainError::OutOfDate => GpuError::Surface("the swapchain no longer fits".into()),
+        crate::render_gpu::ffi::vulkan::ChainError::OutOfDate => {
+            GpuError::Surface("the swapchain no longer fits".into())
+        }
         crate::render_gpu::ffi::vulkan::ChainError::Failed(why) => GpuError::Surface(why),
     }
 }

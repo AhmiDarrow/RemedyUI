@@ -1,9 +1,9 @@
 //! Spatial navigation: arrow keys and d-pads move focus to the nearest focusable element in
 //! their direction, as the W3C CSS Spatial Navigation draft picks it.
 
-use remedy_ui_core::{Rect, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::tree::{Dirty, ElementId};
+use remedy_ui_core::{Rect, Vec2};
 
 use crate::view::El;
 use crate::view::element::Ui;

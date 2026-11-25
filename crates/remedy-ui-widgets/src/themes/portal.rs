@@ -3,8 +3,8 @@
 //! whose colourblind ones (Azure, Skyline, Lagoon) differ from the shared palettes'. Portal's
 //! page sets each in Remedy Sans at 16 px.
 
-use remedy_ui_core::{Color, Insets};
 use remedy_ui_core::style::{Gradient, States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::{Color, Insets};
 
 /// One Portal palette: `(id, name, [bg, raised, well, line, accent, text, muted, error, track])`,
 /// as `themes.ts` writes them (`--track` is the line, except in Portal's own palette).
@@ -343,7 +343,8 @@ mod tests {
         for (id, ..) in PORTAL_PALETTES {
             let t = portal_theme(id).unwrap_or_else(|| unreachable!());
             let mut sheet = portal_sheet(&t);
-            let key = remedy_ui_core::style::StyleKey { widget: "heading", variant: "1", states: States::NONE };
+            let key =
+                remedy_ui_core::style::StyleKey { widget: "heading", variant: "1", states: States::NONE };
             let s = sheet.resolve(&key, &StylePatch::defaults(&t), &StylePatch::default());
             assert!(s.heading, "{id}");
             assert!(

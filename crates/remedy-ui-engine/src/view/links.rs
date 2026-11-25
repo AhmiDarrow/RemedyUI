@@ -9,8 +9,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Point, Rect};
 use remedy_ui_core::tree::{Dirty, ElementId};
+use remedy_ui_core::{Point, Rect};
 
 use crate::view::element::Inner;
 use crate::view::{El, Ui};

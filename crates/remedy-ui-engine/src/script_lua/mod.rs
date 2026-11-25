@@ -59,12 +59,12 @@ mod world;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_lua::{Data, DataLimits, Dialect, Error, Libs, LimitKind, Lua, Root, Value};
-use remedy_ui_core::time::WorkClock;
 use crate::script::{
     Action, Described, Language, Limits, Manifest, Node, ScriptEngine, ScriptError, ScriptWidget,
     SettingSpec, StepRate,
 };
+use remedy_lua::{Data, DataLimits, Dialect, Error, Libs, LimitKind, Lua, Root, Value};
+use remedy_ui_core::time::WorkClock;
 use serde_json::{Map, Value as Json};
 
 use crate::script_lua::api::{Ctx, FRAME, Kind, err, flush, get_ref, signal_get, sweep_refs, with};
@@ -767,8 +767,7 @@ impl LuaWidget {
                 widget.lua.table_set(plain, k, v).map_err(|e| classify(&e))?;
             }
         }
-        widget.manifest =
-            crate::script::manifest(&plain_json(&widget.lua, Value::Table(plain), &limits)?)?;
+        widget.manifest = crate::script::manifest(&plain_json(&widget.lua, Value::Table(plain), &limits)?)?;
         if let Some(r) = render {
             let key = api::keep(&mut widget.lua, widget.ctx, r).map_err(|e| classify(&e))?;
             widget.dispatch = dispatcher(&mut widget.lua, ctx, Some(key)).map_err(|e| classify(&e))?;

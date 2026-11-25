@@ -1,7 +1,7 @@
 //! Containers.
 
-use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::layout::{Axis, Display, Length, Position};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, IntoProp, Ui};
@@ -83,8 +83,10 @@ pub fn disclosure(ui: &Ui, title: impl IntoProp<String>, body: El, open: Signal<
     let title = title.into_prop();
     let unit = ui.theme().spacing.unit;
     let size = ui.theme().type_scale.small + 2.0;
-    let (closed_mark, open_mark) =
-        (crate::base::icon(ui, crate::base::Icon::ChevronRight, size), crate::base::icon(ui, crate::base::Icon::ChevronDown, size));
+    let (closed_mark, open_mark) = (
+        crate::base::icon(ui, crate::base::Icon::ChevronRight, size),
+        crate::base::icon(ui, crate::base::Icon::ChevronDown, size),
+    );
     let head = crate::base::min_target(ui.el("disclosure_head"))
         .row()
         .align(remedy_ui_core::layout::Align::Center)

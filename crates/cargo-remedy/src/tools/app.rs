@@ -4,8 +4,10 @@
 //! Each command connects, does one thing and closes. When the app asks the person first, the
 //! command waits for their answer (`--wait`, 60 seconds by default).
 
-use remedy_tools::devtools::{Devtools, DevtoolsConnectInput, ElementInput, SignalsInput};
-use remedy_tools::live::{ActInput, CommandInput, ConnectInput, ConnectionInput, Live, Outcome, Status};
+use cargo_remedy::devkit::devtools::{Devtools, DevtoolsConnectInput, ElementInput, SignalsInput};
+use cargo_remedy::devkit::live::{
+    ActInput, CommandInput, ConnectInput, ConnectionInput, Live, Outcome, Status,
+};
 
 use super::{Args, err};
 

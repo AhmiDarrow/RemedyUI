@@ -7,11 +7,11 @@
 use std::rc::Rc;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::layout::{Display, Track};
-use remedy_ui_text::{RichText, TextStylePatch};
 use remedy_ui_engine::view::{El, IntoProp, Prop, Ui};
+use remedy_ui_text::{RichText, TextStylePatch};
 
 /// What following a link calls: the link's destination as the source wrote it.
 pub type OpenLink = Rc<dyn Fn(&str)>;
@@ -308,7 +308,9 @@ impl Builder<'_> {
                         Semantics::new(if head { Role::ColumnHeader } else { Role::Cell }).label(plain),
                     );
                 match align {
-                    Alignment::Right => cell.layout(|l| l.align_self = Some(remedy_ui_core::layout::Align::End)),
+                    Alignment::Right => {
+                        cell.layout(|l| l.align_self = Some(remedy_ui_core::layout::Align::End))
+                    }
                     Alignment::Center => {
                         cell.layout(|l| l.align_self = Some(remedy_ui_core::layout::Align::Center))
                     }

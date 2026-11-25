@@ -46,7 +46,8 @@ use remedy_ui_engine::view::strings::StrArg;
 /// and the undo history's names for edits) in every language the engine ships, from
 /// `i18n/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-music`.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-music");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("widgets-music");
 
 /// Message `id` with placeholder values in `locale` (not tracked: widgets pass
 /// `ui.locale()`, which is). What this pack says is read by screen readers or names an undo

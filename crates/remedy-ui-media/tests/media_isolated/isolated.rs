@@ -19,12 +19,12 @@ use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_media::media_image::{
     DecodeError, Decoded, Fit, Format, Source, add_format, decode, decode_for_box, dimensions, image, router,
 };
 use remedy_ui_media::media_isolated::{Layer, enable, isolation, stats};
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{El, Ui};
 
 // ---------- the hostile format ----------
 
@@ -208,8 +208,8 @@ fn helpers_start_sandboxed() {
 fn images_decode_in_the_helper_as_in_the_app() {
     for bytes in [png(300, 200), jpeg(64, 48)] {
         let before = stats().requests;
-        let here =
-            remedy_ui_media::media_image::decode(&bytes, Some((150, 100))).unwrap_or_else(|e| unreachable!("{e}"));
+        let here = remedy_ui_media::media_image::decode(&bytes, Some((150, 100)))
+            .unwrap_or_else(|e| unreachable!("{e}"));
         let there = decode_for_box(&bytes, Some((150, 150)), false).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(stats().requests >= before + 2, "probe and decode went to the helper");
         assert_eq!((there.image.width, there.image.height), (here.image.width, here.image.height));

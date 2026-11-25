@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::compositor::Layer;
 use remedy_ui_core::Size;
 use remedy_ui_core::input::{Key, KeyEvent};
-use remedy_ui_media_playback::*;
+use remedy_ui_engine::compositor::Layer;
 use remedy_ui_engine::paint::{Item, VideoFrame};
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media_playback::*;
+use remedy_ui_text::FontCollection;
 
 const SIZE: Size = Size { width: 480.0, height: 320.0 };
 
@@ -2616,7 +2616,8 @@ fn stage_cancel(view: &El) -> Option<El> {
 }
 
 fn shown_enabled(e: &El) -> (bool, bool) {
-    e.info().map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_core::style::States::DISABLED)))
+    e.info()
+        .map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_core::style::States::DISABLED)))
 }
 
 #[test]
@@ -2802,8 +2803,9 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
 
     // Fingers drag the same way.
-    let touch =
-        |phase, f, pressed| on_bar(&view, phase, f, pressed).with_kind(remedy_ui_core::input::PointerKind::Touch);
+    let touch = |phase, f, pressed| {
+        on_bar(&view, phase, f, pressed).with_kind(remedy_ui_core::input::PointerKind::Touch)
+    };
     s.ui.pointer(&touch(Down, 0.1, true));
     s.ui.pointer(&touch(Move, 0.2005, true));
     s.pump();
@@ -3671,7 +3673,10 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert_eq!(p.state(), PlaybackState::Playing);
 
     // The pointer moving wakes them.
-    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&chrome)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
+        remedy_ui_core::input::PointerPhase::Move,
+        middle(&chrome),
+    ));
     s.pump();
     assert!(p.controls_shown() && !s.ui.cursor_hidden());
     s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
@@ -3734,7 +3739,10 @@ fn full_screen_controls_stay_while_something_holds_them() {
     assert!(!p.controls_shown());
     // The pointer over the bar.
     let chrome = part(&view, "player_chrome");
-    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&chrome)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
+        remedy_ui_core::input::PointerPhase::Move,
+        middle(&chrome),
+    ));
     s.advance(long);
     assert!(p.controls_shown(), "hovered");
     // Scrubbing.
@@ -3854,7 +3862,10 @@ fn in_full_screen_up_next_floats_over_the_picture_and_keeps_its_keys() {
     assert_eq!(card.info().map(|i| (i.hidden, i.style.opacity)), Some((false, 1.0)));
     assert_eq!(card.bounds().unwrap_or_default(), c, "it stays where it was");
     // Under the pointer it holds the controls.
-    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&card)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
+        remedy_ui_core::input::PointerPhase::Move,
+        middle(&card),
+    ));
     s.advance(Duration::from_secs(8));
     assert!(p.controls_shown(), "hovered");
     s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, away));

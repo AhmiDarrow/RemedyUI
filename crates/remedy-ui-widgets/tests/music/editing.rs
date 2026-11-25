@@ -11,8 +11,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use common::*;
-use remedy_ui_core::a11y::Action;
 use remedy_ui_core::Point;
+use remedy_ui_core::a11y::Action;
 use remedy_ui_core::input::{Key, Modifiers};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Request, Ui};

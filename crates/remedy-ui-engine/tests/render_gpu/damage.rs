@@ -4,9 +4,9 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, FramePlan, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Rect};
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, CornerRadii, Rect};
+use remedy_ui_engine::compositor::{Compositor, FramePlan, Layer, LayerId, LayerTree};
 use remedy_ui_engine::paint::{Brush, DisplayList, Filter};
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_engine::render_gpu::*;
@@ -213,7 +213,11 @@ fn filtered_groups_of_layers_draw_from_damage_like_a_full_frame() {
     for (k, x) in [10.0f32, 30.5, 61.0, 96.0, 140.25, 190.0].into_iter().enumerate() {
         comp.commit(filtered_scene(x));
         let plan = comp.frame(Duration::from_millis(16 * k as u64));
-        assert!(plan.ops.iter().any(|o| matches!(o, remedy_ui_engine::compositor::CompositeOp::PushFilter { .. })));
+        assert!(
+            plan.ops
+                .iter()
+                .any(|o| matches!(o, remedy_ui_engine::compositor::CompositeOp::PushFilter { .. }))
+        );
         let a = partial.present_to_frame(&plan, W, H, Color::BLACK);
         let b = full
             .renderer()

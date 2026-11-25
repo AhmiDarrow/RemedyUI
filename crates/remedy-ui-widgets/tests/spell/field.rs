@@ -3,14 +3,14 @@
 
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_core::{Point, Size};
+use remedy_ui_engine::view::{FieldKind, Request, TextField, Ui};
+use remedy_ui_text::FontCollection;
+use remedy_ui_widgets::base::MenuItem;
 use remedy_ui_widgets::spell::{
     MenuLabels, SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions,
 };
-use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{FieldKind, Request, TextField, Ui};
-use remedy_ui_widgets::base::MenuItem;
 
 const EN_AFF: &str = "SET UTF-8\n";
 const EN_DIC: &str = "6\nhello\nworld\nhere\nthe\nquick\nbrown\n";

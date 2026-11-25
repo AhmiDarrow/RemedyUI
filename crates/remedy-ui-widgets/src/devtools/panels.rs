@@ -5,11 +5,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_core::{Color, Insets};
+use crate::base as w;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
+use remedy_ui_core::{Color, Insets};
 use remedy_ui_engine::view::{El, ElementId, Ui};
-use crate::base as w;
 
 use crate::devtools::inspect::{Inspector, line};
 use crate::devtools::remote::{
@@ -98,7 +98,10 @@ pub(crate) fn pages(ui: &Ui, insp: &Inspector) -> El {
 }
 
 fn describe_el(target: &Ui, id: ElementId) -> String {
-    target.element(id).info().map_or_else(|| "a removed element".to_owned(), |i| crate::devtools::describe(&i))
+    target
+        .element(id)
+        .info()
+        .map_or_else(|| "a removed element".to_owned(), |i| crate::devtools::describe(&i))
 }
 
 fn signals_page(ui: &Ui, insp: &Inspector) -> El {

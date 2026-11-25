@@ -11,13 +11,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_core::host::{
     App, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge,
     SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon,
     WindowId, WindowOptions,
 };
 use remedy_ui_core::input::{Modifiers, PinchEvent, PinchPhase, Platform, WheelEvent};
+use remedy_ui_core::{Point, Rect, Size, Vec2};
 
 /// A window in memory.
 #[derive(Clone, Debug)]
@@ -372,7 +372,10 @@ impl HeadlessHost {
     }
 
     /// Accessibility updates a window sent, oldest first (drained).
-    pub fn take_accessibility(&mut self, window: WindowId) -> Vec<remedy_ui_core::host::accesskit::TreeUpdate> {
+    pub fn take_accessibility(
+        &mut self,
+        window: WindowId,
+    ) -> Vec<remedy_ui_core::host::accesskit::TreeUpdate> {
         self.a11y.remove(&window).unwrap_or_default()
     }
 
@@ -858,7 +861,11 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_core::host::accesskit::TreeUpdate) {
+    fn update_accessibility(
+        &mut self,
+        window: WindowId,
+        update: remedy_ui_core::host::accesskit::TreeUpdate,
+    ) {
         self.a11y.entry(window).or_default().push(update);
     }
 
@@ -882,7 +889,10 @@ impl Host for HeadlessHost {
         Ok(remedy_ui_core::host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
     }
 
-    fn show_notification(&mut self, notification: &remedy_ui_core::host::Notification) -> Result<(), Unsupported> {
+    fn show_notification(
+        &mut self,
+        notification: &remedy_ui_core::host::Notification,
+    ) -> Result<(), Unsupported> {
         if self.notifications_off {
             return Err(Unsupported::new("system notifications", "turned off for this app"));
         }
@@ -895,7 +905,11 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
-    fn set_badge(&mut self, app_id: &str, badge: Option<remedy_ui_core::host::Badge>) -> Result<(), Unsupported> {
+    fn set_badge(
+        &mut self,
+        app_id: &str,
+        badge: Option<remedy_ui_core::host::Badge>,
+    ) -> Result<(), Unsupported> {
         self.badge = badge.map(|b| (app_id.to_owned(), b));
         Ok(())
     }
@@ -919,10 +933,13 @@ impl Host for HeadlessHost {
     ) -> Result<remedy_ui_core::host::PermissionStarted, Unsupported> {
         self.permissions.push(permission);
         if self.permissions_answer_later {
-            let id = remedy_ui_core::host::PermissionId(u64::try_from(self.permissions.len()).unwrap_or(u64::MAX));
+            let id =
+                remedy_ui_core::host::PermissionId(u64::try_from(self.permissions.len()).unwrap_or(u64::MAX));
             return Ok(remedy_ui_core::host::PermissionStarted::Pending(id));
         }
-        Ok(remedy_ui_core::host::PermissionStarted::Finished(self.permission_answers.pop_front().unwrap_or(true)))
+        Ok(remedy_ui_core::host::PermissionStarted::Finished(
+            self.permission_answers.pop_front().unwrap_or(true),
+        ))
     }
 
     fn share(

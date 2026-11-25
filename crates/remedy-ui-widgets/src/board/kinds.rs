@@ -11,8 +11,8 @@ use remedy_ui_engine::script::{
     Engines, Language, Limits, Node, Package, ScriptError, ScriptWidget, SettingKind, SettingSpec, TextStyle,
 };
 
-use remedy_ui_engine::view::{El, ElementId, FailurePhase, Retry, Ui, catch_errors};
 use crate::base as w;
+use remedy_ui_engine::view::{El, ElementId, FailurePhase, Retry, Ui, catch_errors};
 use serde_json::{Map, Value};
 
 /// The reactions on a widget, by its id.
@@ -644,7 +644,10 @@ fn stopped_view(ui: &Ui, words: &crate::board::BoardLabels, why: &str, retry: Re
     w::column(ui)
         .gap(unit)
         .fill_width()
-        .child(w::text(ui, crate::board::labels::fill(&words.stopped, &[("why", why.to_owned())])).variant("error"))
+        .child(
+            w::text(ui, crate::board::labels::fill(&words.stopped, &[("why", why.to_owned())]))
+                .variant("error"),
+        )
         .child(w::button(ui, words.start_again.clone(), move || retry.retry()))
 }
 
@@ -723,7 +726,8 @@ pub fn build_node_with(
                     el
                 } else {
                     el.semantics(
-                        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Image).label(alt.clone()),
+                        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Image)
+                            .label(alt.clone()),
                     )
                 };
                 let el = if *width > 0.0 { el.width(*width) } else { el };

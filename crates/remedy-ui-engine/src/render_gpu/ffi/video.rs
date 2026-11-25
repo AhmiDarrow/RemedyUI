@@ -161,8 +161,8 @@ mod web {
     use std::mem::ManuallyDrop;
     use std::rc::Rc;
 
-    use js_sys::{Array, Function, Object, Reflect};
     use crate::paint::{GpuFrame, GpuTexture};
+    use js_sys::{Array, Function, Object, Reflect};
     use wasm_bindgen::convert::FromWasmAbi;
     use wasm_bindgen::{JsCast, JsValue};
 

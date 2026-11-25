@@ -2,11 +2,11 @@
 //! conic, and Portal's layered page background built from its CSS through the style crate
 //! and the view's brushes, with pixel checks on the GPU's own picture.
 
+use remedy_ui_core::style::Gradient;
 use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
 use remedy_ui_engine::paint::{Brush, DisplayList, Stop};
 use remedy_ui_engine::render_cpu::{CpuRenderer, Frame};
 use remedy_ui_engine::render_gpu::*;
-use remedy_ui_core::style::Gradient;
 
 fn gpu() -> GpuRenderer {
     match GpuContext::new(&LadderOptions::default()) {

@@ -1,7 +1,7 @@
 //! `cargo remedy preview` and `cargo remedy audit`.
 
-use remedy_tools::Workspace;
-use remedy_tools::preview::{ListInput, PreviewInput, list, render};
+use cargo_remedy::devkit::Workspace;
+use cargo_remedy::devkit::preview::{ListInput, PreviewInput, list, render};
 
 use super::{Args, err};
 

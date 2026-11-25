@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::nav::Commands;
 use remedy_ui_core::input::{Chord, Clash};
 use remedy_ui_engine::view::Ui;
-use crate::nav::Commands;
 
 use crate::customize::{Area, Customizations, CustomizeError, Notice, Words, files, list_in, tr_now};
 

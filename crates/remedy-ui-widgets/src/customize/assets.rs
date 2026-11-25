@@ -18,9 +18,9 @@ use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use remedy_ui_media::media_image::{Fit, Source};
 use remedy_ui_core::style::Theme;
 use remedy_ui_engine::view::{El, Ui, WeakUi};
+use remedy_ui_media::media_image::{Fit, Source};
 use serde_json::{Map, Value, json};
 
 use crate::customize::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_now};
@@ -408,13 +408,9 @@ impl Customizations {
                 el.remove();
             }
             if let Some((reference, source)) = background {
-                let el = crate::base::fill_window(remedy_ui_media::media_image::image(
-                    ui,
-                    source,
-                    "",
-                    Fit::Cover,
-                ))
-                .pass_through();
+                let el =
+                    crate::base::fill_window(remedy_ui_media::media_image::image(ui, source, "", Fit::Cover))
+                        .pass_through();
                 ui.root().insert_child(0, &el);
                 state.background = Some((reference, el));
             }
@@ -478,14 +474,21 @@ impl Customizations {
     /// Takes the theme's font `family` away (and out of the font lists); undoable.
     pub fn remove_theme_font(&self, ui: &Ui, family: &str) -> Result<(), CustomizeError> {
         let (theme, mut doc) = self.theme_doc()?;
-        crate::customize::theme::remove_token(&mut doc, &["asset".to_owned(), "font".to_owned(), family.to_owned()]);
+        crate::customize::theme::remove_token(
+            &mut doc,
+            &["asset".to_owned(), "font".to_owned(), family.to_owned()],
+        );
         for (token, list) in [
             (crate::customize::Token::font_family(), &theme.font_families),
             (crate::customize::Token::mono_family(), &theme.mono_families),
         ] {
             if list.iter().any(|f| f == family) {
                 let rest: Vec<String> = list.iter().filter(|f| *f != family).cloned().collect();
-                crate::customize::theme::put_token(&mut doc, &token, &crate::customize::TokenValue::Families(rest));
+                crate::customize::theme::put_token(
+                    &mut doc,
+                    &token,
+                    &crate::customize::TokenValue::Families(rest),
+                );
             }
         }
         let label = tr_now(ui, "history-remove-font", &[("family", family.into())]);

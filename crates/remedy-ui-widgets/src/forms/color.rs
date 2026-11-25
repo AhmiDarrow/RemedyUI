@@ -1,13 +1,13 @@
 //! A color picker with a contrast readout.
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
-use remedy_ui_engine::paint::{Brush, Stop};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
+use remedy_ui_core::{Color, CornerRadii, Point, Rect};
+use remedy_ui_engine::paint::{Brush, Stop};
 use remedy_ui_engine::view::{Align, El, FieldKind, Ui};
-use crate::base as w;
 
 use remedy_ui_platform::services_i18n::{Decimal, NumberSymbols};
 
@@ -365,13 +365,21 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             let ratio = value.get().with_alpha(1.0).contrast(bg);
             let args =
                 [("ratio", number(&u1, ratio, 1).into()), ("grade", contrast_grade_label(&u1, ratio).into())];
-            remedy_ui_engine::view::RichText::plain(crate::forms::STRINGS.format(&u1, "color-contrast", &args))
+            remedy_ui_engine::view::RichText::plain(crate::forms::STRINGS.format(
+                &u1,
+                "color-contrast",
+                &args,
+            ))
         });
         info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);
             let args =
                 [("ratio", number(&u2, ratio, 1).into()), ("grade", contrast_grade_label(&u2, ratio).into())];
-            Semantics::new(Role::Status).label(crate::forms::STRINGS.format(&u2, "color-contrast-spoken", &args))
+            Semantics::new(Role::Status).label(crate::forms::STRINGS.format(
+                &u2,
+                "color-contrast-spoken",
+                &args,
+            ))
         }));
     }
     let l2 = label.clone();

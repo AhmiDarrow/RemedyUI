@@ -1,12 +1,12 @@
 //! Property grids: named values in collapsible groups, each with its own editor, and a
 //! filter over the names.
 
+use crate::base::{self as w, Icon};
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{Align, El, Ui};
-use crate::base::{self as w, Icon};
 
 /// One named value and the control that edits it.
 #[derive(Debug)]

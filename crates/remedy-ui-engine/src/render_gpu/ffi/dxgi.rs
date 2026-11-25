@@ -301,7 +301,8 @@ impl DxgiChain {
     /// is hidden, or the system is busy): draw again later.
     pub(crate) fn acquire(&mut self, device: &wgpu::Device) -> Result<Option<Acquired>, ChainError> {
         // A wait longer than a u32 of milliseconds holds is INFINITE (u32::MAX): no end.
-        let wait = u32::try_from(crate::render_gpu::gpu_limits().swapchain_wait.as_millis()).unwrap_or(u32::MAX);
+        let wait =
+            u32::try_from(crate::render_gpu::gpu_limits().swapchain_wait.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: waiting on the swapchain's own waitable object.
         match unsafe { WaitForSingleObject(self.waitable, wait) } {
             WAIT_OBJECT_0 => {}

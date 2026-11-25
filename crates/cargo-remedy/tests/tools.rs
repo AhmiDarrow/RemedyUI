@@ -34,7 +34,7 @@ impl<T, E: std::fmt::Debug> Must<T> for Result<T, E> {
     }
 }
 
-include!("../../remedy-tools/tests/fixture/setup.rs");
+include!("devkit/fixture/setup.rs");
 
 fn checkout() -> PathBuf {
     std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")).must("the checkout")

@@ -474,7 +474,8 @@ impl Elementary for MftElementary {
         com();
         let mut old = self.video.take();
         // The renderer on another adapter now: a device there, and a decoder on it.
-        if let Some(remedy_ui_engine::paint::GpuAdapter::Luid(l)) = remedy_ui_engine::paint::gpu_video_adapter()
+        if let Some(remedy_ui_engine::paint::GpuAdapter::Luid(l)) =
+            remedy_ui_engine::paint::gpu_video_adapter()
             && self.adapter != Some(l)
         {
             old = None;

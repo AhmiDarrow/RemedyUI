@@ -22,12 +22,12 @@ use std::process::{Command, ExitCode};
 
 /// What the developer tools know of the checkout: the same code `remedy-tools` reads a live
 /// checkout with, so the committed index and `--docs-root` agree.
-#[path = "../../crates/remedy-tools/src/extract.rs"]
+#[path = "../../crates/cargo-remedy/src/devkit/extract.rs"]
 #[allow(dead_code, reason = "xtask uses the index writer; remedy-tools the readers")]
 mod extract;
 
 /// The committed docs index (zlib-compressed JSON), embedded by `remedy-tools`.
-const DOCS_INDEX: &str = "crates/remedy-tools/data/docs-index.json.zz";
+const DOCS_INDEX: &str = "crates/cargo-remedy/remedy-tools/data/docs-index.json.zz";
 
 /// The checkout's root.
 fn repo_root() -> PathBuf {

@@ -3,11 +3,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use remedy_ui_core::{Color, Size};
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Size};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::forms::*;
 
 fn d(s: &str) -> Decimal {
@@ -369,7 +369,10 @@ fn the_calendar_marks_today_on_the_local_calendar() {
     let t = T::new("en-US");
     t.ui.connect_accessibility();
     // 2026-11-17 22:30 UTC is already the 18th at UTC+3.
-    t.ui.set_local_time(remedy_ui_core::host::LocalTime { unix_seconds: 1_794_954_600, utc_offset: 3 * 3600 });
+    t.ui.set_local_time(remedy_ui_core::host::LocalTime {
+        unix_seconds: 1_794_954_600,
+        utc_offset: 3 * 3600,
+    });
     assert_eq!(Date::today(&t.ui).to_string(), "2026-11-18");
     let v = Signal::new(Date::new(2026, 11, 2).unwrap_or(Date { year: 2026, month: 11, day: 2 }));
     t.ui.root().child(calendar(&t.ui, "Due", v, None, None));

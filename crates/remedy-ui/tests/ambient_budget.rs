@@ -36,9 +36,9 @@ use remedy_ui::host::{HostEvent, SystemSettings, WindowId};
 use remedy_ui::input::ScrollPhysics;
 use remedy_ui::view::{AmbientMode, AmbientPolicy, Request};
 use remedy_ui::{App, AppConfig, GeometryStore, Runner, Ui, WindowSpec};
-use remedy_ui_platform::bridge_headless::HeadlessHost;
 use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::CpuCompositor;
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 
 /// The virtual display's refresh.
 const REFRESH: Duration = Duration::from_micros(16_667);

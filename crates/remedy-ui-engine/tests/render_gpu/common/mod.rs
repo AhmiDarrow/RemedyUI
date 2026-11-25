@@ -26,7 +26,9 @@ pub fn event_loop() -> Option<EventLoop<UserEvent>> {
         builder.with_x11();
         // What these tests check is presenting through RemedyUI's own Vulkan swapchain;
         // wgpu's GL surface presents nothing under Xvfb.
-        match remedy_ui_engine::render_gpu::GpuContext::new(&remedy_ui_engine::render_gpu::LadderOptions::default()) {
+        match remedy_ui_engine::render_gpu::GpuContext::new(
+            &remedy_ui_engine::render_gpu::LadderOptions::default(),
+        ) {
             Ok(ctx) if ctx.adapter.get_info().backend == wgpu::Backend::Vulkan => {}
             Ok(ctx) => {
                 eprintln!("no Vulkan device ({}): nothing presented", ctx.describe());

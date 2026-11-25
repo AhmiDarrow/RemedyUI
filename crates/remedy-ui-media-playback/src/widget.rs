@@ -3,14 +3,14 @@
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_core::input::{Buttons, Key, PointerKind, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
-use remedy_ui_media::media_video::{VideoFit, video_surface};
-use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::motion::{Easing, Motion, Target};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::{VideoFit, video_surface};
 use remedy_ui_widgets::base::{self as w, Icon, MenuItem};
 
 use crate::{CaptionPick, KeyScheme, MediaError, PlaybackState, Player};
@@ -969,7 +969,9 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let (p, me, was) = (player.clone(), home.clone(), std::cell::Cell::new(false));
             move || {
                 let full = p.is_fullscreen();
-                if full && !was.replace(full) && !me.states().contains(remedy_ui_core::style::States::FOCUS_WITHIN)
+                if full
+                    && !was.replace(full)
+                    && !me.states().contains(remedy_ui_core::style::States::FOCUS_WITHIN)
                 {
                     let _ = me.clone().focusable(true);
                     me.focus();
@@ -1473,8 +1475,10 @@ fn clock(ui: &Ui, player: &Player) -> El {
             let (lead, trail) = clean.split_once(pos.as_str()).unwrap_or((clean.as_str(), ""));
             let shown = !clean.is_empty() && clean.contains(pos.as_str());
             for (el, text) in [(&b, lead), (&n, if shown { pos.as_str() } else { "" }), (&a, trail)] {
-                let _ =
-                    el.clone().hidden(text.is_empty()).text(remedy_ui_engine::view::RichText::plain(text.to_owned()));
+                let _ = el
+                    .clone()
+                    .hidden(text.is_empty())
+                    .text(remedy_ui_engine::view::RichText::plain(text.to_owned()));
             }
             let _ = b.parent().map(|c| c.semantics(Semantics::new(Role::Label).label(clean.clone())));
         })
@@ -1586,8 +1590,9 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
     });
     // "Playing on" small and muted, the device's name large, in the order the language puts them.
     let words = |size: f32, weight: f32, color: Color| {
-        ui.el("label")
-            .style(remedy_ui_core::style::StylePatch::default().text_size(size).weight(weight).foreground(color))
+        ui.el("label").style(
+            remedy_ui_core::style::StylePatch::default().text_size(size).weight(weight).foreground(color),
+        )
     };
     let lead_color = Color::rgb8(0xd9, 0xd1, 0xc2);
     let before = words(u * 3.6, 400.0, lead_color);
@@ -1665,8 +1670,11 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
     // Drawn in capitals, as a label above a title is set (casing follows the language's own
     // rules); read and copied as written.
-    let label =
-        ui.el("player_next_label").nowrap().text_transform(remedy_ui_engine::view::TextTransform::Upper).text({
+    let label = ui
+        .el("player_next_label")
+        .nowrap()
+        .text_transform(remedy_ui_engine::view::TextTransform::Upper)
+        .text({
             let u = ui.clone();
             move || tr(&u, "playback-next-up-label")
         });
@@ -1775,7 +1783,12 @@ fn caption_line(ui: &Ui, line: &str) -> El {
 /// draws one (light text on a dark box). Vertical cues follow CSS's `text-orientation:
 /// mixed`: CJK, kana, Hangul and other upright characters one under another, and runs of
 /// Latin and other sideways text turned a quarter clockwise, reading downward.
-fn paint_cues(cx: &mut remedy_ui_engine::view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
+fn paint_cues(
+    cx: &mut remedy_ui_engine::view::PaintCx<'_>,
+    cues: &[crate::Cue],
+    aspect: Option<f32>,
+    lift: f32,
+) {
     use crate::cue_layout::vertical_runs;
     let theme = cx.theme;
     let u = theme.spacing.unit;
@@ -1858,9 +1871,12 @@ fn paint_cues(cx: &mut remedy_ui_engine::view::PaintCx<'_>, cues: &[crate::Cue],
                 // Sideways: the run turned a quarter clockwise about its middle.
                 let w = cx.measure_text(&run, text).width;
                 let at = remedy_ui_core::Point::new(c.x, y + w / 2.0);
-                let turn = remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
-                    .then(remedy_ui_engine::paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
-                    .then(remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(at.x, at.y)));
+                let turn =
+                    remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
+                        .then(remedy_ui_engine::paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
+                        .then(remedy_ui_engine::paint::Affine::translate(remedy_ui_core::Vec2::new(
+                            at.x, at.y,
+                        )));
                 cx.list.push(remedy_ui_engine::paint::Item::PushTransform(turn));
                 cx.text(&run, at, mid, text);
                 cx.list.push(remedy_ui_engine::paint::Item::PopTransform);
@@ -2169,7 +2185,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     let scrub = ui.el("player_scrub").grow(1.0).row().align(Align::Center);
     let (t2, s2, p, time) = (tip.clone(), scrub.clone(), player.clone(), time_at.clone());
     let show_tip = move |x: Option<f32>| {
-        let busy = remedy_ui_core::reactive::untrack(|| p.skipping().is_some() || p.starting_next().is_some());
+        let busy =
+            remedy_ui_core::reactive::untrack(|| p.skipping().is_some() || p.starting_next().is_some());
         let (Some(x), Some(host), false) = (x, s2.bounds(), busy) else {
             let _ = t2.clone().hidden(true);
             return;

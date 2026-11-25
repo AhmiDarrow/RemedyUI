@@ -295,7 +295,9 @@ fn the_step_rate_is_measured_on_this_device() {
     let Some(per_ms) = remedy_ui_engine::script_lua::calibrate() else { unreachable!("calibration runs") };
     assert!(remedy_ui_engine::script_lua::rate().is_calibrated());
     assert!((100..100_000_000).contains(&per_ms), "{per_ms} steps a millisecond");
-    let Some((steps, took)) = remedy_ui_engine::script_lua::measure() else { unreachable!("calibration runs") };
+    let Some((steps, took)) = remedy_ui_engine::script_lua::measure() else {
+        unreachable!("calibration runs")
+    };
     let (here, slower) = (StepRate::new(1), StepRate::new(1));
     assert!(here.record(steps, took) && slower.record(steps, took * 2));
     let limits = Limits::default();

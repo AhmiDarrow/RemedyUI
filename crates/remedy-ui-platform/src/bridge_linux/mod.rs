@@ -72,12 +72,12 @@ mod x11_hints;
 mod linux {
     use std::time::Duration;
 
-    use arboard::SetExtLinux;
     use crate::bridge_winit::winit::raw_window_handle::{
         HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     };
     use crate::bridge_winit::winit::window::Window;
     use crate::bridge_winit::{PlatformHooks, RunError};
+    use arboard::SetExtLinux;
     use remedy_ui_core::Color;
     use remedy_ui_core::host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon,
@@ -303,8 +303,8 @@ mod linux {
                         .map(|ms| Duration::from_millis(u64::from(ms)))
                 };
                 let gnome = keyboard("delay").zip(keyboard("repeat-interval"));
-                (v_.key_repeat_delay, v_.key_repeat_interval) =
-                    crate::bridge_linux::repeat::system(gnome).unwrap_or((base.key_repeat_delay, base.key_repeat_interval));
+                (v_.key_repeat_delay, v_.key_repeat_interval) = crate::bridge_linux::repeat::system(gnome)
+                    .unwrap_or((base.key_repeat_delay, base.key_repeat_interval));
                 v_
             }
         }
@@ -333,8 +333,10 @@ mod linux {
             };
             if self.wayland.is_none() {
                 // Without it, drags simply stay inside the app.
-                self.wayland =
-                    crate::bridge_linux::dnd_wayland::Wayland::new(crate::bridge_linux::os::wayland_connection(d.display)).ok();
+                self.wayland = crate::bridge_linux::dnd_wayland::Wayland::new(
+                    crate::bridge_linux::os::wayland_connection(d.display),
+                )
+                .ok();
             }
             if let Some(wl) = self.wayland.as_mut()
                 && let Some(surface) = crate::bridge_linux::os::wayland_surface(wl.connection(), w.surface)
@@ -375,11 +377,17 @@ mod linux {
         }
 
         fn take_drag_events(&mut self) -> Vec<(crate::bridge_winit::winit::window::WindowId, DragEvent)> {
-            self.wayland.as_mut().map(crate::bridge_linux::dnd_wayland::Wayland::take_events).unwrap_or_default()
+            self.wayland
+                .as_mut()
+                .map(crate::bridge_linux::dnd_wayland::Wayland::take_events)
+                .unwrap_or_default()
         }
 
         fn take_drag_ends(&mut self) -> Vec<(crate::bridge_winit::winit::window::WindowId, DropEffect)> {
-            self.wayland.as_mut().map(crate::bridge_linux::dnd_wayland::Wayland::take_ended).unwrap_or_default()
+            self.wayland
+                .as_mut()
+                .map(crate::bridge_linux::dnd_wayland::Wayland::take_ended)
+                .unwrap_or_default()
         }
 
         fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported> {
@@ -552,7 +560,9 @@ mod linux {
             match (d.as_raw(), w.as_raw()) {
                 (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
                     let icons = self.icons.get_or_insert_with(|| {
-                        crate::bridge_linux::icon_wayland::Icons::new(crate::bridge_linux::os::wayland_connection(d.display))
+                        crate::bridge_linux::icon_wayland::Icons::new(
+                            crate::bridge_linux::os::wayland_connection(d.display),
+                        )
                     });
                     let icons = icons.as_mut().map_err(|e| e.clone())?;
                     let toplevel = window

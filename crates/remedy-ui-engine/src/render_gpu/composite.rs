@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use crate::compositor::{Compositor, FramePlan, LayerId, TileKey};
-use remedy_ui_core::{Color, Rect};
 use crate::paint::Affine;
 use crate::render_cpu::{CompositeTarget, Frame, record_ops};
+use remedy_ui_core::{Color, Rect};
 use vello_gpu::kurbo;
 use vello_gpu::peniko::{ImageQuality, ImageSampler};
 use vello_gpu::{ImageSource, Scene, TextureId, TextureRegion};
@@ -435,7 +435,9 @@ impl GpuCompositor {
             options.offset = (i32::from(x0), i32::from(y0));
             let pictures = Pictures { ctx: &ctx, vello, resources, matrix: &self.renderer.matrix, format };
             let (scene, bindings) = compose(tiles, plan, area, (rw, rh), background, pictures);
-            crate::render_gpu::renderer::submit_scene_with(&ctx, vello, resources, &scene, &view, &bindings, options)?;
+            crate::render_gpu::renderer::submit_scene_with(
+                &ctx, vello, resources, &scene, &view, &bindings, options,
+            )?;
         }
         self.measure(tiles);
         Ok(rects)

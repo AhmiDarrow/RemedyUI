@@ -6,7 +6,9 @@ use std::time::Duration;
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject};
 use jni::sys::jstring;
-use remedy_ui_platform::services_desktop::media_session::{MediaSession, MediaState, NowPlaying, NowPlayingSink};
+use remedy_ui_platform::services_desktop::media_session::{
+    MediaSession, MediaState, NowPlaying, NowPlayingSink,
+};
 
 static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SESSION: Mutex<Option<MediaSession>> = Mutex::new(None);

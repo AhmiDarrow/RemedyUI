@@ -4,10 +4,10 @@ use std::rc::Rc;
 
 use remedy_ui_core::Size;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::rui::spec::Kind;
 use remedy_ui_widgets::rui::*;
-use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{El, Request, Ui};
 
 /// The settings screen from the design (docs/design/07), and the golden file it compiles to.
 const SETTINGS: &str = include_str!("ui/settings_voice.rui");

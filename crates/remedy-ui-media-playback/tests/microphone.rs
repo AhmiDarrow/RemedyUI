@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media_playback::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::Ui;
 
 fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);

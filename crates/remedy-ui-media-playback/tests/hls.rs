@@ -631,8 +631,14 @@ fn pictures_on_the_gpu() {
         let Sample::Video { at, picture: p, .. } = s else { continue };
         assert!(p.gpu.is_some() && p.data.is_empty(), "the picture at {at:?} came through CPU memory");
         if n % 25 == 10 {
-            let mut f =
-                remedy_ui_engine::paint::VideoFrame::packed(1, n, p.width, p.height, p.format, p.data.clone());
+            let mut f = remedy_ui_engine::paint::VideoFrame::packed(
+                1,
+                n,
+                p.width,
+                p.height,
+                p.format,
+                p.data.clone(),
+            );
             f.matrix = p.matrix;
             f.full_range = p.full_range;
             f.gpu = p.gpu.clone();

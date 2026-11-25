@@ -8,15 +8,15 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::a11y::{Role, Semantics};
+use crate::base as w;
+use crate::data::{Property, PropertyGroup, property_grid};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Display, Length, Track};
 use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_core::style::States;
 use remedy_ui_engine::view::{Align, Drag, DragData, DropEffect, El, Ui};
-use crate::base as w;
-use crate::data::{Property, PropertyGroup, property_grid};
 use serde_json::Value;
 
 use crate::board::kinds::{Context, Registry, value};

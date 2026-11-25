@@ -3,11 +3,11 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::host::{DragData, DragEvent, DropEffect, HostEvent, WindowId};
 use remedy_ui_core::input::{
     Buttons, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
+use remedy_ui_core::{Point, Size};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 

@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Color, Size};
+use remedy_ui_engine::paint::Image;
+use remedy_ui_engine::view::Ui;
 use remedy_ui_media::media_image::svg::*;
 use remedy_ui_media::media_image::{Fit, ImageState, Source, decode, dimensions, image, load};
-use remedy_ui_engine::paint::Image;
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::Ui;
 
 const SQUARE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10">
   <rect x="0" y="0" width="5" height="10" fill="#ff0000"/>

@@ -8,11 +8,11 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::base::{self as w, Icon};
 use remedy_ui_core::a11y::{Live, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Ui};
-use crate::base::{self as w, Icon};
 
 /// A match: the text it is in and its bytes there.
 type Hit = (El, Range<usize>);
@@ -211,8 +211,10 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
         // The field's name and hint follow the window's language.
         let (f, u) = (field.clone(), ui.clone());
         let _ = field.el().bind(move || {
-            let _ =
-                f.clone().label(crate::doc_rich::tr(&u, "find-label")).placeholder(crate::doc_rich::tr(&u, "find-placeholder"));
+            let _ = f
+                .clone()
+                .label(crate::doc_rich::tr(&u, "find-label"))
+                .placeholder(crate::doc_rich::tr(&u, "find-placeholder"));
         });
     }
     let f2 = field.clone();
@@ -224,9 +226,18 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
     });
     let (p, n) = (state.clone(), state.clone());
     let (u1, u2, u3, u4) = (ui.clone(), ui.clone(), ui.clone(), ui.clone());
-    let prev =
-        w::icon_button(ui, Icon::ChevronUp, move || crate::doc_rich::tr(&u1, "find-previous"), move || p.previous());
-    let next = w::icon_button(ui, Icon::ChevronDown, move || crate::doc_rich::tr(&u2, "find-next"), move || n.next());
+    let prev = w::icon_button(
+        ui,
+        Icon::ChevronUp,
+        move || crate::doc_rich::tr(&u1, "find-previous"),
+        move || p.previous(),
+    );
+    let next = w::icon_button(
+        ui,
+        Icon::ChevronDown,
+        move || crate::doc_rich::tr(&u2, "find-next"),
+        move || n.next(),
+    );
     let (c, cl) = (state.clone(), close.clone());
     let shut = w::icon_button(
         ui,

@@ -1,7 +1,7 @@
 //! The service's own words: every locale has every message, and they follow the locale.
 
-use remedy_ui_platform::services_i18n::{Decimal, DecimalError};
 use remedy_ui_engine::view::Ui;
+use remedy_ui_platform::services_i18n::{Decimal, DecimalError};
 
 #[test]
 fn every_locale_has_every_message_with_its_plurals() {

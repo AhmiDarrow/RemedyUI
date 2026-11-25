@@ -193,7 +193,11 @@ impl Annotation {
             );
         }
         if let Some(a) = &self.author {
-            s = crate::doc_pages::say(locale, "annotation-by", &[("what", s.into()), ("author", a.as_str().into())]);
+            s = crate::doc_pages::say(
+                locale,
+                "annotation-by",
+                &[("what", s.into()), ("author", a.as_str().into())],
+            );
         }
         s
     }
@@ -433,7 +437,12 @@ fn round_stroke(width: f32) -> Stroke {
 
 /// Records `a` in page points (a text box's frame; the view lays out and draws its words);
 /// `selected` draws its selection outline in `accent`.
-pub(crate) fn paint(list: &mut remedy_ui_engine::paint::DisplayList, a: &Annotation, selected: bool, accent: Color) {
+pub(crate) fn paint(
+    list: &mut remedy_ui_engine::paint::DisplayList,
+    a: &Annotation,
+    selected: bool,
+    accent: Color,
+) {
     let color = a.color;
     match &a.kind {
         AnnotationKind::Highlight { quads } => {

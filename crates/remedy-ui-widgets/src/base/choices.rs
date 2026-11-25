@@ -1,12 +1,12 @@
 //! Choices: checks, switches, radios, segments, selects and chips.
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::Align;
-use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::States;
+use remedy_ui_core::{CornerRadii, Point, Rect};
+use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_engine::view::{El, IntoProp, Prop, Ui};
 
 use crate::base::menus::{MenuItem, menu};
@@ -134,7 +134,12 @@ fn arrows(e: &remedy_ui_core::input::KeyEvent, selected: Signal<usize>, n: usize
 }
 
 /// [`arrows`], stepping over the options in `skip` (shown but not choosable).
-fn arrows_skipping(e: &remedy_ui_core::input::KeyEvent, selected: Signal<usize>, n: usize, skip: &[usize]) -> bool {
+fn arrows_skipping(
+    e: &remedy_ui_core::input::KeyEvent,
+    selected: Signal<usize>,
+    n: usize,
+    skip: &[usize],
+) -> bool {
     if !e.pressed || n == 0 || skip.len() >= n {
         return false;
     }
@@ -194,7 +199,9 @@ pub fn segmented_unavailable(
             .el("segment")
             .row()
             .align(Align::Center)
-            .child(ui.el("segment_label").text(remedy_ui_engine::view::RichText::plain(text.clone())).nowrap())
+            .child(
+                ui.el("segment_label").text(remedy_ui_engine::view::RichText::plain(text.clone())).nowrap(),
+            )
             .on_key(move |e| arrows_skipping(e, selected, n, &sk));
         let seg = if off {
             seg.disabled(true)

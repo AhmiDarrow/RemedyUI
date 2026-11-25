@@ -6,14 +6,14 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Point, Size};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::FontCollection;
 
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 

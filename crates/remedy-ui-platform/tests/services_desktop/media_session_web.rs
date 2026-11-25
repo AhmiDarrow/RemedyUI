@@ -6,7 +6,9 @@
 use std::time::Duration;
 
 use js_sys::Reflect;
-use remedy_ui_platform::services_desktop::media_session::{MediaSession, MediaState, NowPlaying, NowPlayingSink};
+use remedy_ui_platform::services_desktop::media_session::{
+    MediaSession, MediaState, NowPlaying, NowPlayingSink,
+};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 

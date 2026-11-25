@@ -9,13 +9,13 @@ use std::cell::{Cell, RefCell};
 use std::hash::Hash;
 use std::rc::Rc;
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{AUTO, JumpAlign, Length, Position, VirtualList};
 use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_engine::view::{El, Ui};
-use crate::base as w;
 
 /// Builds one message.
 type RowFn<T> = Rc<dyn Fn(&Ui, &T) -> El>;
@@ -343,12 +343,14 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             let _ = l.text(remedy_ui_engine::view::RichText::plain(text.clone()));
         }
         // What a screen reader says matches what the button shows.
-        let spoken =
-            if n > 0 { crate::data::STRINGS.format(&u, "chat-new-spoken", &[("count", n.into())]) } else { text };
-        let _ = b2
-            .clone()
-            .hidden(at_end.get())
-            .semantics(Semantics::new(Role::Button).label(spoken).action(remedy_ui_core::a11y::Action::Click));
+        let spoken = if n > 0 {
+            crate::data::STRINGS.format(&u, "chat-new-spoken", &[("count", n.into())])
+        } else {
+            text
+        };
+        let _ = b2.clone().hidden(at_end.get()).semantics(
+            Semantics::new(Role::Button).label(spoken).action(remedy_ui_core::a11y::Action::Click),
+        );
     });
     let button = button.layout(|l| {
         l.position = Position::Absolute;

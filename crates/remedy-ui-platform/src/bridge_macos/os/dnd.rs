@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 
+use crate::bridge_winit::winit::window::WindowId;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -12,7 +13,6 @@ use objc2_app_kit::{
     NSPasteboardWriting, NSView, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
-use crate::bridge_winit::winit::window::WindowId;
 use remedy_ui_core::host::{DragData, DropEffect, Unsupported, Waker};
 
 thread_local! {

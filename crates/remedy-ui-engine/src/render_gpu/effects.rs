@@ -1145,8 +1145,7 @@ impl GpuEffect {
                         Some(s) => blur_pass(&mut encoder, s, view, (w, h), [0.0, 0.0], &[1.0]),
                         None => drop(pass(&mut encoder, view, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT))),
                     }
-                    let mut sprites =
-                        crate::effects::particles(&effect, stage, instance, &uniforms, &input);
+                    let mut sprites = crate::effects::particles(&effect, stage, instance, &uniforms, &input);
                     let per_logical = w as f32 / input.width.max(1.0);
                     crate::effects::cap_overdraw(&mut sprites, per_logical, u64::from(w) * u64::from(h));
                     if sprites.is_empty() {
