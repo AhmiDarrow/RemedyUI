@@ -517,7 +517,8 @@ impl BoardState {
         }
         let m = e.modifiers;
         let cmd = m.ctrl || m.meta;
-        let area = matches!(self.selected.get_untracked().ok().flatten(), Some(Selection::Area(_)));
+        let selected = self.selected.get_untracked().ok().flatten();
+        let (any, area) = (selected.is_some(), matches!(selected, Some(Selection::Area(_))));
         let (dx, dy) = match e.key {
             Key::ArrowLeft => (-1, 0),
             Key::ArrowRight => (1, 0),
@@ -529,8 +530,9 @@ impl BoardState {
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("z") && m.shift => self.redo(),
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("z") => self.undo(),
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("y") => self.redo(),
-            Key::Delete | Key::Backspace => self.remove_selected(),
-            Key::Escape => self.selected.set(None),
+            // With nothing selected these are not the board's: a dialog around it may close.
+            Key::Delete | Key::Backspace if any => self.remove_selected(),
+            Key::Escape if any => self.selected.set(None),
             Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown if area => {
                 self.nudge(dx, dy, m.shift)
             }

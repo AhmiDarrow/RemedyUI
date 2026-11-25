@@ -40,7 +40,7 @@ impl IdleTimer {
 
     /// When the timer will fire if no input comes first.
     pub fn deadline(&self) -> Option<Duration> {
-        self.timeout.map(|t| self.last_input + t)
+        self.timeout.map(|t| self.last_input.saturating_add(t))
     }
 
     /// True once the timeout has passed with no input.
@@ -82,7 +82,7 @@ impl SensitiveCopy {
     /// Remembers `text` (copied at `now`) to clear after `keep`. `text` is not kept.
     pub fn new(text: &str, now: Duration, keep: Duration) -> Self {
         let key = key();
-        SensitiveCopy { key, print: fingerprint(text, key), clear_at: now + keep }
+        SensitiveCopy { key, print: fingerprint(text, key), clear_at: now.saturating_add(keep) }
     }
 
     /// When to check the clipboard.
@@ -120,6 +120,9 @@ mod tests {
         t.set_timeout(None);
         assert!(!t.is_idle(s(10_000)), "off means never");
         assert_eq!(t.deadline(), None);
+        t.set_timeout(Some(Duration::MAX));
+        assert_eq!(t.deadline(), Some(Duration::MAX), "the longest timeout is never, not an overflow");
+        assert_eq!(SensitiveCopy::new("x", s(5), Duration::MAX).clear_at(), Duration::MAX);
     }
 
     #[test]

@@ -1303,3 +1303,41 @@ fn dock_pane_resizes_collapses_and_redocks() {
     let left = body.bounds().unwrap_or_default();
     assert!(left.min.x < 8.0, "back on the start edge: {left:?}");
 }
+
+#[test]
+fn rows_sharing_a_key_do_not_stay_behind() {
+    let mut t = T::new();
+    let items = Signal::new(vec![1u32, 1, 2]);
+    let col = w::column(&t.ui);
+    let row_ui = t.ui.clone();
+    let col = w::for_each(&col, items, |i| *i, move |i| w::text(&row_ui, format!("Row {i}")));
+    t.ui.root().child(col.clone());
+    t.frame();
+    assert_eq!(col.child_elements().len(), 3);
+    items.set(vec![2]);
+    t.frame();
+    assert_eq!(col.child_elements().len(), 1, "both rows keyed 1 went");
+}
+
+#[test]
+fn a_split_moves_once_for_a_key_pressed_and_let_go() {
+    let mut t = T::new();
+    let f = Signal::new(0.5f32);
+    let split = w::split(
+        &t.ui,
+        remedy_ui_core::layout::Axis::Row,
+        t.ui.el("pane").height(20.0),
+        t.ui.el("pane").height(20.0),
+        f,
+    )
+    .width(200.0)
+    .height(20.0);
+    t.ui.root().child(split.clone());
+    t.frame();
+    if let Some(handle) = split.child_elements().get(1) {
+        handle.focus();
+    }
+    t.key(Key::ArrowRight);
+    t.ui.key(&KeyEvent::release(Key::ArrowRight));
+    assert!((f.get() - 0.52).abs() < 1e-4, "one step, not one for the release too: {}", f.get());
+}

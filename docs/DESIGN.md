@@ -84,12 +84,12 @@ fn composer(send: impl Fn(String) + Copy + 'static) -> impl Element {
 | L1 state | `remedy-ui-core::reactive` |
 | L2 engine | `remedy-ui-core::tree`, `remedy-ui-core::style`, `remedy-ui-core::layout`, `remedy-ui-text`, `remedy-ui-core::input` |
 | L3 frame | `remedy-ui-engine::paint`, `remedy-ui-core::motion`, `remedy-ui-core::a11y`, `remedy-ui-engine::compositor` |
-| L4 host | `remedy-ui-engine::render_gpu`, `remedy-ui-engine::render_cpu`, `remedy-ui-bridge-{windows,macos,wayland,x11,android,remedyos,web,ios,headless}` |
-| L5 packs | `remedy-ui-widgets-{core,nav,data,forms,extra,stage,music,term}`, `remedy-ui-doc-{rich,code,pages}`, `remedy-ui-media-{image,anim,video,playback,isolated}` (SVG is `media-image`'s `svg` feature), `remedy-ui-widgets::viz`, `remedy-ui-embed-{webview,gpu}`, `remedy-ui-services-{desktop,update,spell,i18n}`, `remedy-ui-widgets::themes`, `remedy-ui-fonts`, `remedy-ui-widgets::devtools` |
-| L6 | `remedy-ui` (facade with profiles `minimal`, `app`, `full`), `remedy-ui-widgets::rui` (markup compiler, and the run-time loader behind its `runtime` feature), `remedy-ui-core::testing`, `cargo-remedy` (CLI, not linked into apps) |
-| L7 | Developer tools, not linked into apps: `cargo-remedy::devkit` (their logic, a feature per tool group), `cargo-remedy::templates` (the app templates), `remedy-ui-build` (build-script help: the Windows executable's icon and version), `cargo-remedy` (the command line) and `remedy-mcp` (the MCP server for AI agents); see [CLI.md](CLI.md) and [MCP.md](MCP.md) |
+| L4 host | `remedy-ui-engine::render_gpu`, `remedy-ui-engine::render_cpu`, `remedy-ui-platform::bridge_{winit,windows,macos,linux,android,headless}`, `remedy-ui-bridge-web` (the RemedyOS and iOS bridges are designed, not built: [10](design/10-platform-bridges.md)) |
+| L5 packs | `remedy-ui-widgets::{base,nav,data,forms,extra,stage,music,board,viz,themes,customize,doc_rich,doc_code,doc_pages,devtools,automation,spell,update}`, `remedy-ui-widgets-term`, `remedy-ui-media::{media_image,media_anim,media_video,media_isolated}` (SVG is the `media-image-svg` feature), `remedy-ui-media-playback`, `remedy-ui-platform::{embed_webview,embed_gpu,services_desktop,services_net,services_i18n,services_webstorage}`, `remedy-ui-fonts`, `remedy-ui-fonts-cjk` |
+| L6 | `remedy-ui` (facade with profiles `minimal`, `app`, `full`), `remedy-ui-widgets::rui` (markup compiler, and the run-time loader behind the `rui-runtime` feature), `remedy-ui-core::testing`, `cargo-remedy` (CLI, not linked into apps) |
+| L7 | Developer tools, not linked into apps: `cargo-remedy::devkit` (their logic, a feature per tool group), `cargo-remedy::templates` (the app templates), `remedy-ui-build` (build-script help: the Windows executable's icon and version), `cargo-remedy` (the command line) and its `remedy-mcp` binary (`cargo-remedy::mcp`, the MCP server for AI agents); see [CLI.md](CLI.md) and [MCP.md](MCP.md) |
 
-A crate joins the workspace when its first real code and tests do. None exists as a placeholder.
+An entry is a crate, or a part of one written `crate::module`: a module behind a feature of that crate, which keeps the layer it had as a crate of its own (`cargo xtask check` holds every part to its layer). A crate or part joins the workspace when its first real code and tests do. None exists as a placeholder.
 
 ## Stability in one place
 

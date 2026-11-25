@@ -1688,6 +1688,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A review of every crate fixed about 170 defects: overflows and endless loops on extreme or hostile input (media files, playlists, effect programs, Markdown, theme files, terminal output, fonts), state left wrong after an error, leaks of listeners and handles, right-to-left arrow keys in tabs, trees, grids and calendars, and docs that still named the crates merged away.
+- A script's time limit no longer counts one coarse step of the Windows thread clock as work, so a fair call is not stopped on a busy machine (`WorkClock::proven`).
+- The updater takes plain `http` only from the loopback host itself (not a name that starts like it), and refuses an installer whose signature Windows could not check.
+- `cargo remedy package --target web --out <dir>` no longer empties a folder that is not an earlier page; the Android keystore password goes to `apksigner` through the environment, not its command line.
+- Markdown nests quotes and lists 12 deep as elements; deeper ones keep their words in the last of those.
 - **Cut text fills its line.** Text cut with "…" (`truncate`, `max_lines`) was cut only
   inside the last line as wrapping left it, so a path or a long file name, which has few
   places to wrap, showed as little as `C:…` in a wide box. The cut now also tries the start

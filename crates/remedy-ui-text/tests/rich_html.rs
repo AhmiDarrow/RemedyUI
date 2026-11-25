@@ -104,4 +104,10 @@ fn broken_html_still_gives_its_text() {
     assert!(doc.marks.iter().any(|(_, m)| *m == Mark::Bold));
     assert_eq!(from_html("").text, "");
     assert_eq!(from_html("<script>never ends").text, "");
+    // Stray '<' and '&' stay text, and an end tag closes its dropped element in any case.
+    assert_eq!(from_html("1 < 2 << 3 &amp 4 &amp; 5 &").text, "1 < 2 << 3 &amp 4 & 5 &");
+    assert_eq!(from_html("a <SVG>x</Svg >b").text, "a b");
+    // Many of each cost no more than their length.
+    let hostile = format!("{}{}{}ok", "<svg></svg>".repeat(50_000), "&".repeat(200_000), "<".repeat(200_000));
+    assert!(from_html(&hostile).text.ends_with("ok"));
 }

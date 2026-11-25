@@ -244,18 +244,34 @@ impl State {
 
     /// Keeps a decoded frame.
     fn push(&mut self, seq: u64, image: Image, delay: Duration) {
+        // Whatever its decoder says, a frame stays a millisecond: a late step counts in delays.
+        let delay = delay.max(Duration::from_millis(1));
         if self.poster.is_none() {
             self.poster = Some(image.clone());
         }
         // Delays are learned from the first play only.
         if self.delay_n < self.total.unwrap_or(u64::MAX) {
-            self.delay_sum += delay;
+            self.delay_sum = self.delay_sum.saturating_add(delay);
             self.delay_n += 1;
         }
         self.frames.push_back((seq, Slot { image, delay }));
         self.next_seq = seq + 1;
         self.pass_count += 1;
+        // A play of unknown length that outgrows what may be kept is streamed from here on.
+        if self.whole && !self.said_total() && self.frames.len() > self.limit {
+            self.whole = false;
+        }
         self.evict();
+    }
+
+    /// The file said how many frames a play has.
+    fn said_total(&self) -> bool {
+        self.total.is_some_and(|t| t > 0)
+    }
+
+    /// The play already has every frame the file said it has.
+    fn pass_full(&self) -> bool {
+        self.total.is_some_and(|t| t > 0 && self.pass_count >= t)
     }
 
     /// The decoder has run out of frames. Returns true if it is to start over.
@@ -285,6 +301,14 @@ impl State {
         let Some(total) = self.total.filter(|t| *t > 0) else {
             self.play.seq = 0;
             self.play.origin = 0;
+            // A streamed play of unknown length has let its first frames go: read it again.
+            if !self.whole {
+                self.frames.clear();
+                self.next_seq = 0;
+                self.pass_count = 0;
+                self.epoch += 1;
+                self.restart = true;
+            }
             return;
         };
         if self.play.seq == self.play.origin {
@@ -692,12 +716,13 @@ fn run(weak: Weak<Stream>) {
                 let first = st.poster.is_none();
                 let mut changed = first;
                 match made {
-                    Ok(Some((image, delay))) => {
+                    Ok(Some((image, delay))) if !st.pass_full() => {
                         st.push(seq, image, delay);
                         st.decoder = Some(dec);
                         changed |= std::mem::take(&mut st.starved);
                     }
-                    Ok(None) => {
+                    // The play is over; a frame past the count the file gave ends it too.
+                    Ok(_) => {
                         changed = true;
                         if st.pass_over() {
                             st.restart = true;
@@ -789,4 +814,54 @@ fn open_stage(me: &Arc<Stream>) {
         }
     }
     me.wake(Event::Changed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame() -> Image {
+        Image::new(1, 1, Arc::from(vec![0u8; 4]))
+    }
+
+    #[test]
+    fn a_frame_stays_a_millisecond_whatever_its_decoder_says() {
+        // A looping animation kept whole, every frame of no length: a late step still ends.
+        let mut st = State::new(1);
+        st.stage = Stage::Open;
+        st.loops = Loops::Forever;
+        st.total = Some(3);
+        for seq in 0..3 {
+            st.push(seq, frame(), Duration::ZERO);
+        }
+        assert!(st.frames.iter().all(|(_, s)| s.delay == Duration::from_millis(1)));
+        // And delays past the clock's range add up without overflowing.
+        st.delay_n = 0;
+        st.push(3, frame(), Duration::MAX);
+        st.push(4, frame(), Duration::MAX);
+        assert_eq!(st.delay_sum, Duration::MAX);
+    }
+
+    #[test]
+    fn a_play_of_unknown_length_is_streamed_once_it_outgrows_the_allowance() {
+        let mut st = State::new(1);
+        st.stage = Stage::Open;
+        st.limit = 4;
+        st.active = 1;
+        for seq in 0..5 {
+            st.push(seq, frame(), Duration::from_millis(20));
+        }
+        assert!(!st.whole, "more frames than may be kept");
+        // The playhead moves on and the frames behind it go.
+        st.play.seq = 3;
+        st.push(5, frame(), Duration::from_millis(20));
+        assert_eq!(st.frames.front().map(|(s, _)| *s), Some(3));
+        // Rewound, it is read again from the start.
+        st.rewind();
+        assert!(st.restart && st.frames.is_empty() && st.next_seq == 0);
+        // A file that said its count is full at that count.
+        st.total = Some(2);
+        st.pass_count = 2;
+        assert!(st.pass_full());
+    }
 }

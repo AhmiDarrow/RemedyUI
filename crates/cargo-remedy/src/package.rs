@@ -298,7 +298,7 @@ begin
     if not Exec(ExpandConstant('{sys}\msiexec.exe'), '/x ' + OldMsi + ' /passive /norestart', '', SW_SHOW, ewWaitUntilTerminated, Code)
       or ((Code <> 0) and (Code <> 1605) and (Code <> 3010)) then
     begin
-      Result := 'The earlier @NAME@ installed for all users was not removed (Windows Installer code ' + IntToStr(Code) + '). Your notes are untouched; run setup again.';
+      Result := 'The earlier @NAME@ installed for all users was not removed (Windows Installer code ' + IntToStr(Code) + '). Your data is untouched; run setup again.';
       Exit;
     end;
   end;

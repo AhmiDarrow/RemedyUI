@@ -60,6 +60,7 @@ pub const NOTO_SANS_JP: &[Face] = &[
 
 /// Every face compiled into this build (the enabled features).
 pub fn all() -> Vec<&'static Face> {
+    #[allow(unused_mut, reason = "empty when no face is enabled")]
     let mut out: Vec<&'static Face> = Vec::new();
     #[cfg(feature = "sc")]
     out.extend(NOTO_SANS_SC);

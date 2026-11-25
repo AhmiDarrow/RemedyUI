@@ -1,12 +1,12 @@
 //! RemedyUI's Windows bridge.
 //!
-//! The shared winit core (`remedy-ui-platform::bridge_winit`) provides windows, input, frames, input
-//! methods, CPU presents and GPU surface handles; this crate adds what Windows does beyond it:
+//! The shared winit core (`bridge_winit`) provides windows, input, frames, input
+//! methods, CPU presents and GPU surface handles; this module adds what Windows does beyond it:
 //! the Win32 clipboard (sensitive copies kept out of clipboard history and cloud sync),
 //! capture protection (`SetWindowDisplayAffinity`), the share window (`DataTransferManager`),
 //! and system settings read from Windows
 //! (dark mode, accent, high contrast, text scale, animations, transparency, locale, double-click
-//! time and caret blink). All Win32 calls are in the `os` module. On other platforms this crate
+//! time and caret blink). All Win32 calls are in the `os` module. On other platforms this module
 //! is empty.
 
 #[cfg_attr(not(windows), allow(dead_code))]

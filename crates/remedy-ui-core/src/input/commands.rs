@@ -413,7 +413,8 @@ impl std::error::Error for ChordError {}
 
 /// A chord's portable text form, the same on every platform, for files people read and edit:
 /// modifiers in the order `Ctrl`, `Alt`, `Shift`, `Meta`, then the key, joined by `+`
-/// (`Ctrl+Shift+Z`, `Alt+F4`, `Meta+Left`, `Ctrl+Plus`). Letters are written in capitals.
+/// (`Ctrl+Shift+Z`, `Alt+F4`, `Meta+Left`, `Ctrl+Plus`). Letters are written in capitals,
+/// except those whose capital is not one letter that reads back as the same key (`ß`, `ı`).
 /// [`Chord::label`] is the platform's way of showing it instead.
 impl fmt::Display for Chord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -426,7 +427,12 @@ impl fmt::Display for Chord {
         match (&self.key, key_name(&self.key)) {
             (_, Some(name)) => f.write_str(&name),
             (Key::Character(c), None) if c == "+" => f.write_str("Plus"),
-            (Key::Character(c), None) => f.write_str(&c.to_uppercase()),
+            (Key::Character(c), None) => {
+                // Capitals only where they read back as the same key: "ß" would become "SS".
+                let upper = c.to_uppercase();
+                let reads_back = upper.chars().count() == 1 && upper.to_lowercase() == *c;
+                f.write_str(if reads_back { &upper } else { c })
+            }
             (_, None) => Ok(()),
         }
     }

@@ -3,7 +3,7 @@
 //! - [`Http`]: a client for one base address, with default headers, a timeout and (natively)
 //!   an optional [`CookieJar`]. In a browser the page's own cookies go with requests to its
 //!   origin (`credentials: same-origin`), as `fetch` does by default.
-//! - [`Request`]: `GET`, `POST`, `PUT` or `DELETE` a path, with headers, a JSON, raw or
+//! - [`Request`]: `GET`, `POST`, `PUT`, `PATCH` or `DELETE` a path, with headers, a JSON, raw or
 //!   [`Multipart`] body, its own timeout, and [`Request::keepalive`] for a request that
 //!   must finish while the page or app closes (a last save): the browser's `fetch`
 //!   `keepalive`, or natively a request the app waits for on its way out
@@ -396,8 +396,20 @@ pub(crate) struct Parts {
     pub(crate) path: String,
 }
 
+/// Whether `url` starts with a scheme and `://` (a `://` further in, as in a query's value,
+/// does not make an address absolute).
+pub(crate) fn absolute(url: &str) -> bool {
+    url.split_once("://").is_some_and(|(scheme, _)| {
+        scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    })
+}
+
 impl Parts {
     pub(crate) fn of(url: &str) -> Option<Parts> {
+        if !absolute(url) {
+            return None;
+        }
         let (scheme, rest) = url.split_once("://")?;
         let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         let (authority, tail) = rest.split_at(end);
@@ -571,7 +583,7 @@ impl Http {
 
     /// The full address of `path`: itself when absolute, else joined to the base.
     pub fn url(&self, path: &str) -> String {
-        if path.contains("://") || self.base.is_empty() {
+        if absolute(path) || self.base.is_empty() {
             return path.to_owned();
         }
         if path.is_empty() {
@@ -717,6 +729,10 @@ mod tests {
         assert_eq!(h.url("x?y=1"), "https://a.test/api/x?y=1");
         assert_eq!(h.url("https://b.test/z"), "https://b.test/z");
         assert_eq!(Http::new("").url("/x"), "/x");
+        // An address inside a query does not make the path absolute.
+        assert_eq!(h.url("go?to=https://b.test/z"), "https://a.test/api/go?to=https://b.test/z");
+        assert!(Parts::of("/go?to=https://b.test/z").is_none());
+        assert!(allowed("https://a.test/go?to=http://b.test/z", HttpPolicy::LoopbackOnly).is_ok());
     }
 
     #[test]

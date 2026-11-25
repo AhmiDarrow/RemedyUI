@@ -875,6 +875,18 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             was_editing.set(now);
         })
     };
+    // Why an edit was turned down, in the app's words, announced as it appears.
+    let status = {
+        let el = w::text(ui, "").variant("error").text(move || edit_error.get().unwrap_or_default());
+        let e2 = el.clone();
+        el.bind(move || {
+            let msg = edit_error.get();
+            let _ = e2
+                .clone()
+                .hidden(msg.is_none())
+                .semantics(Semantics::new(Role::Alert).label(msg.unwrap_or_default()));
+        })
+    };
     let header = ui.el("table_header_bar").row().fill_width().child(header_frozen).child(header_main);
     let bodies = ui
         .el("table_bodies")
@@ -902,6 +914,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .on_key(on_key)
         .child(header)
         .child(bodies)
+        .child(status)
         .child(layout_host)
         .child(sorter)
         .child(redraw)

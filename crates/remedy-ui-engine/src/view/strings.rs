@@ -1,10 +1,11 @@
 //! The engine's own words, in the window's language: the labels, menus, messages and screen
 //! reader names built-in widgets show.
 //!
-//! Each crate keeps its words in Fluent files, one per locale (`i18n/en.ftl`, `i18n/ar.ftl`,
-//! …), compiled in as a [`Strings`] catalog. A widget asks the catalog for a message in the
-//! window's locale ([`Strings::get`], [`Strings::format`]); the best match among the
-//! catalog's locales answers (`pt-PT` takes `pt-BR`, `zh-CN` takes `zh-Hans`), then English.
+//! Each module keeps its words in Fluent files, one per locale (`i18n/<name>/en.ftl`,
+//! `i18n/<name>/ar.ftl`, …), compiled in as a [`Strings`] catalog. A widget asks the catalog
+//! for a message in the window's locale ([`Strings::get`], [`Strings::format`]); the best
+//! match among the catalog's locales answers (`pt-PT` takes `pt-BR`, `zh-CN` takes
+//! `zh-Hans`), then English.
 //! Plurals follow each language's CLDR rules (Arabic has six forms, Russian four), numbers
 //! are written the locale's way ([`set_number_format`]), and where a message mixes
 //! directions its placeholders are wrapped in Unicode isolation marks, so a left-to-right
@@ -12,7 +13,7 @@
 //! right to left comes back without them).
 //!
 //! Apps add a language the engine does not ship, or reword a built-in message, with
-//! [`add_messages`]. [`check`] is what each crate's tests run: every locale has every
+//! [`add_messages`]. [`check`] is what each catalog's tests run: every locale has every
 //! message, uses the same placeholders, and gives every plural form its language needs.
 
 use std::cell::RefCell;
@@ -32,8 +33,9 @@ type Key = (usize, String);
 /// Messages apps added: catalog name → locale → sources.
 type Added = HashMap<String, BTreeMap<String, Vec<Rc<FluentResource>>>>;
 
-/// A crate's catalog from its `i18n/<name>/<locale>.ftl` files, one per [`LOCALES`] entry:
-/// `pub static STRINGS: Strings = crate::engine_strings!("widgets-core");`
+/// The catalog `name` from the calling crate's `i18n/<name>/<locale>.ftl` files, one per
+/// [`LOCALES`] entry:
+/// `pub static STRINGS: Strings = remedy_ui_engine::engine_strings!("widgets-core");`
 #[macro_export]
 macro_rules! engine_strings {
     ($name:literal) => {
@@ -59,14 +61,14 @@ macro_rules! engine_strings {
     };
 }
 
-/// The view's own words (the Undo menu item's name), from `i18n/*.ftl` in this crate. Apps
+/// The view's own words (the Undo menu item's name), from `i18n/view/*.ftl` in this crate. Apps
 /// reword them, or add a language, with [`add_messages`] under the name `view`.
 pub static STRINGS: Strings = crate::engine_strings!("view");
 
 /// The locales every engine catalog ships, English first.
 pub const LOCALES: &[&str] = &["en", "es", "zh-Hans", "hi", "ar", "fr", "pt-BR", "ru", "ja", "de", "bn"];
 
-/// One crate's words: its Fluent files, by locale, compiled in. The first locale is the
+/// One catalog's words: its Fluent files, by locale, compiled in. The first locale is the
 /// source every other is checked against, and the last fallback.
 ///
 /// ```
@@ -143,8 +145,8 @@ thread_local! {
 
 /// Adds or rewords a catalog's messages for `locale` (a language the engine does not ship,
 /// or an app's own wording): Fluent source whose messages take precedence over the
-/// catalog's for that locale. `catalog` is the crate's catalog name (`widgets-core`,
-/// `widgets-forms`, … as each crate's `STRINGS` says). For this thread (the UI thread), from
+/// catalog's for that locale. `catalog` is the catalog's name (`widgets-core`,
+/// `widgets-forms`, … as each module's `STRINGS` says). For this thread (the UI thread), from
 /// then on. Returns what did not parse, if anything (the rest is used).
 pub fn add_messages(catalog: &str, locale: &str, ftl: &str) -> Vec<String> {
     let (res, errors) = match FluentResource::try_new(ftl.to_owned()) {
@@ -225,7 +227,7 @@ fn format_number(v: &FluentValue<'_>, memo: &IntlLangMemoizer) -> Option<String>
 }
 
 impl Strings {
-    /// A catalog named `name` (the crate's short name, which [`add_messages`] refers to) of
+    /// A catalog named `name` (the module's short name, which [`add_messages`] refers to) of
     /// `files`: `(locale, Fluent source)`, English first.
     pub const fn new(name: &'static str, files: &'static [(&'static str, &'static str)]) -> Strings {
         Strings { name, files }

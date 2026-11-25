@@ -128,7 +128,7 @@ impl ChordShape {
 
     /// The rows the diagram draws.
     pub fn row_count(&self) -> u32 {
-        let top = self.fretted().max().map_or(0, |m| (m + 1).saturating_sub(self.base_fret));
+        let top = self.fretted().max().map_or(0, |m| m.saturating_add(1).saturating_sub(self.base_fret));
         self.rows.unwrap_or_else(|| top.max(4)).max(1)
     }
 }
@@ -327,7 +327,7 @@ pub fn chord_diagram(
             cx.list.fill_rect(Rect::new(x - 0.5, top, x + 0.5, bottom), Brush::Solid(d.muted));
         }
         let row_y = |fret: u32| top + (fret.saturating_sub(ch.base_fret)) as f32 * m.cell_h + m.cell_h / 2.0;
-        let in_view = |fret: u32| fret >= ch.base_fret && fret < ch.base_fret + m.rows;
+        let in_view = |fret: u32| fret >= ch.base_fret && fret - ch.base_fret < m.rows;
         let finger =
             |center: Point, f: Option<u8>| f.filter(|_| options.fingers).map(|f| (center, f.to_string()));
         // A string's own label goes before its finger number.

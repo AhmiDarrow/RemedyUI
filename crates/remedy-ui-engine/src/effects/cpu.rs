@@ -654,7 +654,7 @@ fn resample(src: &Buffer, dst: &mut Buffer) {
     for y in 0..h {
         for x in 0..w {
             let c = sample_premul(src, (x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
-            let i = ((y * w + x) * 4) as usize;
+            let i = (y as usize * w as usize + x as usize) * 4;
             if let Some(px) = dst.pixels.get_mut(i..i + 4) {
                 for (p, v) in px.iter_mut().zip(c) {
                     *p = to_u8(v);
@@ -685,7 +685,7 @@ fn blur(src: &Buffer, dst: &mut Buffer, radius: f32) {
                     }
                 }
             }
-            let i = ((y * w + x) * 4) as usize;
+            let i = (y as usize * w as usize + x as usize) * 4;
             if let Some(px) = mid.pixels.get_mut(i..i + 4) {
                 for (p, a) in px.iter_mut().zip(acc) {
                     *p = to_u8(a);
@@ -707,7 +707,7 @@ fn blur(src: &Buffer, dst: &mut Buffer, radius: f32) {
                     }
                 }
             }
-            let i = ((y * w + x) * 4) as usize;
+            let i = (y as usize * w as usize + x as usize) * 4;
             if let Some(px) = dst.pixels.get_mut(i..i + 4) {
                 for (p, a) in px.iter_mut().zip(acc) {
                     *p = to_u8(a);
@@ -740,7 +740,7 @@ fn splat(buf: &mut Buffer, s: &Sprite, k: f32, shape: Splat, mode: Blend) {
             }
             let sa = alpha * cov;
             let src = [s.color[0] * sa, s.color[1] * sa, s.color[2] * sa, sa];
-            let i = ((y * buf.width + x) * 4) as usize;
+            let i = (y as usize * buf.width as usize + x as usize) * 4;
             if let Some(px) = buf.pixels.get_mut(i..i + 4).and_then(|p| <&mut [u8; 4]>::try_from(p).ok()) {
                 let dst = px.map(|c| f32::from(c) / 255.0);
                 let o = blend(mode, src, dst);

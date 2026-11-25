@@ -179,7 +179,8 @@ impl std::fmt::Debug for Orbit {
 pub fn orbit(ui: &Ui, label: impl Into<String>, options: OrbitOptions) -> Orbit {
     let label = label.into();
     let inset = options.inset.unwrap_or(ui.theme().spacing.unit * 8.0);
-    let period = options.period;
+    // A period of no time is no turning (set on the field, past `OrbitOptions::period`).
+    let period = options.period.filter(|p| !p.is_zero());
     let clock = options.clock.clone();
     let content = layer(ui, "orbit_content");
     let el = ui.el("orbit").child(content.clone());

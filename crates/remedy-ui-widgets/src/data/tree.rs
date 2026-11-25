@@ -550,6 +550,12 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
         let last = ls.len() - 1;
         let toggle = toggle_key(e.modifiers, ui2.platform());
         let at = |i: usize| ls.get(i);
+        // The arrow toward the reading direction's end opens: Left, right to left.
+        let (open_key, close_key) = if body2.is_rtl() {
+            (Key::ArrowLeft, Key::ArrowRight)
+        } else {
+            (Key::ArrowRight, Key::ArrowLeft)
+        };
         let target = match &e.key {
             Key::ArrowDown => Some(cur.map_or(0, |c| (c + 1).min(last))),
             Key::ArrowUp => Some(cur.map_or(0, |c| c.saturating_sub(1))),
@@ -557,7 +563,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             Key::PageUp => Some(cur.map_or(0, |c| c.saturating_sub(page))),
             Key::Home => Some(0),
             Key::End => Some(last),
-            Key::ArrowRight => {
+            k if *k == open_key => {
                 let Some(c) = cur else { return false };
                 let Some(l) = at(c) else { return false };
                 if !l.item.has_children {
@@ -571,7 +577,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                     return true;
                 }
             }
-            Key::ArrowLeft => {
+            k if *k == close_key => {
                 let Some(c) = cur else { return false };
                 let Some(l) = at(c) else { return false };
                 if l.open {
@@ -632,7 +638,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             }
             _ => None,
         };
-        let Some(t) = target else { return matches!(e.key, Key::ArrowRight | Key::Character(_)) };
+        let Some(t) = target else { return e.key == open_key || matches!(e.key, Key::Character(_)) };
         let Some(k) = order.get(t).cloned() else { return false };
         if toggle {
             sel.cursor.set(Some(k));
@@ -658,7 +664,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
         // Why a move did not happen, announced as it appears.
         let (u1, u2) = (ui.clone(), ui.clone());
         let el = w::text(ui, "")
-            .variant("danger")
+            .variant("error")
             .text(move || error.get().map(|p| p.message(&u1)).unwrap_or_default());
         let e2 = el.clone();
         el.bind(move || {

@@ -43,7 +43,7 @@ fn percent(v: u32) -> u8 {
 
 /// DEC's HLS (hue 0 is blue, 120 red, 240 green; lightness and saturation in percent).
 fn hls(h: u32, l: u32, s: u32) -> Rgb {
-    let h = ((h + 240) % 360) as f32;
+    let h = ((h % 360 + 240) % 360) as f32;
     let l = l.min(100) as f32 / 100.0;
     let s = s.min(100) as f32 / 100.0;
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;

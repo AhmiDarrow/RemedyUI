@@ -48,8 +48,8 @@ machine: without it `cargo xtask check` skips the audits with a note.
    `cargo remedy migrate --dry-run --path <an app>` on the Remedy apps.
 4. **Changelog.** Move "Unreleased" in `CHANGELOG.md` under the new version and date.
 5. **Packages.** `cargo package --workspace --no-verify --allow-dirty --exclude xtask` must
-   package every publishable crate (64 at 1.0.0-rc.1). Crates that are not published carry
-   `publish = false`: `xtask` and `remedy-ui-core::testing`. Dev-dependencies on the facade are
+   package every publishable crate (15 since the crates were merged). A crate that is not
+   published carries `publish = false`: `xtask`. Dev-dependencies on the facade are
    path-only, so packaging does not need the facade on crates.io first.
 6. **Publish** `remedy-vello-cpu` first when it changed (it lives outside the workspace:
    `cargo publish --manifest-path vendor/vello_cpu/Cargo.toml`), then the workspace in

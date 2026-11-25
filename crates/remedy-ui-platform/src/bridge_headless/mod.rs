@@ -548,9 +548,9 @@ impl HeadlessHost {
         let wanting: Vec<WindowId> =
             self.windows.iter().filter(|(_, w)| w.frame_requested).map(|(id, _)| *id).collect();
         for window in wanting {
-            if let Some(w) = self.windows.get_mut(&window) {
-                w.frame_requested = false;
-            }
+            // A window an earlier frame closed gets none.
+            let Some(w) = self.windows.get_mut(&window) else { continue };
+            w.frame_requested = false;
             let at = self.clock;
             app.event(self, HostEvent::Frame { window, at });
             delivered += 1;

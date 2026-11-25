@@ -196,14 +196,14 @@ pub struct LayoutStyle {
     pub justify: Justify,
     /// Positioning.
     pub position: Position,
-    /// Offsets for absolute positioning, or the edges a sticky box keeps to: logical (`start` is the right edge in a right-to-left
-    /// parent), unless `inset_physical`.
+    /// Offsets for absolute positioning, or the edges a sticky box keeps to: logical (`start`
+    /// is the right edge in a right-to-left parent), unless `inset_physical`. A side set to
+    /// [`AUTO`] is decided by the box's size and its other sides.
     pub inset: Insets,
     /// The insets are physical: `start` is the left edge and `end` the right whatever the
     /// direction, for a box placed at a point (an overlay at a window point, a selection
     /// band at a content point) while its own content reads right to left.
     pub inset_physical: bool,
-    // (A side set to [`AUTO`] is decided by the box's size and its other sides.)
     /// Column tracks (grid).
     pub columns: Vec<Track>,
     /// Row tracks (grid).

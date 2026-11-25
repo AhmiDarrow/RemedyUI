@@ -1,10 +1,10 @@
-//! SVG, drawn by resvg at exactly the size shown (the `svg` feature).
+//! SVG, drawn by resvg at exactly the size shown (the `media-image-svg` feature).
 //!
 //! - [`install`] adds SVG to the image loader, so [`image()`](crate::media_image::image()) shows SVG
 //!   files and bytes like any other image, sharp at every size
 //! - [`render`] draws an SVG to pixels
 //! - [`icon`] draws an icon in the element's text color (`currentColor`)
-//! - [`add_font`] adds the app's fonts for text in SVG files (with the `svg-text` feature,
+//! - [`add_font`] adds the app's fonts for text in SVG files (with the `media-image-svg-text` feature,
 //!   which the facade's `svg` feature enables, and which also uses the system's fonts off the web)
 //!
 //! SVG files are untrusted: references to other files and to the network are never
@@ -138,7 +138,7 @@ pub fn render(bytes: &[u8], px: Option<(u32, u32)>, color: Option<Color>) -> Res
         px.unwrap_or(((natural.width().ceil() as u32).max(1), (natural.height().ceil() as u32).max(1)));
     let (w, h) = (w.max(1), h.max(1));
     // The pixels, sized by need: an impossible size is an error, not an abort.
-    let need = usize::try_from(u64::from(w) * u64::from(h) * 4)
+    let need = usize::try_from(u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4))
         .map_err(|_| DecodeError::TooLarge { width: w, height: h })?;
     {
         let mut probe: Vec<u8> = Vec::new();

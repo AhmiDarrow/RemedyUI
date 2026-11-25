@@ -345,7 +345,7 @@ impl From<accesskit_winit::Event> for UserEvent {
     }
 }
 
-type SoftSurface = softbuffer::Surface<Arc<Window>, Arc<Window>>;
+type SoftSurface = softbuffer::Surface<winit::event_loop::OwnedDisplayHandle, Arc<Window>>;
 
 struct Win {
     window: Arc<Window>,
@@ -380,7 +380,8 @@ struct State {
     pending: VecDeque<HostEvent>,
     proxy: Arc<Mutex<EventLoopProxy<UserEvent>>>,
     modifiers: Modifiers,
-    softbuffer: Option<softbuffer::Context<Arc<Window>>>,
+    /// Made from the display, not a window: a window it held would outlive its close.
+    softbuffer: Option<softbuffer::Context<winit::event_loop::OwnedDisplayHandle>>,
     settings: SystemSettings,
     exit: bool,
     /// The loop has resumed before: a later resume follows a suspension (mobile), and the
@@ -748,10 +749,8 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             return Err(Unsupported::new("present", "the window is closed"));
         };
         if self.state.softbuffer.is_none() {
-            let any = self.state.windows.get(&wid).map(|(_, w)| w.window.clone());
-            if let Some(win) = any {
-                self.state.softbuffer = Some(softbuffer::Context::new(win).map_err(fail)?);
-            }
+            self.state.softbuffer =
+                Some(softbuffer::Context::new(self.el.owned_display_handle()).map_err(fail)?);
         }
         let Some(ctx) = self.state.softbuffer.as_ref() else {
             return Err(Unsupported::new("CPU presents", "no display connection"));
@@ -806,8 +805,9 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                 Some(softbuffer::Rect {
                     x: u32::try_from(x0).ok()?,
                     y: u32::try_from(y0).ok()?,
-                    width: NonZeroU32::new(u32::try_from(x1 - x0).ok()?)?,
-                    height: NonZeroU32::new(u32::try_from(y1 - y0).ok()?)?,
+                    // A rect given inside out has no pixels.
+                    width: NonZeroU32::new(u32::try_from(x1.checked_sub(x0)?).ok()?)?,
+                    height: NonZeroU32::new(u32::try_from(y1.checked_sub(y0)?).ok()?)?,
                 })
             })
             .collect();

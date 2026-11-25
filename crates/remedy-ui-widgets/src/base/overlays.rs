@@ -120,7 +120,20 @@ pub(crate) fn place_fitted(
     // Measured (hidden) from the window's start edge, where it has the whole width: at its
     // anchor it would have only what is left of the window there, and text in it would wrap
     // to that. Placed, it always has at least the width it was measured at.
+    // Measured no wider (or taller) than it may be placed: measured unwrapped, it would show
+    // for a frame where that size fits instead of where it belongs.
+    let window = remedy_ui_core::reactive::untrack(|| ui.window_size());
     let el = place_at(el, Point::new(0.0, first.y))
+        .layout(move |l| {
+            let widest =
+                if window.width > 0.0 { max_width.min(window.width - EDGE * 2.0) } else { max_width };
+            if widest.is_finite() {
+                l.max_width = Length::Px(widest.max(0.0));
+            }
+            if fit_height && window.height > 0.0 {
+                l.max_height = Length::Px((window.height - EDGE * 2.0).max(0.0));
+            }
+        })
         .style(remedy_ui_core::style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
     let measured: Rc<Cell<Option<Size>>> = Rc::default();
@@ -348,6 +361,10 @@ impl Modal {
 
     /// Closes the modal and gives focus back to what had it.
     pub fn close(&self) {
+        // Closed already: focus stays where it has gone since.
+        if !self.is_open() {
+            return;
+        }
         self.layer.remove();
         if let Some(r) = &self.restore {
             r.focus();

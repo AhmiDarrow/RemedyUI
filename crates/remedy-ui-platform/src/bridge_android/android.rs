@@ -95,7 +95,7 @@ pub(crate) fn bridge() -> Option<GlobalRef> {
 /// The activity android-activity started, until [`run`] takes it.
 static ACTIVITY: Mutex<Option<AndroidApp>> = Mutex::new(None);
 
-/// Hands the activity to the bridge. The [`main!`](crate::bridge_android::main) entry point calls this before
+/// Hands the activity to the bridge. The [`main!`](crate::main) entry point calls this before
 /// the app's own entry; call it yourself only when writing `android_main` by hand.
 pub fn attach(app: AndroidApp) {
     if let Some(dir) = app.internal_data_path() {
@@ -758,7 +758,7 @@ impl PlatformHooks for AndroidHooks {
 }
 
 /// Runs `app` on the activity's event loop until it exits. The activity comes from
-/// [`attach`], which the [`main!`](crate::bridge_android::main) entry point calls.
+/// [`attach`], which the [`main!`](crate::main) entry point calls.
 ///
 /// When the loop ends the activity finishes and, once Android has destroyed it, the process
 /// exits: winit makes one event loop per process, so a later launch into the same (cached)

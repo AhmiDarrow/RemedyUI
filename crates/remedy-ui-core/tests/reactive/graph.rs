@@ -262,6 +262,55 @@ fn a_runaway_effect_cannot_hang_the_app() {
 }
 
 #[test]
+fn a_runaway_effect_runs_again_on_the_next_change() {
+    let stop = Signal::new(false);
+    let n = Signal::new(0u64);
+    let (effects, e) = counter();
+    Effect::new(move || {
+        e.set(e.get() + 1);
+        if !stop.get() {
+            n.set(n.get() + 1); // never settles while `stop` is off
+        }
+    });
+    assert_eq!(stats().runaway_effects, 1);
+    let before = effects.get();
+    stop.set(true);
+    assert_eq!(effects.get(), before + 1, "the change reached the effect that was stopped");
+    assert_eq!(stats().pending_effects, 0);
+}
+
+#[test]
+fn a_memo_whose_computation_panicked_computes_again() {
+    let fail = Rc::new(Cell::new(true));
+    let f = fail.clone();
+    let m = Memo::new(move || {
+        assert!(!f.get(), "the computation fails");
+        7
+    });
+    assert!(std::panic::catch_unwind(|| m.get()).is_err());
+    fail.set(false);
+    assert_eq!(m.try_get(), Ok(7));
+}
+
+#[test]
+fn an_effect_disposed_while_it_runs_leaves_no_subscription_behind() {
+    let s = Signal::new(0);
+    let slot: Rc<Cell<Option<Effect>>> = Rc::default();
+    let me = slot.clone();
+    let effect = Effect::new(move || {
+        if let Some(e) = me.get() {
+            e.dispose();
+        }
+        s.get();
+    });
+    slot.set(Some(effect));
+    let live = |k| debug::node(k).map(|n| n.subscribers.len());
+    assert_eq!(live(s.key()), Some(1));
+    s.set(1); // the effect disposes itself, then reads
+    assert_eq!(live(s.key()), Some(0));
+}
+
+#[test]
 fn reactions_report_changes_to_what_they_last_tracked() {
     use remedy_ui_core::reactive::{Memo, Reaction};
     let a = Signal::new(1);

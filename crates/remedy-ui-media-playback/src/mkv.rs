@@ -15,6 +15,7 @@
 //! Bitmap subtitles (PGS `S_HDMV/PGS`, VobSub `S_VOBSUB`, DVB) are pictures, not text, and
 //! are left out, as are tracks whose blocks are compressed with zlib or encrypted.
 
+use std::collections::HashSet;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
@@ -258,6 +259,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
 
     // The segment's elements up to the first cluster, then those the seek head points at.
     let mut found: Vec<(u32, u64)> = Vec::new();
+    let mut walked: Vec<(u32, u64)> = Vec::new();
     let mut first_cluster = None;
     let mut at = seg;
     while at < seg_end {
@@ -274,9 +276,18 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
                 }
             }
         }
-        found.insert(0, (e.id, at));
+        // Only what is looked up below is kept: a file of millions of tiny elements must not
+        // be listed whole (and shifted along for each).
+        if matches!(e.id, INFO | TRACKS | CUES) {
+            walked.push((e.id, at));
+        }
         at = e.data + size;
     }
+    // Those met on the way come first, the last met before the others, then those the seek
+    // head points at.
+    walked.reverse();
+    walked.append(&mut found);
+    let found = walked;
     let locate = |src: &mut Src<R>, id: u32| -> Result<Option<Element>, Error> {
         for (_, p) in found.iter().filter(|(i, _)| *i == id) {
             let e = src.element(*p, seg_end)?;
@@ -312,7 +323,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
         }
     }
     let mut reader =
-        Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new(), text_bytes: 0 };
+        Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: HashSet::new(), text_bytes: 0 };
     if places.is_empty() {
         let mut at = first_cluster.unwrap_or(seg_end);
         while at < seg_end {
@@ -489,7 +500,7 @@ struct Blocks<'a, R> {
     scale: u64,
     seg_end: u64,
     /// Blocks already read (an index may name one twice).
-    seen: Vec<u64>,
+    seen: HashSet<u64>,
     /// The bytes of cue text read, against the subtitle file limit.
     text_bytes: u64,
 }
@@ -571,7 +582,7 @@ impl<R: Read + Seek> Blocks<'_, R> {
         if size > max {
             return Ok(());
         }
-        self.seen.push(e.data);
+        self.seen.insert(e.data);
         let body = self.src.body(e, max)?;
         let (block, duration) = if e.id == BLOCK_GROUP {
             let fields = children(&body)?;
@@ -672,16 +683,11 @@ fn finish(t: TextTrack) -> Option<SubtitleTrack> {
     let starts: Vec<Duration> = raw.iter().map(|c| c.0).collect();
     let cues: Vec<Cue> = raw
         .into_iter()
-        .enumerate()
-        .filter_map(|(i, (start, end, text, settings))| {
+        .filter_map(|(start, end, text, settings)| {
+            // The first later start, found by halving: the starts are in order, and many cues
+            // at one time must not each look through all the others.
             let end = end.unwrap_or_else(|| {
-                starts
-                    .get(i + 1..)
-                    .unwrap_or_default()
-                    .iter()
-                    .copied()
-                    .find(|s| *s > start)
-                    .unwrap_or(start + LAST_CUE)
+                starts.get(starts.partition_point(|s| *s <= start)).copied().unwrap_or(start + LAST_CUE)
             });
             (end > start).then_some(Cue { start, end, text, settings })
         })
@@ -834,6 +840,22 @@ mod tests {
             (s.line, s.align),
             (Some(crate::subtitles::CueLine::Percent(0.0)), crate::subtitles::CueAlign::Center)
         );
+    }
+
+    #[test]
+    fn cues_without_a_length_last_until_the_next_later_start() {
+        let cue = |s: u64| (Duration::from_secs(s), None, "x".to_owned(), CueSettings::default());
+        let track = TextTrack {
+            number: 1,
+            format: Format::Srt,
+            name: None,
+            language: None,
+            prefix: Vec::new(),
+            cues: vec![cue(2), cue(1), cue(1)],
+            ass: AssHeader::default(),
+        };
+        let done = finish(track).unwrap_or_else(|| unreachable!("it has cues"));
+        assert_eq!(cues(&done), [(1000, 2000, "x"), (1000, 2000, "x"), (2000, 7000, "x")]);
     }
 
     #[test]

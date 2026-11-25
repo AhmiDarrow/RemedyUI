@@ -208,7 +208,19 @@ impl std::error::Error for UpdateError {}
 
 /// Only HTTPS, except the loopback interface.
 fn allowed(url: &str) -> Result<(), UpdateError> {
-    let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| url.starts_with(p));
+    let local = url.strip_prefix("http://").is_some_and(|rest| {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        let host = match authority.strip_prefix('[') {
+            // After the bracket comes the port or nothing, never more of a name.
+            Some(v6) => match v6.split_once(']') {
+                Some((h, after)) if after.is_empty() || after.starts_with(':') => Some(h),
+                _ => None,
+            },
+            None => authority.split(':').next(),
+        };
+        // The host itself, not a prefix of one, and no user part (`localhost@other.example`).
+        !authority.contains('@') && matches!(host, Some("127.0.0.1" | "localhost" | "::1"))
+    });
     if url.starts_with("https://") || local {
         Ok(())
     } else {
@@ -268,7 +280,9 @@ mod http {
         let total =
             res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
         let mut reader = res.into_body().into_reader();
-        let mut bytes = Vec::with_capacity(total.and_then(|t: u64| usize::try_from(t).ok()).unwrap_or(0));
+        // The server's word for the size is a hint: a false one must not reserve the memory.
+        let hint = total.and_then(|t: u64| usize::try_from(t).ok()).unwrap_or(0).min(64 * 1024 * 1024);
+        let mut bytes = Vec::with_capacity(hint);
         let mut buf = [0u8; 64 * 1024];
         loop {
             let n = reader.read(&mut buf).map_err(net)?;
@@ -522,9 +536,11 @@ pub fn verify_publisher(file: &Path, thumbprint: &str) -> Result<(), UpdateError
     let bad = |e: &str| UpdateError::Verification(e.to_owned());
     let (status, signer) = os::authenticode(file);
     match status {
+        SignatureStatus::Valid | SignatureStatus::NotTrusted => {}
         SignatureStatus::HashMismatch => return Err(bad("the installer was changed after it was signed")),
-        SignatureStatus::NotSigned if signer.is_none() => return Err(bad("the installer is not signed")),
-        _ => {}
+        SignatureStatus::NotSigned => return Err(bad("the installer is not signed")),
+        // A signer named in a signature Windows could not check proves nothing.
+        SignatureStatus::Other(_) => return Err(bad("the installer's signature does not hold")),
     }
     let want: String = thumbprint.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_uppercase();
     match signer {
@@ -877,6 +893,26 @@ mod json_feed_tests {
         assert!(mac.url.contains("aarch64"));
         assert_eq!(mac.signature, "mac-sig");
         Ok(())
+    }
+
+    #[test]
+    fn plain_http_is_loopback_only_by_host_not_by_prefix() {
+        let fine =
+            ["https://example.com/a", "http://127.0.0.1:8080/a", "http://localhost", "http://[::1]:9/a"];
+        for ok in fine {
+            assert!(allowed(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://example.com/a",
+            "http://127.0.0.1.example.com/a",
+            "http://localhost.example.com/a",
+            "http://localhost@example.com/a",
+            "http://localhost:80@example.com/a",
+            "http://[::1].example.com/a",
+            "ftp://localhost/a",
+        ] {
+            assert!(allowed(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

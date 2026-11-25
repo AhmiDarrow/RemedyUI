@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Runs the isolated-decoding tests (tests/isolated.rs) on the Android device or emulator adb
+# Runs the isolated-decoding tests (tests/media_isolated/isolated.rs) on the Android device or emulator adb
 # sees, inside an app whose helpers are the bridge's isolated decoding service: builds
-# examples/android-isolated-check/, packages it with the bridge's dex (the service) and an
-# instrumentation (tools/IsolatedCheck.java), installs it, runs it, prints the report and
+# examples/media_isolated/android-isolated-check/, packages it with the bridge's dex (the service) and an
+# instrumentation (media-isolated/tools/IsolatedCheck.java), installs it, runs it, prints the report and
 # uninstalls it. No Gradle, as tools/build-apk.sh in the Android bridge.
 #
-#   tools/android-check.sh [test-name-filter...]
+#   media-isolated/tools/android-check.sh [test-name-filter...]
 #
 # Settings (environment): ANDROID_HOME (required), ANDROID_NDK_HOME, TARGET
 # (x86_64-linux-android, default, or aarch64-linux-android), PROFILE (dev, default, or
 # release), TARGET_API (default 35). Needs a JDK. Exits non-zero when a test fails.
 set -euo pipefail
 
-crate="$(cd "$(dirname "$0")/.." && pwd)"
-root="$(cd "$crate/../.." && pwd)"
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/../../../.." && pwd)"
 bridge="$root/crates/remedy-ui-platform/bridge-android"
 sdk="${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"
 ndk="${ANDROID_NDK_HOME:-$sdk/ndk/$(ls "$sdk/ndk" | sort -V | tail -n 1)}"
@@ -52,7 +52,7 @@ cp "$target_dir/$target/$dir/examples/lib$lib.so" "$work/lib/$abi/"
 "$(exe "$bin/llvm-strip")" --strip-debug "$work/lib/$abi/lib$lib.so"
 # The bridge's dex holds the decoding service; the instrumentation goes in a second dex.
 cp "$bridge/dex/classes.dex" "$work/classes.dex"
-javac --release 11 -nowarn -classpath "$jar" -d "$work/classes" "$crate/tools/IsolatedCheck.java"
+javac --release 11 -nowarn -classpath "$jar" -d "$work/classes" "$here/IsolatedCheck.java"
 mkdir -p "$work/check"
 "$(exe "$tools/d8")" --min-api "$min_api" --lib "$jar" --output "$work/check" $(find "$work/classes" -name '*.class')
 cp "$work/check/classes.dex" "$work/classes2.dex"

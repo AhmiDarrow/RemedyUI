@@ -25,7 +25,7 @@
 //! ```
 //!
 //! Components share values through context ([`provide_context`], [`use_context`]), fetch
-//! data off the UI thread with a [`Resource`], and (with the `persist` feature) keep state
+//! data off the UI thread with a [`Resource`], and (with the `reactive-persist` feature) keep state
 //! across restarts with [`Signal::persist`].
 //!
 //! Each UI thread has one runtime. Handles are plain ids: they may be captured by closures

@@ -52,7 +52,7 @@ mod web_fonts;
 struct ReadmeDoctests;
 
 /// The runner's own words (what the place of content popped out to its own window says) in
-/// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
+/// every language the engine ships, from `i18n/remedy-ui/*.ftl`. Apps reword them, or add a language,
 /// with [`remedy_ui_engine::view::strings::add_messages`] under the name `remedy-ui`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("remedy-ui");
 

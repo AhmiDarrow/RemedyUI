@@ -154,13 +154,15 @@ pub(crate) fn rects(page: usize, text: &PageText, a: TextPos, b: TextPos) -> Vec
     }
     let mut out = Vec::new();
     for (r, run) in text.runs.iter().enumerate() {
+        let len = run.len();
         let here = TextPos { page, run: r, offset: 0 };
-        let end_here = TextPos { page, run: r, offset: run.len() };
+        let end_here = TextPos { page, run: r, offset: len };
         if end_here <= a || here >= b {
             continue;
         }
         let from = if a.page == page && a.run == r { a.offset } else { 0 };
-        let to = if b.page == page && b.run == r { b.offset } else { run.len() };
+        // A search hit ending on the break after a run ends one past its last character.
+        let to = if b.page == page && b.run == r { b.offset.min(len) } else { len };
         if to <= from {
             continue;
         }
@@ -237,6 +239,16 @@ mod tests {
         assert_eq!(across.len(), 1, "a phrase wrapped onto the next line is found");
         assert_eq!(across.first().map(|m| (m.start.run, m.end.run)), Some((0, 1)));
         assert!(find_on_page(3, &t, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_hit_ending_on_a_line_break_is_marked_within_its_line() {
+        let t = page();
+        let hits = find_on_page(0, &t, &fold_query("world "));
+        let m = hits.first().copied().unwrap_or(Match { start: TextPos::default(), end: TextPos::default() });
+        let marked = rects(0, &t, m.start, m.end);
+        assert_eq!(marked.len(), 1);
+        assert!(marked.iter().all(|r| r.max.x <= 120.0 + 1e-3), "{marked:?}");
     }
 
     #[test]

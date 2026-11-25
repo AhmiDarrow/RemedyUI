@@ -7,7 +7,7 @@ use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
-use crate::reactive::{Scope, Signal, batch};
+use crate::reactive::{Scope, Signal, batch, panic_message};
 use crate::{Arena, Id, Point, Rect};
 
 use crate::tree::dirty::Dirty;
@@ -212,16 +212,6 @@ pub struct FocusIn;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FocusOut;
 
-fn panic_message(p: &(dyn Any + Send)) -> String {
-    if let Some(s) = p.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = p.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "a panic with a non-text payload".to_string()
-    }
-}
-
 impl Default for Tree {
     fn default() -> Self {
         Self::new()
@@ -378,19 +368,22 @@ impl Tree {
         }
         self.clear_focus_within(id);
         let mut stack = vec![id];
-        let mut scopes = Vec::new();
+        let mut removed = Vec::new();
         {
             let mut d = self.0.borrow_mut();
             while let Some(e) = stack.pop() {
                 if let Some(node) = d.nodes.remove(e) {
                     stack.extend(node.children.iter().copied());
-                    scopes.push(node.scope);
+                    removed.push(node);
                 }
             }
             let Data { dirty_list, nodes, .. } = &mut *d;
             dirty_list.retain(|e| nodes.contains(*e));
         }
-        // Disposing runs app clean-ups; the tree is not borrowed.
+        // Dropping payloads and handlers, and disposing (which runs clean-ups), is app code:
+        // the tree is not borrowed.
+        let scopes: Vec<Scope> = removed.iter().map(|n| n.scope).collect();
+        drop(removed);
         for s in scopes.into_iter().rev() {
             s.dispose();
         }
@@ -449,9 +442,13 @@ impl Tree {
 
     /// Stores data for whoever implements this element (a widget, a layout).
     pub fn set_payload<T: 'static>(&self, id: ElementId, value: T) -> Result<(), TreeError> {
-        let mut d = self.0.borrow_mut();
-        let n = d.nodes.get_mut(id).ok_or(TreeError::NotFound)?;
-        n.payload = Some(Box::new(value));
+        let old = {
+            let mut d = self.0.borrow_mut();
+            let n = d.nodes.get_mut(id).ok_or(TreeError::NotFound)?;
+            n.payload.replace(Box::new(value))
+        };
+        // The payload it replaces is app data: dropped with the tree not borrowed.
+        drop(old);
         Ok(())
     }
 
@@ -503,8 +500,11 @@ impl Tree {
             }
         }
         d.dirty_list = keep;
-        let order = d.order_index();
-        found.sort_by_key(|id| order.get(id).copied().unwrap_or(usize::MAX));
+        // One element is in order as it is: the whole tree is walked only to order several.
+        if found.len() > 1 {
+            let order = d.order_index();
+            found.sort_by_key(|id| order.get(id).copied().unwrap_or(usize::MAX));
+        }
         found
     }
 
@@ -594,13 +594,25 @@ impl Tree {
 
     /// Removes a handler added with [`Tree::on`].
     pub fn off(&self, id: ElementId, handler: u64) -> Result<(), TreeError> {
-        self.edit(id, |n| n.handlers.retain(|h| h.id != handler))
+        // What the handler captured is app data: dropped with the tree not borrowed.
+        let mut taken: Vec<Handler> = Vec::new();
+        let done = self.edit(id, |n| {
+            let (gone, kept) = std::mem::take(&mut n.handlers).into_iter().partition(|h| h.id == handler);
+            n.handlers = kept;
+            taken = gone;
+        });
+        drop(taken);
+        done
     }
 
     /// Drops every handler on `id` (an element going away for good, or the root of a window
     /// being torn down).
     pub fn clear_handlers(&self, id: ElementId) -> Result<(), TreeError> {
-        self.edit(id, |n| n.handlers.clear())
+        // What the handlers captured is app data: dropped with the tree not borrowed.
+        let mut taken: Vec<Handler> = Vec::new();
+        let done = self.edit(id, |n| taken = std::mem::take(&mut n.handlers));
+        drop(taken);
+        done
     }
 
     /// Dispatches `event` to `target`: capture handlers from the root down, then the target's
@@ -729,8 +741,6 @@ impl Tree {
         Ok(())
     }
 
-    /// An explicit tab order. Elements with an order come first, lowest first; the rest
-    /// follow in tree order.
     /// Whether the element can take keyboard focus.
     pub fn is_focusable(&self, id: ElementId) -> bool {
         self.0.borrow().nodes.get(id).is_some_and(|n| n.focusable)
@@ -748,7 +758,8 @@ impl Tree {
         self.0.borrow().nodes.get(id).is_some_and(|n| !n.skip_tab)
     }
 
-    /// Sets the element's position in the tab order (lower first; `None` follows the tree).
+    /// Sets the element's position in the tab order: elements with an order come first, lowest
+    /// first; the rest (`None`) follow in tree order.
     pub fn set_focus_order(&self, id: ElementId, order: Option<i32>) -> Result<(), TreeError> {
         self.edit(id, |n| n.focus_order = order)
     }

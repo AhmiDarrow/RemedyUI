@@ -48,7 +48,8 @@ impl History {
     /// An empty history that keeps the latest `capacity` values (at least one).
     pub fn new(capacity: usize) -> Self {
         let capacity = capacity.max(1);
-        History { values: VecDeque::with_capacity(capacity), capacity }
+        // Room is made as values arrive: a huge capacity is a limit, not memory to take now.
+        History { values: VecDeque::with_capacity(capacity.min(1024)), capacity }
     }
 
     /// Adds a value, dropping the oldest when full.
@@ -141,7 +142,9 @@ pub fn extent<S: Samples + ?Sized>(s: &S) -> Option<(f32, f32)> {
 
 /// Where a value falls in `lo..hi`, 0 to 1.
 pub fn fraction(v: f32, lo: f32, hi: f32) -> f32 {
-    ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
+    let f = (v - lo) / (hi - lo);
+    // A span of nothing (or a value that is not a number) has no place in it.
+    if f.is_nan() { 0.0 } else { f.clamp(0.0, 1.0) }
 }
 
 /// How a line is laid out in a box.

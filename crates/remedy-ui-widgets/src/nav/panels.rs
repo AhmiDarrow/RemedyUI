@@ -38,6 +38,14 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
     let content = Rc::new(content);
     let restore: Rc<std::cell::RefCell<Option<El>>> = Rc::default();
     let layer: Rc<std::cell::RefCell<Option<El>>> = Rc::default();
+    // The panel goes with its holder: left open, its scrim would cover the window for good.
+    let gone = layer.clone();
+    let holder = holder.on_removed(move || {
+        let shown = gone.borrow_mut().take();
+        if let Some(l) = shown {
+            l.remove();
+        }
+    });
     holder.bind(move || {
         let show = open.get();
         untrack(|| {
@@ -149,10 +157,12 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         let _ = t2.clone().text(remedy_ui_engine::view::RichText::plain(title.get()));
     });
     let (a1, a2, a3, a4) = (a.clone(), a.clone(), a.clone(), a.clone());
-    let max = w::icon_button(ui, Icon::Maximize, crate::nav::tr_fn(ui, "title-bar-maximize"), move || {
-        (a2.toggle_maximize)()
-    })
-    .variant("quiet");
+    // Its tooltip says what a press does now, as its name below does.
+    let (a6, u6) = (a.clone(), ui.clone());
+    let max_label = move || {
+        crate::nav::tr(&u6, if (a6.is_maximized)() { "title-bar-restore" } else { "title-bar-maximize" })
+    };
+    let max = w::icon_button(ui, Icon::Maximize, max_label, move || (a2.toggle_maximize)()).variant("quiet");
     let (m2, u, a5) = (max.clone(), ui.clone(), a.clone());
     let max = max.bind(move || {
         let on = (a5.is_maximized)();

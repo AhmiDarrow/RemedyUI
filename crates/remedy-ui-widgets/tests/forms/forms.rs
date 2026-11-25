@@ -417,3 +417,21 @@ fn labels_follow_the_window_language() {
     assert!(!tree.contains("Next month"), "{tree}");
     assert_eq!(contrast_grade_label(&t.ui, 2.0), "Nicht bestanden");
 }
+
+#[test]
+fn a_date_picker_opens_again_after_its_calendar_was_dismissed() {
+    let t = T::new("en-US");
+    let Some(day) = Date::new(2026, 11, 17) else { unreachable!() };
+    let picker = date_picker(&t.ui, "Due", Signal::new(day), None, None);
+    t.ui.root().child(picker.clone());
+    t.frame();
+    let showing = || t.ui.layers()[1].child_elements().len();
+    picker.focus();
+    assert!(t.key(Key::Enter));
+    assert_eq!(showing(), 1, "the calendar shows");
+    assert!(t.key(Key::Escape));
+    assert_eq!(showing(), 0, "Escape closes it");
+    picker.focus();
+    assert!(t.key(Key::Enter));
+    assert_eq!(showing(), 1, "and the next press opens it again");
+}

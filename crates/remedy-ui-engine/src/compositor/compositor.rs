@@ -716,8 +716,12 @@ impl Compositor {
     }
 
     /// Jumps a scrolling layer to `offset` (clamped). Returns false for a layer that does not
-    /// scroll.
+    /// scroll, and for an offset that is not a number, which moves nothing.
     pub fn set_scroll_offset(&mut self, id: LayerId, offset: Vec2) -> bool {
+        // An offset once NaN stays NaN through every later move.
+        if offset.x.is_nan() || offset.y.is_nan() {
+            return false;
+        }
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
         s.unsnap();
         s.x.offset = offset.x.clamp(0.0, s.x.max);
@@ -727,8 +731,12 @@ impl Compositor {
         true
     }
 
-    /// Scrolls a layer by `delta` content units, as a drag or wheel does.
+    /// Scrolls a layer by `delta` content units, as a drag or wheel does. A delta that is not
+    /// finite moves nothing.
     pub fn scroll_by(&mut self, id: LayerId, delta: Vec2) -> bool {
+        if !(delta.x.is_finite() && delta.y.is_finite()) {
+            return false;
+        }
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
         s.unsnap();
         s.x.drag(delta.x);
@@ -739,8 +747,11 @@ impl Compositor {
     /// Starts a fling on a scrolling layer with a release velocity in content units per second.
     /// A snapping container ([`Layer::scroll_snap`](crate::compositor::Layer)) glides straight to the snap
     /// point for where the fling would rest; a fling of zero (a drag released without speed)
-    /// settles where it is.
+    /// settles where it is. A velocity that is not finite moves nothing.
     pub fn fling(&mut self, id: LayerId, velocity: Vec2) -> bool {
+        if !(velocity.x.is_finite() && velocity.y.is_finite()) {
+            return false;
+        }
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
         s.unsnap();
         s.x.fling(velocity.x);
@@ -764,6 +775,10 @@ impl Compositor {
     }
 
     fn snapped_move(&mut self, id: LayerId, offset: Vec2, step: bool) -> bool {
+        // A glide to NaN would never arrive.
+        if offset.x.is_nan() || offset.y.is_nan() {
+            return false;
+        }
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
         if s.snap.is_none() {
             return self.set_scroll_offset(id, offset);
@@ -796,6 +811,9 @@ impl Compositor {
     /// the innermost scroll container under the point that can still move that way takes it,
     /// and an exhausted inner one hands it outward. Returns the layer that scrolled.
     pub fn scroll_at(&mut self, point: Point, delta: Vec2) -> Option<LayerId> {
+        if !(delta.x.is_finite() && delta.y.is_finite()) {
+            return None;
+        }
         let hits: Vec<(LayerId, f32)> = self
             .scroll_hits
             .iter()

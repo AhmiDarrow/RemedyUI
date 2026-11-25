@@ -116,6 +116,21 @@ pub(crate) fn enable() -> Result<Isolation, EnableError> {
         anim: Mutex::new(Vec::new()),
         live: AtomicBool::new(true),
     });
+    let started = start(&engine);
+    if started.is_err() {
+        // Nothing stays registered with the system for helpers that never served.
+        crate::media_isolated::os::forget();
+    }
+    let layers = started?;
+    set_router(Some(Arc::new(Route(engine.clone()))));
+    #[cfg(feature = "media-isolated-anim")]
+    crate::media_anim::route::set_opener(Some(Arc::new(anim::AnimRoute(engine.clone()))));
+    *slot = Some(engine);
+    Ok(Isolation { layers })
+}
+
+/// Starts the first helper and times it; the layers it runs under.
+fn start(engine: &Arc<Engine>) -> Result<Vec<Layer>, EnableError> {
     let t = Instant::now();
     let mut helper = engine.spawn().map_err(|e| match e {
         Startup::Refused(why) => EnableError::Unsupported(why),
@@ -148,13 +163,7 @@ pub(crate) fn enable() -> Result<Isolation, EnableError> {
     let per_unit = best.as_secs_f64() / units(png.len(), px, px).max(1) as f64;
     let _ = engine.costs.set(Costs { spawn, per_unit });
     engine.give_back(helper);
-
-    let layers = engine.layers.get().cloned().unwrap_or_default();
-    set_router(Some(Arc::new(Route(engine.clone()))));
-    #[cfg(feature = "media-isolated-anim")]
-    crate::media_anim::route::set_opener(Some(Arc::new(anim::AnimRoute(engine.clone()))));
-    *slot = Some(engine);
-    Ok(Isolation { layers })
+    Ok(engine.layers.get().cloned().unwrap_or_default())
 }
 
 pub(crate) fn disable() {

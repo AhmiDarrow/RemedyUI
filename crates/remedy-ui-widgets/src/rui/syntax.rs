@@ -267,7 +267,13 @@ impl<'a> Lexer<'a> {
                         self.bump();
                     }
                 }
-                let n: f64 = s.parse().map_err(|_| self.err(at, format!("`{s}` is not a number")))?;
+                // A number too long for an f64 parses as infinity, which no element can use
+                // and the compiler cannot write.
+                let n: f64 = s
+                    .parse()
+                    .ok()
+                    .filter(|n: &f64| n.is_finite())
+                    .ok_or_else(|| self.err(at, "this number is too large"))?;
                 out.push((Tok::Number(n), at));
             } else if c == '"' {
                 self.bump();

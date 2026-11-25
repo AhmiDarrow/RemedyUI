@@ -2704,3 +2704,41 @@ fn the_app_hears_when_it_is_back_once_for_each_time_away() {
     host.run_frames(&mut runner, 1);
     assert_eq!(back.get(), 2, "back from being frozen");
 }
+
+#[test]
+fn closing_the_last_window_writes_persisted_state_before_the_app_ends() {
+    let dir = std::env::temp_dir().join(format!("remedy-ui-last-close-persist-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut runner =
+        Runner::with_geometry(config().data_dir(&dir), GeometryStore::in_memory(), |app: &App| {
+            app.open(WindowSpec::new("Draft").size(200.0, 100.0), |_, _| {
+                Signal::new(String::new()).persist("draft").set("unsaved".into());
+            });
+        });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    host.send(HostEvent::CloseRequested(first(&host)));
+    host.run_frames(&mut runner, 1);
+    assert!(host.has_exited(), "the last window closed: quit");
+    // No waiting for the store's debounce: the process may end right after.
+    assert!(dir.join("state").join("draft.json").exists(), "written by the time the app ended");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_event_for_a_window_that_is_gone_still_runs_what_the_app_asked() {
+    use remedy_ui::host::App as _;
+    let slot: Rc<std::cell::RefCell<Option<remedy_ui::Window>>> = Rc::default();
+    let s2 = slot.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        *s2.borrow_mut() = Some(app.open(WindowSpec::new("Before").size(100.0, 60.0), |_, _| {}));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let w = slot.borrow().clone().unwrap_or_else(|| unreachable!("opened"));
+    w.set_title("After");
+    let gone = HostEvent::Resized { window: WindowId(u64::MAX), width: 10, height: 10, scale: 1.0 };
+    runner.event(&mut host, gone);
+    assert_eq!(host.window(id).map(|w| w.options().title.clone()), Some("After".to_owned()));
+}

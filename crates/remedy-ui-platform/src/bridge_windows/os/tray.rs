@@ -224,6 +224,8 @@ pub(crate) fn set(tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
         STATE.with(|s| {
             if let Some(st) = s.borrow_mut().as_mut() {
                 st.tray = None;
+                // Forgotten with the icon, or the next one shown would destroy it again.
+                st.icon = std::ptr::null_mut();
             }
         });
         if !old_icon.is_null() {

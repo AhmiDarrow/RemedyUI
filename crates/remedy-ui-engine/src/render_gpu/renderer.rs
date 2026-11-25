@@ -97,7 +97,7 @@ impl Surface for GpuScene<'_> {
         if let Some(view) = shown.new_view {
             images.bind_external(shown.id, view);
         }
-        Some(ImageSource::external_texture(shown.id, vello_gpu::TextureRegion::Full, true))
+        shown.drawn.then(|| ImageSource::external_texture(shown.id, vello_gpu::TextureRegion::Full, true))
     }
     fn texture_source(&mut self, texture: &crate::paint::ExternalTexture) -> Option<ImageSource> {
         let id = match self.externals.get(&texture.id) {

@@ -8,7 +8,7 @@
 //! instruction runs for every pixel, so a program's cost is known before it runs and does not
 //! depend on what it reads (no data-dependent timing).
 //!
-//! The CPU interpreter (`vm`) and the GPU kernel (`wgsl`) implement exactly these
+//! The CPU interpreter (`vm`) and the GPU kernel (`render_gpu::effects`) implement exactly these
 //! instructions; their numbering is part of the GPU kernel's input format.
 
 use std::sync::Arc;

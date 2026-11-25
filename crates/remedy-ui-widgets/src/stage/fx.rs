@@ -58,7 +58,8 @@ fn value_at(x: f32, y: f32, seed: u32, period: i32) -> f32 {
     let (fx, fy) = (smooth(x - x0), smooth(y - y0));
     let (ix, iy) = (x0 as i32, y0 as i32);
     let v = |dx: i32, dy: i32| {
-        (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32 / (1u32 << 24) as f32
+        let (cx, cy) = (wrap(ix.wrapping_add(dx), period), wrap(iy.wrapping_add(dy), period));
+        (lattice(cx, cy, seed) >> 8) as f32 / (1u32 << 24) as f32
     };
     let top = v(0, 0) + (v(1, 0) - v(0, 0)) * fx;
     let bottom = v(0, 1) + (v(1, 1) - v(0, 1)) * fx;
@@ -70,9 +71,8 @@ fn perlin_at(x: f32, y: f32, seed: u32, period: i32) -> f32 {
     let (ix, iy) = (x0 as i32, y0 as i32);
     let (rx, ry) = (x - x0, y - y0);
     let grad = |dx: i32, dy: i32| {
-        let a = (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32
-            / (1u32 << 24) as f32
-            * TAU;
+        let (cx, cy) = (wrap(ix.wrapping_add(dx), period), wrap(iy.wrapping_add(dy), period));
+        let a = (lattice(cx, cy, seed) >> 8) as f32 / (1u32 << 24) as f32 * TAU;
         let (s, c) = a.sin_cos();
         c * (rx - dx as f32) + s * (ry - dy as f32)
     };
@@ -103,7 +103,7 @@ pub fn fbm(x: f32, y: f32, octaves: u32, seed: u32) -> f32 {
 fn fbm_at(x: f32, y: f32, octaves: u32, seed: u32, period: i32) -> f32 {
     let (mut sum, mut amp, mut norm, mut f) = (0.0, 1.0, 0.0, 1.0);
     for o in 0..octaves.clamp(1, 12) {
-        let p = if period > 0 { period * f as i32 } else { 0 };
+        let p = if period > 0 { period.saturating_mul(f as i32) } else { 0 };
         sum += amp * perlin_at(x * f, y * f, seed.wrapping_add(o), p);
         norm += amp;
         amp *= 0.5;
@@ -278,7 +278,7 @@ pub fn noise_image(spec: &NoiseSpec) -> Option<Image> {
     }
     let cells = spec.cells.max(1);
     let per = cells as f32 / w as f32;
-    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    let mut px = Vec::with_capacity(w as usize * h as usize * 4);
     for y in 0..h {
         for x in 0..w {
             let v = fbm_at(x as f32 * per, y as f32 * per, spec.octaves, spec.seed, cells as i32);
@@ -484,6 +484,10 @@ mod tests {
         }
         assert_ne!(rand(1, 2), rand(1, 3));
         assert!((breathe(1.0, 2.0) - 1.0).abs() < 1e-6);
+        // Far from the origin (a scene left running, a point scaled by many octaves) is in range too.
+        for v in [value_noise(3.0e9, -3.0e9, 1), perlin(f32::MAX, 0.5, 1), fbm(4.0e6, 4.0e6, 12, 1)] {
+            assert!((0.0..=1.0).contains(&v), "{v}");
+        }
     }
 
     #[test]

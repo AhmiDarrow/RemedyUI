@@ -322,6 +322,10 @@ impl Metronome {
     }
 }
 
+/// The furthest beat a position or a loop's end may be from the start (days of music at any
+/// tempo): past it a beat is no longer told from the next, and the click counter would overflow.
+const MAX_BEAT: f64 = 1e9;
+
 /// The music a [`Transport`] plays, and where it is in it. Positions are beats (quarter
 /// notes) from the start of the piece; a count-in runs through negative beats up to 0.
 pub struct Sequencer {
@@ -382,7 +386,7 @@ impl Sequencer {
 
     /// Plays the beats from `from` up to `to` again and again, or with `None` straight on.
     pub fn set_loop(&mut self, range: Option<(f64, f64)>) {
-        self.looped = range.filter(|(a, b)| a.is_finite() && b.is_finite() && b > a);
+        self.looped = range.filter(|(a, b)| a.abs() <= MAX_BEAT && b.abs() <= MAX_BEAT && b > a);
     }
 
     /// Clicks along, or with `None` does not.
@@ -393,7 +397,8 @@ impl Sequencer {
     /// Starts playing at `beat`, after `count_in` beats of the metronome's clicks (or the
     /// usual ones when there is no metronome): the position runs from `beat - count_in`.
     pub fn play_from(&mut self, beat: f64, count_in: f64) {
-        let count_in = if count_in.is_finite() { count_in.max(0.0) } else { 0.0 };
+        let beat = if beat.is_finite() { beat.clamp(-MAX_BEAT, MAX_BEAT) } else { 0.0 };
+        let count_in = if count_in.is_finite() { count_in.clamp(0.0, MAX_BEAT) } else { 0.0 };
         self.beat = beat - count_in;
         self.count_in_until = if count_in > 0.0 { beat } else { f64::NEG_INFINITY };
         self.playing = true;
@@ -544,7 +549,8 @@ impl Transport {
                 (s.is_playing().then(|| s.beat() as f32), f64::from(format.sample_rate))
             };
             for v in out.iter_mut() {
-                *v = v.clamp(-1.0, 1.0);
+                // A sound with a pitch or level that is no number must not reach the device.
+                *v = if v.is_nan() { 0.0 } else { v.clamp(-1.0, 1.0) };
             }
             // The interface hears of the position about sixty times a second, and once more
             // when it stops.
@@ -563,6 +569,9 @@ impl Transport {
                     });
                 }
             }
+        })
+        .inspect_err(|_| {
+            POSITIONS.with(|p| p.borrow_mut().remove(&id));
         })?;
         Ok(Transport { id, seq, position, feed })
     }
@@ -728,5 +737,19 @@ mod tests {
         assert_eq!(onsets(&out).len(), 6);
         s.stop();
         assert!(!s.is_playing());
+    }
+
+    #[test]
+    fn positions_no_number_can_be_are_bounded() {
+        // An endless or absurd beat would never get past the clicks' counting (this hung).
+        for beat in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1e300, -1e300] {
+            let mut s = Sequencer::new(48_000);
+            s.set_metronome(Some(Metronome::new(4)));
+            s.set_loop(Some((-1e300, beat)));
+            s.play_from(beat, f64::INFINITY);
+            let mut out = vec![0.0f32; 480];
+            s.render(&mut out, 1);
+            assert!(s.beat().abs() <= 2.0 * MAX_BEAT + 1.0, "{beat}: {}", s.beat());
+        }
     }
 }

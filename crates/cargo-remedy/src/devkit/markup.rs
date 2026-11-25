@@ -49,7 +49,7 @@ pub struct ElementSpec {
     /// It holds children.
     #[serde(default)]
     pub children: bool,
-    /// The Rust path of its builder (`crate::devkit::ui::fretboard`, a `fn(&Ui, Call) -> El`); needed
+    /// The Rust path of its builder (`crate::ui::fretboard`, a `fn(&Ui, Call) -> El`); needed
     /// to compile, not to check.
     #[serde(default)]
     pub path: Option<String>,
@@ -189,7 +189,7 @@ pub fn kind(name: &str) -> Option<Kind> {
     })
 }
 
-/// The name of `k`, as [`kind`] reads it (`flag`, `range`, …). Kinds the markup crate adds
+/// The name of `k`, as [`kind`] reads it (`flag`, `range`, …). Kinds the markup module adds
 /// later are named the same way, from their Rust name.
 pub fn kind_name(k: Kind) -> String {
     let mut out = String::new();
@@ -202,7 +202,7 @@ pub fn kind_name(k: Kind) -> String {
     out
 }
 
-/// Parameter names live as long as the program (the markup crate's specs hold
+/// Parameter names live as long as the program (the markup module's specs hold
 /// `&'static str`); each distinct name is kept once.
 fn intern(name: &str) -> &'static str {
     static NAMES: Mutex<Option<HashSet<&'static str>>> = Mutex::new(None);

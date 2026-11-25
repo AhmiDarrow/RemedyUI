@@ -211,7 +211,9 @@ fn http_date(s: &str) -> Option<u64> {
     };
     let mut t = time.split(':').map(str::parse::<u64>);
     let (h, mi, sec) = (t.next()?.ok()?, t.next()?.ok()?, t.next()?.ok()?);
-    if t.next().is_some() || !(1..=31).contains(&day) || year < 1970 || h > 23 || mi > 59 || sec > 60 {
+    // An HTTP date's year has four digits (a longer one would overflow the day count below).
+    let year_ok = (1970..=9999).contains(&year);
+    if t.next().is_some() || !(1..=31).contains(&day) || !year_ok || h > 23 || mi > 59 || sec > 60 {
         return None;
     }
     // Days from 1970-01-01 to the date (Howard Hinnant's days_from_civil).
@@ -482,7 +484,7 @@ fn encode(s: &str) -> String {
 fn answer(url: &str, disk: Option<OnDisk>, reply: Result<FetchReply, String>) -> Got {
     let reply = reply.map_err(DecodeError::Network)?;
     let p = policy(&reply);
-    let expires = p.max_age.map(|a| now() + a);
+    let expires = p.max_age.map(|a| now().saturating_add(a));
     let bytes: Arc<[u8]> = match (reply.status, disk) {
         // Unchanged: the copy on disk, fresh again.
         (304, Some(d)) => {
@@ -651,7 +653,9 @@ impl Fetch for Own {
         #[cfg(not(feature = "media-image-http"))]
         {
             let _ = (request, cancel);
-            done(Err(String::from("built without the `http` feature: set a fetcher with set_fetcher")));
+            done(Err(String::from(
+                "built without the `media-image-http` feature: set a fetcher with set_fetcher",
+            )));
         }
     }
 }
@@ -691,6 +695,13 @@ mod tests {
         assert_eq!(http_date("Tue, 29 Feb 2028 12:00:00 GMT"), Some(1_835_438_400));
         assert_eq!(http_date("0"), None);
         assert_eq!(http_date("Sun, 06 Nov 1994 08:49:37 PST"), None);
+        assert_eq!(http_date("Sun, 06 Nov 18446744073709551615 08:49:37 GMT"), None, "no overflow");
+    }
+
+    #[test]
+    fn a_freshness_beyond_the_clock_does_not_overflow() {
+        let far = answer("test://far", None, Ok(reply("max-age=18446744073709551615")));
+        assert!(far.is_ok());
     }
 
     #[test]

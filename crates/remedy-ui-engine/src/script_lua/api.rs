@@ -72,6 +72,18 @@ pub(crate) fn keep(lua: &mut Lua, ctx: Ctx, v: Value) -> Result<Ref, Error> {
     Ok(r)
 }
 
+/// `made`, or `message` as the error with `r` forgotten when an arena was full (`None`): a
+/// refused insert must not leave its Lua value kept.
+fn or_full(lua: &mut Lua, ctx: Ctx, made: Option<Id>, r: Ref, message: &str) -> Result<Id, Error> {
+    match made {
+        Some(id) => Ok(id),
+        None => {
+            with(lua, ctx, |w| w.drop_ref(r))?;
+            Err(err(message))
+        }
+    }
+}
+
 /// Clears the keys the world freed.
 pub(crate) fn sweep_refs(lua: &mut Lua, ctx: Ctx) -> Result<(), Error> {
     let dead = with(lua, ctx, |w| std::mem::take(&mut w.dead_refs))?;
@@ -172,8 +184,8 @@ fn same(lua: &Lua, a: Value, b: Value) -> bool {
 
 // ---- elements ----
 
-/// A new element of `kind` with properties from `props` (string keys; integer keys are
-/// children when `children_from_props`) and `children`.
+/// A new element of `kind` with properties from `props` (string keys; its integer keys are
+/// children too) and `children`.
 pub(crate) fn make_element(
     lua: &mut Lua,
     ctx: Ctx,
@@ -205,8 +217,8 @@ pub(crate) fn make_element(
             parent: None,
             transient,
         })
-    })?
-    .ok_or_else(|| err("the widget made too many elements"))?;
+    })?;
+    let id = or_full(lua, ctx, id, props_ref, "the widget made too many elements")?;
     let v = handle_for(lua, ctx, Kind::Element, id)?;
     with(lua, ctx, |w| w.changed = true)?;
     for c in kids {
@@ -429,7 +441,8 @@ pub(crate) fn run_comp(lua: &mut Lua, ctx: Ctx, comp: Id) -> Result<(), Error> {
         w.tracking.truncate(depth);
         if let Some(c) = w.comps.get_mut(comp) {
             c.running = false;
-            c.dirty = false;
+            // A run that failed worked nothing out: the next read runs it again.
+            c.dirty = out.is_err();
         }
     })?;
     let out = out?;
@@ -465,8 +478,8 @@ pub(crate) fn flush(lua: &mut Lua, ctx: Ctx) -> Result<(), Error> {
 /// A new signal of `kind` holding `v`.
 fn new_signal(lua: &mut Lua, ctx: Ctx, v: Value, kind: SignalKind) -> Result<(Value, Id), Error> {
     let value = keep(lua, ctx, v)?;
-    let id = with(lua, ctx, |w| w.signals.insert(Signal { value, subs: Vec::new(), kind }))?
-        .ok_or_else(|| err("the widget made too many values"))?;
+    let id = with(lua, ctx, |w| w.signals.insert(Signal { value, subs: Vec::new(), kind }))?;
+    let id = or_full(lua, ctx, id, value, "the widget made too many values")?;
     let h = handle_for(lua, ctx, Kind::Signal, id)?;
     with(lua, ctx, |w| w.owned_by_render(Owned::Signal, id))?;
     Ok((h, id))
@@ -485,8 +498,8 @@ fn new_comp(lua: &mut Lua, ctx: Ctx, f: Value, kind: CompKind) -> Result<Id, Err
     let func = keep(lua, ctx, f)?;
     let id = with(lua, ctx, |w| {
         w.comps.insert(Comp { func, deps: Vec::new(), kind, dirty: true, queued: false, running: false })
-    })?
-    .ok_or_else(|| err("the widget made too many computed values and effects"))?;
+    })?;
+    let id = or_full(lua, ctx, id, func, "the widget made too many computed values and effects")?;
     // A computed value goes with its signal; an effect on its own.
     if kind == CompKind::Effect {
         with(lua, ctx, |w| w.owned_by_render(Owned::Comp, id))?;
@@ -538,7 +551,10 @@ fn signal_methods(lua: &mut Lua, ctx: Ctx, t: TableRef) -> Result<(), Error> {
         let animated =
             with(lua, ctx, |w| matches!(w.signals.get(id).map(|s| &s.kind), Some(SignalKind::Animated(_))))?;
         if animated {
-            let x = number(arg(a, 1)).ok_or_else(|| err("an animated value is a number"))? as f32;
+            let x = number(arg(a, 1))
+                .map(|x| x as f32)
+                .filter(|x| x.is_finite())
+                .ok_or_else(|| err("an animated value is a number"))?;
             with(lua, ctx, |w| {
                 if let Some(SignalKind::Animated(an)) = w.signals.get_mut(id).map(|s| &mut s.kind) {
                     an.set(x);
@@ -560,8 +576,9 @@ fn signal_methods(lua: &mut Lua, ctx: Ctx, t: TableRef) -> Result<(), Error> {
     method(lua, t, "to", move |lua, a| {
         let id = sig(lua, arg(a, 0))?;
         let target = number(arg(a, 1))
+            .map(|x| x as f32)
             .filter(|x| x.is_finite())
-            .ok_or_else(|| err("to(target) takes a number"))? as f32;
+            .ok_or_else(|| err("to(target) takes a number"))?;
         let m = motion(lua, arg(a, 2))?;
         let ok = with(lua, ctx, |w| {
             let now = w.now;
@@ -798,9 +815,16 @@ pub(crate) fn install(lua: &mut Lua, ctx: Ctx, offered: &[String]) -> Result<Tab
         let value = keep(lua, ctx, Value::Nil)?;
         let sig = with(lua, ctx, |w| {
             w.signals.insert(Signal { value, subs: Vec::new(), kind: SignalKind::Plain })
-        })?
-        .ok_or_else(|| err("the widget made too many values"))?;
-        let comp = new_comp(lua, ctx, arg(a, 0), CompKind::Computed { sig })?;
+        })?;
+        let sig = or_full(lua, ctx, sig, value, "the widget made too many values")?;
+        let comp = match new_comp(lua, ctx, arg(a, 0), CompKind::Computed { sig }) {
+            Ok(comp) => comp,
+            Err(e) => {
+                // No handle names the value yet, so nothing else would ever release it.
+                with(lua, ctx, |w| w.free_signal(sig))?;
+                return Err(e);
+            }
+        };
         with(lua, ctx, |w| {
             if let Some(s) = w.signals.get_mut(sig) {
                 s.kind = SignalKind::Computed { comp };
@@ -817,7 +841,10 @@ pub(crate) fn install(lua: &mut Lua, ctx: Ctx, offered: &[String]) -> Result<Tab
         Ok(vec![h])
     })?;
     method(lua, ui, "animated", move |lua, a| {
-        let x = number(arg(a, 0)).filter(|x| x.is_finite()).ok_or_else(|| err("ui.animated(number)"))? as f32;
+        let x = number(arg(a, 0))
+            .map(|x| x as f32)
+            .filter(|x| x.is_finite())
+            .ok_or_else(|| err("ui.animated(number)"))?;
         let mut anim = Animation::new(x);
         anim.set_reduced_motion(with(lua, ctx, |w| w.reduced_motion)?);
         Ok(vec![new_signal(lua, ctx, Value::Nil, SignalKind::Animated(Box::new(anim)))?.0])
@@ -848,8 +875,8 @@ pub(crate) fn install(lua: &mut Lua, ctx: Ctx, offered: &[String]) -> Result<Tab
                     w.owned_by_render(Owned::Timer, id);
                 }
                 id
-            })?
-            .ok_or_else(|| err("the widget set too many timers"))?;
+            })?;
+            let id = or_full(lua, ctx, id, func, "the widget set too many timers")?;
             Ok(vec![loose_handle(lua, ctx, Kind::Timer, id)?])
         })?;
     }
@@ -864,8 +891,8 @@ pub(crate) fn install(lua: &mut Lua, ctx: Ctx, offered: &[String]) -> Result<Tab
                 w.owned_by_render(Owned::Frame, id);
             }
             id
-        })?
-        .ok_or_else(|| err("the widget set too many frame hooks"))?;
+        })?;
+        let id = or_full(lua, ctx, id, func, "the widget set too many frame hooks")?;
         Ok(vec![loose_handle(lua, ctx, Kind::Frame, id)?])
     })?;
     for (name, mount) in [("on_mount", true), ("on_unmount", false)] {
@@ -878,6 +905,8 @@ pub(crate) fn install(lua: &mut Lua, ctx: Ctx, offered: &[String]) -> Result<Tab
                 let list = if mount { &mut w.on_mount } else { &mut w.on_unmount };
                 if list.len() < 64 {
                     list.push(func);
+                } else {
+                    w.drop_ref(func);
                 }
             })?;
             Ok(vec![])

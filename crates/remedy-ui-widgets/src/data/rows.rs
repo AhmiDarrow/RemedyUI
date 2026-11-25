@@ -40,7 +40,17 @@ impl Rows {
             .child(content.clone())
             .child(bottom.clone());
         (
-            Rows { content, top, bottom, row_height, count: 0, build, mounted: BTreeMap::new(), overscan: 8 },
+            Rows {
+                content,
+                top,
+                bottom,
+                // As `set_row_height` keeps it: a height of zero would build every row at once.
+                row_height: row_height.max(1.0),
+                count: 0,
+                build,
+                mounted: BTreeMap::new(),
+                overscan: 8,
+            },
             column,
         )
     }

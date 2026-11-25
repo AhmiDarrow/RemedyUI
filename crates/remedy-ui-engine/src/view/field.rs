@@ -296,6 +296,14 @@ impl Field {
         }
     }
 
+    /// Shapes the text for a window drawn at `scale` device pixels per logical pixel.
+    pub(crate) fn set_scale(&mut self, scale: f32) {
+        self.scale = scale;
+        // A lazy paragraph kept for the next edit was shaped at the old scale.
+        self.last = None;
+        self.invalidate();
+    }
+
     pub(crate) fn set_pseudo(&mut self, pseudo: Option<remedy_ui_text::Pseudo>) {
         self.pseudo = pseudo;
         self.invalidate();
@@ -686,6 +694,10 @@ impl Field {
     /// Scrolls text that overflows the box by a wheel's `delta`. False when the text cannot
     /// move that way (it fits, or is already at that end), so the scroll goes outward.
     pub(crate) fn wheel(&mut self, delta: Vec2) -> bool {
+        // A scroll once NaN stays NaN: the text would never show again.
+        if !(delta.x.is_finite() && delta.y.is_finite()) {
+            return false;
+        }
         let (text, view) = self.extent;
         let max = Vec2::new((text.width - view.width).max(0.0), (text.height - view.height).max(0.0));
         let can = |o: f32, m: f32, d: f32| (d > 0.0 && o < m) || (d < 0.0 && o > 0.0);
@@ -1515,7 +1527,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
             ImeEvent::Commit(t) => ed.commit_composition(t, now),
             ImeEvent::DeleteSurrounding { before, after } => {
                 let s = ed.editor().selection().focus;
-                let (a, b) = (s.saturating_sub(*before), (s + after).min(ed.text().len()));
+                let (a, b) = (s.saturating_sub(*before), s.saturating_add(*after).min(ed.text().len()));
                 if a < b {
                     ed.set_selection(a, b);
                     ed.backspace(now);
@@ -1539,7 +1551,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
             ImeEvent::Commit(t) => ed.commit_composition(t, now),
             ImeEvent::DeleteSurrounding { before, after } => {
                 let s = ed.selection().focus;
-                let (a, b) = (s.saturating_sub(*before), (s + after).min(ed.text().len()));
+                let (a, b) = (s.saturating_sub(*before), s.saturating_add(*after).min(ed.text().len()));
                 if a < b {
                     ed.set_selection(a, b);
                     ed.backspace(now);
@@ -1568,7 +1580,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
         ImeEvent::Commit(t) => ed.commit_composition(t, now),
         ImeEvent::DeleteSurrounding { before, after } => {
             let s = ed.selection().focus;
-            let (a, b) = (s.saturating_sub(*before), (s + after).min(ed.len()));
+            let (a, b) = (s.saturating_sub(*before), s.saturating_add(*after).min(ed.len()));
             if a < b {
                 ed.set_selection(a, b);
                 ed.backspace(now);
@@ -2042,8 +2054,10 @@ impl TextField {
     /// Like [`TextField::set_decorations`] for ranges worked out on `text`, a copy of the
     /// field's text from some time ago (a check that ran in the background). Edits made since
     /// are carried over: lines before an edit stay, lines after it move with the text, and
-    /// lines the edit touched are dropped.
-    pub fn set_decorations_for(&self, text: &str, decorations: Vec<Decoration>) {
+    /// lines the edit touched are dropped. A range that ends before it starts is dropped.
+    pub fn set_decorations_for(&self, text: &str, mut decorations: Vec<Decoration>) {
+        // Carrying ranges over edits and mapping them around a composition take `end - start`.
+        decorations.retain(|d| d.range.start <= d.range.end);
         {
             let mut f = self.field.borrow_mut();
             if f.kind == FieldKind::Secret {
@@ -2248,8 +2262,8 @@ impl TextField {
     }
 
     /// Called when Enter is pressed in a single-line or secret field, or in a multi-line or
-    /// rich field that [`TextField::submit_on_enter`]. with the modifiers
-    /// held (Shift+Enter goes back in a find bar).
+    /// rich field that [`TextField::submit_on_enter`], with the modifiers held (Shift+Enter
+    /// goes back in a find bar).
     pub fn on_submit_with(self, f: impl Fn(remedy_ui_core::input::Modifiers) + 'static) -> Self {
         self.field.borrow_mut().on_submit = Some(Rc::new(f));
         self

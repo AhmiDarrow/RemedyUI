@@ -181,7 +181,7 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             if e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
                 && e.phase == remedy_ui_core::input::PointerPhase::Move
             {
-                if let Some(b) = c2.bounds() {
+                if let Some(b) = c2.bounds().filter(|b| b.width() > 0.0 && b.height() > 0.0) {
                     // The first pane is at the start: the right, right to left.
                     let f = if horizontal && c2.is_rtl() {
                         (b.max.x - e.position.x) / b.width()
@@ -197,6 +197,9 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             false
         })
         .on_key(move |e| {
+            if !e.pressed {
+                return false;
+            }
             // The arrows move the divider the way they point.
             let flip = if horizontal && key_el.is_rtl() { -1.0 } else { 1.0 };
             let step = match e.key {

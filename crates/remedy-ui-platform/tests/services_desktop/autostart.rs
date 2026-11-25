@@ -47,6 +47,9 @@ fn launch_agents_and_desktop_entries_quote_their_arguments() {
         "{desktop}"
     );
     assert!(desktop.starts_with("[Desktop Entry]\nType=Application\nName=Hearth Test\n"));
+    // A percent sign is doubled, or the launcher reads a field code.
+    e.args = vec!["--zoom=50%".into()];
+    assert!(desktop_entry(&e).contains("Exec=/opt/hearth/hearth \"--zoom=50%%\"\n"));
 }
 
 /// On Windows the shortcut is a real .lnk that points at the program.

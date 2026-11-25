@@ -87,7 +87,7 @@ pub fn tabs(
                 let on = sel.as_deref() == Some(t.id.as_str());
                 let id = t.id.clone();
                 let close = on_close.clone();
-                let (ids2, id2) = (ids.clone(), id.clone());
+                let (ids2, id2, strip) = (ids.clone(), id.clone(), s2.clone());
                 let mut tab = w::min_target(u.el("tab"))
                     .row()
                     .align(Align::Center)
@@ -106,8 +106,13 @@ pub fn tabs(
                             return false;
                         }
                         let cur = ids2.iter().position(|i| *i == id2).unwrap_or(0);
-                        if let Some(n) = step(&e.key, cur, ids2.len(), &[Key::ArrowLeft], &[Key::ArrowRight])
-                        {
+                        // The next tab is to the left, right to left.
+                        let (back, forward) = if strip.is_rtl() {
+                            ([Key::ArrowRight], [Key::ArrowLeft])
+                        } else {
+                            ([Key::ArrowLeft], [Key::ArrowRight])
+                        };
+                        if let Some(n) = step(&e.key, cur, ids2.len(), &back, &forward) {
                             selected.set(ids2.get(n).cloned());
                             return true;
                         }
@@ -279,12 +284,17 @@ fn entries(
             w::tooltip(&item, e.label.clone());
         }
         let (ids2, id3) = (ids.clone(), e.id.clone());
-        let (back, forward) =
-            if vertical { ([Key::ArrowUp], [Key::ArrowDown]) } else { ([Key::ArrowLeft], [Key::ArrowRight]) };
+        let me = item.clone();
         let item = item.on_key(move |k| {
             if !k.pressed {
                 return false;
             }
+            // In a row the next item is to the left, right to left.
+            let (back, forward) = match (vertical, me.is_rtl()) {
+                (true, _) => ([Key::ArrowUp], [Key::ArrowDown]),
+                (false, true) => ([Key::ArrowRight], [Key::ArrowLeft]),
+                (false, false) => ([Key::ArrowLeft], [Key::ArrowRight]),
+            };
             let cur = ids2.iter().position(|i| *i == id3).unwrap_or(0);
             match step(&k.key, cur, ids2.len(), &back, &forward) {
                 Some(n) => {

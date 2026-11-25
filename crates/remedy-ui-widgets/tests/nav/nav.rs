@@ -538,3 +538,18 @@ fn built_in_labels_follow_the_window_language() {
     assert!(!tree.contains("Title bar") && !tree.contains("More locations"), "{tree}");
     audit_clean(&ui);
 }
+
+#[test]
+fn a_drawer_goes_with_the_page_that_holds_it() {
+    let ui = ui();
+    let open = Signal::new(true);
+    let holder =
+        drawer(&ui, "Menu", Edge::Start, open, w::column(&ui).child(w::button(&ui, "Settings", || {})));
+    let page = w::column(&ui).child(holder);
+    ui.root().child(page.clone());
+    frame(&ui);
+    assert_eq!(ui.layers()[1].child_elements().len(), 1, "the drawer is open");
+    page.remove();
+    frame(&ui);
+    assert!(ui.layers()[1].child_elements().is_empty(), "no scrim is left over the window");
+}

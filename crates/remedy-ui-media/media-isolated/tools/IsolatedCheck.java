@@ -1,4 +1,4 @@
-// Runs the isolated-decoding tests inside an app (tools/android-check.sh): loads the
+// Runs the isolated-decoding tests inside an app (media-isolated/tools/android-check.sh): loads the
 // android-isolated-check library and hands it the app's Context, so its helpers are the
 // bridge's isolated decoding services. Reports the tests' output as the instrumentation's.
 

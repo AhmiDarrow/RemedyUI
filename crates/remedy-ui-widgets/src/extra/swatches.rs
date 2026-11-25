@@ -8,8 +8,6 @@ use remedy_ui_core::style::StylePatch;
 use remedy_ui_core::{Color, Point};
 use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_engine::view::{El, Ui};
-use std::cell::Cell;
-use std::rc::Rc;
 
 /// One swatch: a color and the name screen readers and tooltips use for it.
 #[derive(Clone, Debug, PartialEq)]
@@ -102,10 +100,8 @@ pub fn color_swatch_grid(
     // Rebuild the cells when the swatches change.
     let host = root.clone();
     let ui2 = ui.clone();
-    let rebuilt = Rc::new(Cell::new(false));
     let build = move || {
         let list = swatches.get();
-        let _ = rebuilt.replace(true);
         host.clear();
         let count = list.len();
         if cursor.get_untracked().unwrap_or(0) >= count {
@@ -210,7 +206,8 @@ pub fn color_swatch_grid(
                         cur
                     }
                 }
-                Key::ArrowUp => cur.saturating_sub(cols).min(cur),
+                // In the top row it stays, as Down does in the last.
+                Key::ArrowUp => cur.checked_sub(cols).unwrap_or(cur),
                 Key::Home if e.modifiers.ctrl => 0,
                 Key::End if e.modifiers.ctrl => n - 1,
                 Key::Home => row_start,

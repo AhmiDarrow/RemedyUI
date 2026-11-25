@@ -1,14 +1,14 @@
 //! RemedyUI's macOS bridge.
 //!
-//! The shared winit core (`remedy-ui-platform::bridge_winit`) provides windows, input, frames, input
+//! The shared winit core (`bridge_winit`) provides windows, input, frames, input
 //! methods (`NSTextInputClient` through winit), CPU presents and Metal surface handles. This
-//! crate adds the general pasteboard (sensitive copies marked concealed and transient, so
+//! module adds the general pasteboard (sensitive copies marked concealed and transient, so
 //! clipboard managers skip them), window sharing protection (`NSWindowSharingNone`), and
 //! system settings: appearance, accent color, increased contrast, reduced motion and
 //! transparency, locale and double-click interval; notifications (User Notifications), the
 //! Dock tile's badge, and links in the app's URL schemes (the "get URL" Apple event), which
 //! reach the app as a later launch's arguments. All AppKit calls are in the `os` module.
-//! On other platforms this crate is empty.
+//! On other platforms this module is empty.
 
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]

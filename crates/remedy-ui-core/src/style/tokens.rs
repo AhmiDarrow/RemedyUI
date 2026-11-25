@@ -26,15 +26,15 @@ use crate::style::resolve::StylePatch;
 use crate::style::theme::Theme;
 
 /// A step on the spacing scale (design 13, "Spacing scale"): `Sn` is `n` spacing units
-/// (4 dp each by default, scaled by the theme's density), and `Sn_5` is `n` and a half.
+/// (4 dp each by default), and `Sn_5` is `n` and a half.
 ///
 /// - Half steps below four units (`S0_5` … `S3_5`), for the fine spacing inside controls:
 ///   an icon's gap to its label, a badge's padding.
 /// - Whole steps from `S1` to `S8`, for spacing between controls and inside cards.
 /// - Layout steps `S10`, `S12`, `S16`, `S20`, `S24`, for sections, panes and page margins.
 ///
-/// Every step resolves through the theme ([`Space::px`]), so a theme with a larger unit or
-/// a denser density moves every step together.
+/// Every step resolves through the theme ([`Space::px`]), so a theme with a larger unit
+/// moves every step together.
 ///
 /// ```
 /// use remedy_ui_core::style::{Space, Theme};

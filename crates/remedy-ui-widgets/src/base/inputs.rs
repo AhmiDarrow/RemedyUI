@@ -63,11 +63,12 @@ pub fn secret_input(ui: &Ui, label: impl Into<String>) -> TextField {
 pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
     let f = field.clone();
     let shown = remedy_ui_core::reactive::Signal::new(false);
-    let u = ui.clone();
+    let (u, u0) = (ui.clone(), ui.clone());
     let b = crate::base::icon_button(
         ui,
         crate::base::Icon::Eye,
-        crate::base::tr(ui, "show-password"),
+        // The tooltip says what a press does now, as the name below does.
+        move || crate::base::tr(&u0, if shown.get() { "hide-password" } else { "show-password" }),
         move || shown.update(|v| *v = !*v),
     );
     let b2 = b.clone();

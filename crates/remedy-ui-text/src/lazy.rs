@@ -619,7 +619,9 @@ impl State {
         let k = self.chunks.len().checked_sub(1)?;
         let piece = self.piece(k)?;
         let c = self.chunks.get(k)?;
-        let line = c.first + c.count - OVERLAP;
+        // A whole paragraph of one line kept after an edit at its end has fewer lines than
+        // the overlap: the seam is then its first line (and the piece is laid out again).
+        let line = (c.first + c.count).saturating_sub(OVERLAP);
         let y = (0..line).fold(c.y0, |y, i| y + f64::from(piece.line_height(i)));
         Some((c.start + piece.line(line)?.range.start, piece, line, y))
     }

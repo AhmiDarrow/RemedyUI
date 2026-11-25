@@ -126,13 +126,13 @@ fn run(o: Options) -> Result<(), String> {
 
 #[cfg(feature = "mcp-http")]
 async fn serve_http(server: Server, port: u16) -> Result<(), String> {
-    let token = std::env::var("REMEDY_MCP_TOKEN")
-        .ok()
-        .filter(|t| !t.trim().is_empty())
-        .unwrap_or_else(remedy_ui_core::token::random_token);
+    let given = std::env::var("REMEDY_MCP_TOKEN").ok().filter(|t| !t.trim().is_empty());
+    // A token made here is the only copy: it is printed even when the variable is set but empty.
+    let made = given.is_none();
+    let token = given.unwrap_or_else(remedy_ui_core::token::random_token);
     let http = cargo_remedy::mcp::http::HttpServer::bind(port, token.clone()).await.map_err(|e| e.0)?;
     eprintln!("remedy-mcp: streamable HTTP at {}", http.url());
-    if std::env::var_os("REMEDY_MCP_TOKEN").is_none() {
+    if made {
         eprintln!("remedy-mcp: token {token}");
     }
     http.serve(server).await.map_err(|e| e.0)
@@ -140,7 +140,7 @@ async fn serve_http(server: Server, port: u16) -> Result<(), String> {
 
 #[cfg(not(feature = "mcp-http"))]
 async fn serve_http(_server: Server, _port: u16) -> Result<(), String> {
-    Err("this remedy-mcp was built without the `http` feature".into())
+    Err("this remedy-mcp was built without the `mcp-http` feature".into())
 }
 
 fn main() -> ExitCode {

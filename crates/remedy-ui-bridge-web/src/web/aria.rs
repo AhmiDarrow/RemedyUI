@@ -79,7 +79,7 @@ impl Mirror {
                 .is_some_and(|m| m.ctrl_key() || m.meta_key() || m.shift_key());
             if modified && let Some(href) = link_href(e.target()) {
                 e.prevent_default();
-                super::history::open_in_new_tab(href.trim_start_matches('#'));
+                open_link(&href);
                 return;
             }
             if let Some(id) = node_of(e.target()) {
@@ -92,7 +92,7 @@ impl Mirror {
             let is_middle = e.dyn_ref::<web_sys::MouseEvent>().is_some_and(|m| m.button() == 1);
             if is_middle && let Some(href) = link_href(e.target()) {
                 e.prevent_default();
-                super::history::open_in_new_tab(href.trim_start_matches('#'));
+                open_link(&href);
             }
         });
         let focus = Listener::new(&self.root_el, "focusin", move |e| {
@@ -325,6 +325,19 @@ fn place(el: &HtmlElement, bounds: Option<Rect>, parent: Option<Rect>) {
             ("height", &format!("{}px", (b.y1 - b.y0).max(0.0))),
         ],
     );
+}
+
+/// Opens a mirror link's address in a new tab. The address is the link's own (`#/settings`,
+/// a path under the router's base, `https://…`), so it opens as the browser would open the
+/// `<a href>`: the app's own pages as they are, another site's without a way back into this
+/// page, and nothing that is neither.
+fn open_link(href: &str) {
+    let Some(w) = web_sys::window() else { return };
+    if href.starts_with(['#', '/']) && !href.starts_with("//") {
+        let _ = w.open_with_url_and_target(href, "_blank");
+    } else if remedy_ui_core::host::is_openable_url(href) {
+        let _ = w.open_with_url_and_target_and_features(href, "_blank", "noopener,noreferrer");
+    }
 }
 
 /// The address of the app's link an event happened on (a mirror `<a href>`), if any.

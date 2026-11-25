@@ -81,7 +81,7 @@ impl Track {
 
     /// How long the track lasts.
     pub fn length(&self) -> Duration {
-        let end = self.samples.iter().map(|s| s.pts + i64::from(s.duration)).max().unwrap_or(0);
+        let end = self.samples.iter().map(|s| s.pts.saturating_add(i64::from(s.duration))).max().unwrap_or(0);
         self.time(end)
     }
 }
@@ -481,6 +481,10 @@ fn samples(stbl: &[Atom<'_>], shift: i64, file_len: u64) -> Result<Vec<SampleRef
         let (first, per) = run(r)?;
         let next_first = if r + 1 < runs { run(r + 1)?.0 } else { offsets.len() as u32 + 1 };
         for chunk in first.max(1)..next_first {
+            // A run that adds no sample must not walk every chunk (runs times chunks, for nothing).
+            if per == 0 || sample >= count {
+                break;
+            }
             let Some(&base) = offsets.get(chunk as usize - 1) else { break };
             let mut at = base;
             for _ in 0..per {
@@ -504,12 +508,12 @@ fn samples(stbl: &[Atom<'_>], shift: i64, file_len: u64) -> Result<Vec<SampleRef
     let mut i = 0usize;
     for e in 0..n {
         let (k, delta) = (be32(rows, e * 8)?, be32(rows, e * 8 + 4)?);
+        // A count past the samples there are is not walked (it may claim billions).
         for _ in 0..k {
-            if let Some(s) = out.get_mut(i) {
-                s.pts = dts;
-                s.duration = delta;
-            }
-            dts += i64::from(delta);
+            let Some(s) = out.get_mut(i) else { break };
+            s.pts = dts;
+            s.duration = delta;
+            dts = dts.saturating_add(i64::from(delta));
             i += 1;
         }
     }
@@ -523,15 +527,14 @@ fn samples(stbl: &[Atom<'_>], shift: i64, file_len: u64) -> Result<Vec<SampleRef
             let raw = be32(rows, e * 8 + 4)?;
             let off = if signed { i64::from(raw as i32) } else { i64::from(raw) };
             for _ in 0..k {
-                if let Some(s) = out.get_mut(i) {
-                    s.pts += off;
-                }
+                let Some(s) = out.get_mut(i) else { break };
+                s.pts = s.pts.saturating_add(off);
                 i += 1;
             }
         }
     }
     for s in &mut out {
-        s.pts -= shift;
+        s.pts = s.pts.saturating_sub(shift);
     }
     // Sync samples (all of them when the table is absent).
     if let Ok(stss) = need(b"stss") {
@@ -626,6 +629,35 @@ mod tests {
         assert_eq!(cue_text(b"\x00\x40short"), "short");
         assert_eq!(cue_text(b"\x00\x06\xFE\xFF\x00h\x00i"), "hi");
         assert_eq!(cue_text(b"\x00"), "");
+    }
+
+    #[test]
+    fn tables_that_claim_billions_of_samples_are_not_walked() {
+        let be = |v: &[u32]| -> Vec<u8> { v.iter().flat_map(|n| n.to_be_bytes()).collect() };
+        // Two one-byte samples in one chunk; a run of none first; times for 4 billion samples
+        // of the longest length each, shown before they are decoded, and the latest edit start.
+        let stsz = be(&[0, 1, 2]);
+        let stco = be(&[0, 1, 0]);
+        let stsc = be(&[0, 2, 1, 0, 1, 1, 2, 1]);
+        let stts = be(&[0, 1, u32::MAX, u32::MAX]);
+        let ctts = be(&[0x0100_0000, 1, u32::MAX, u32::MAX]);
+        let stbl = [
+            Atom { kind: *b"stsz", body: &stsz },
+            Atom { kind: *b"stco", body: &stco },
+            Atom { kind: *b"stsc", body: &stsc },
+            Atom { kind: *b"stts", body: &stts },
+            Atom { kind: *b"ctts", body: &ctts },
+        ];
+        let got = samples(&stbl, i64::MAX, 2).unwrap_or_default();
+        assert_eq!(got.iter().map(|s| (s.offset, s.size)).collect::<Vec<_>>(), [(0, 1), (1, 1)]);
+        let track = Track {
+            kind: Kind::Text { language: None },
+            codec: String::new(),
+            description: Vec::new(),
+            timescale: 1,
+            samples: got,
+        };
+        assert_eq!(track.length(), Duration::ZERO, "times before the start are zero");
     }
 
     #[test]

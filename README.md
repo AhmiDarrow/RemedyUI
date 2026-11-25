@@ -27,7 +27,7 @@ cargo remedy new my-app          # templates: basic, tray, multi-window, documen
 cd my-app
 cargo remedy run                 # F12 in a window opens the inspector
 cargo test                       # the app on the in-memory host, and its golden previews
-cargo remedy package             # Windows installer and zip; --target linux, android or macos
+cargo remedy package             # Windows installer and zip; --target linux, android, macos or web
 ```
 
 An app is a function that opens windows. Components run once and bind elements to signals:
@@ -66,7 +66,7 @@ cargo doc -p remedy-ui --all-features --open
 
 ## What is built
 
-Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind features). Each line below is a crate with real code and tests; a crate joins the workspace only when it has both.
+Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind features). Each line below is a crate, or a part of one (`crate::module`, a module behind a feature of that crate), with real code and tests; neither joins the workspace without both.
 
 **Foundations**
 - `remedy-ui-core`: geometry, scale and snapping, colors, generational arena, and the phase spans every layer emits, with their clock
@@ -168,7 +168,7 @@ Checks: `cargo xtask check` (layer graph, unsafe boundary and `cargo vet`) and `
 
 ```sh
 cargo install --path crates/cargo-remedy
-cargo install --path crates/remedy-mcp
+cargo install --path crates/cargo-remedy --bin remedy-mcp --features mcp-full
 claude mcp add remedy -- remedy-mcp --workspace /path/to/your/apps
 ```
 

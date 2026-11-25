@@ -121,7 +121,7 @@ pub(crate) fn carry(old: &str, new: &str, decorations: &mut Vec<Decoration>) {
 /// Draws `kind` along the bottom of `r` (a line box), in `color`.
 pub(crate) fn draw(list: &mut DisplayList, r: Rect, kind: DecorationKind, color: Color) {
     let width = (r.max.x - r.min.x).max(0.0);
-    if width <= 0.0 {
+    if width <= 0.0 || !width.is_finite() {
         return;
     }
     let thickness = 1.0;
@@ -144,10 +144,11 @@ pub(crate) fn draw(list: &mut DisplayList, r: Rect, kind: DecorationKind, color:
             let amplitude = 1.5;
             let half = 2.0;
             let mut path = Path::new();
-            let (mut x, mut up) = (r.min.x, false);
-            path.move_to(Point::new(x, base + amplitude));
-            while x < r.max.x {
-                x = (x + half).min(r.max.x);
+            let mut up = false;
+            path.move_to(Point::new(r.min.x, base + amplitude));
+            // Counted, not stepped: far from the origin `x + half` rounds back to `x`.
+            for k in 1..=(width / half).ceil() as usize {
+                let x = (r.min.x + half * k as f32).min(r.max.x);
                 up = !up;
                 path.line_to(Point::new(x, base + if up { 0.0 } else { amplitude }));
             }
@@ -210,5 +211,17 @@ mod tests {
         draw(&mut list, Rect::new(10.0, 0.0, 30.0, 20.0), DecorationKind::Squiggle, Color::BLACK);
         let b = list.bounds().unwrap_or_else(|| unreachable!("a squiggle draws something"));
         assert!(b.min.x >= 7.0 && b.max.x <= 33.0 && b.min.y >= 16.0 && b.max.y <= 23.5, "{b:?}");
+    }
+
+    #[test]
+    fn a_squiggle_far_from_the_origin_ends() {
+        // At 2^26 an f32 cannot hold `x + 2.0`.
+        let x = 67_108_864.0;
+        let mut list = DisplayList::new();
+        draw(&mut list, Rect::new(x, 0.0, x + 64.0, 20.0), DecorationKind::Squiggle, Color::BLACK);
+        let Some(Item::StrokePath { path, .. }) = list.items().first() else { unreachable!("a squiggle") };
+        assert_eq!(path.elements().len(), 33);
+        draw(&mut list, Rect::new(0.0, 0.0, f32::INFINITY, 20.0), DecorationKind::Squiggle, Color::BLACK);
+        assert_eq!(list.len(), 1, "an endless box draws nothing");
     }
 }

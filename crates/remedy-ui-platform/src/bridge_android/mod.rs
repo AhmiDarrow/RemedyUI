@@ -2,13 +2,13 @@
 //!
 //! An app runs in a native activity (`dev.remedyui.android.RemedyActivity`, the bridge's own
 //! `NativeActivity`, in APKs `cargo remedy package` makes; a plain `android.app.NativeActivity`
-//! also works, with the limits below) on the shared winit core (`remedy-ui-platform::bridge_winit`), which provides the window, touch and
+//! also works, with the limits below) on the shared winit core (`bridge_winit`), which provides the window, touch and
 //! key input, frames, timers, wakes, CPU presents into the `ANativeWindow`'s buffers, the
 //! native handles wgpu draws on with Vulkan or GLES, and the lifecycle: surfaces are dropped
 //! when the activity goes to the background and the window is announced again, with its new
 //! size, when it returns. A surface keeps the renderer it was first presented with, so
 //! windows start on the GPU; one that started on the CPU moves with its next surface. This
-//! crate adds:
+//! module adds:
 //!
 //! - input methods: an invisible view over the activity's own takes focus while a field
 //!   edits and gives the input method a real `InputConnection`, so composition (underlined
@@ -75,7 +75,7 @@
 //! no service. `tools/build-apk.sh` builds,
 //! packages, signs and installs an app; see the `android-demo` example. `tools/emulator-check.sh`
 //! drives the demo on an emulator, `tools/notify-check.sh` its notifications and foreground
-//! work, and `tools/a11y-check/run.sh` acts on it as a screen reader does. On other platforms this crate holds only its platform-neutral conversions.
+//! work, and `tools/a11y-check/run.sh` acts on it as a screen reader does. On other platforms this module holds only its platform-neutral conversions.
 //!
 //! An app's entry point is [`main!`](crate::main):
 //!

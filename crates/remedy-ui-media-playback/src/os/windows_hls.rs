@@ -35,7 +35,7 @@ use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, 
 use crate::capture::Converter;
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, answered, file_path, first_byte, load,
-    max_fetch, quiet, timed_out,
+    max_fetch, quiet, read_file, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -638,7 +638,7 @@ impl HttpFetch {
 impl Fetch for HttpFetch {
     fn get(&mut self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         if let Some(path) = file_path(url) {
-            return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
+            return read_file(&path);
         }
         // ERROR_WINHTTP_TIMEOUT: retried as a timeout (a quiet one is a stalled download restarted).
         let timeout = |e: &windows::core::Error| e.code() == windows::core::HRESULT::from_win32(12002);

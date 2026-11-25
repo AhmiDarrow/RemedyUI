@@ -227,6 +227,7 @@ fn key(w: &Rc<Win>, e: &web_sys::KeyboardEvent, pressed: bool) {
         // The app copies first; the browser's `copy`/`cut` event then carries it out.
         (true, Some(ClipboardKey::Copy | ClipboardKey::Cut)) => {
             w.clipboard_key.set(true);
+            super::clipboard::forget_pending(&d);
             d.post(HostEvent::Key(w.id, ev));
         }
         (_, clip) => {

@@ -26,7 +26,7 @@
 //!
 //! | import | signature | what it does |
 //! |---|---|---|
-//! | `log` | `(ptr: i32, len: i32)` | writes UTF-8 text to the engine's trace |
+//! | `log` | `(ptr: i32, len: i32)` | writes UTF-8 text to the engine's trace (its first 4096 bytes) |
 //! | `fail` | `(ptr: i32, len: i32)` | stops the call with that UTF-8 text as the reason |
 //!
 //! `crates/remedy-ui-engine/examples/script_wasm/claps` is a widget written in Rust, with the
@@ -124,6 +124,10 @@ pub fn calibrate() -> Option<u64> {
 /// How many slices the fuel of a call's time budget is handed out in: the engine looks at the
 /// clock between them, so a call overruns its time budget by about a slice.
 const SLICES: u64 = 64;
+
+/// The most bytes one `log` call writes. A host call costs almost no fuel, so without a bound a
+/// widget could spend the host's time copying its whole memory on every call.
+const MAX_LOG: u32 = 4096;
 
 /// The module widgets import from.
 const HOST_MODULE: &str = "remedy";
@@ -288,6 +292,7 @@ fn linker(engine: &Engine) -> Result<Linker<Host>, ScriptError> {
     linker
         .func_wrap(HOST_MODULE, "log", |caller: Caller<'_, Host>, ptr: i32, len: i32| {
             let Some(memory) = caller.data().memory else { return };
+            let len = (len as u32).min(MAX_LOG) as i32;
             if let Some(text) = read_text(memory.data(&caller), ptr, len) {
                 remedy_ui_core::trace::tracing::debug!(target: "remedy_ui::script", "{text}");
             }

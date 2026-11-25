@@ -179,6 +179,10 @@ pub(crate) fn exec_quote(s: &str) -> String {
         if matches!(c, '"' | '`' | '$' | '\\') {
             out.push('\\');
         }
+        // A literal percent sign, not a field code such as `%f`.
+        if c == '%' {
+            out.push('%');
+        }
         out.push(c);
     }
     out.push('"');

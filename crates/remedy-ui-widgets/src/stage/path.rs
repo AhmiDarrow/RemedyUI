@@ -210,8 +210,10 @@ struct State {
 
 impl State {
     fn mapped(&self, size: Size) -> Route {
+        // As `PathOptions::design` keeps it: a design of no size has no scale.
         let d = self.options.design;
-        self.route.scaled(size.width / d.width, size.height / d.height)
+        let (w, h) = (d.width.max(f32::MIN_POSITIVE), d.height.max(f32::MIN_POSITIVE));
+        self.route.scaled(size.width / w, size.height / h)
     }
 
     fn put_all(&self) {

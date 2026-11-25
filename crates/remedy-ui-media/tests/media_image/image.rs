@@ -481,6 +481,27 @@ fn a_lazy_image_loads_only_once_it_comes_near_the_viewport() {
 }
 
 #[test]
+fn what_hears_a_cached_image_may_use_the_loader_itself() {
+    // The cache answers at once, and what listens runs as it does: the cache is free by then.
+    let ui = ui();
+    let source = Source::Bytes(png(6, 4, |_, _| [7, 7, 7, 255], None).into());
+    let first = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
+    let _held = load(&source, None, false, first);
+    settle(&ui);
+    assert!(matches!(first.get_untracked().ok(), Some(ImageState::Ready(..))));
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
+    let seen = std::rc::Rc::new(std::cell::Cell::new(0));
+    let seen2 = seen.clone();
+    let _effect = remedy_ui_core::reactive::Effect::new(move || {
+        if matches!(state.get(), ImageState::Ready(..)) {
+            seen2.set(cached());
+        }
+    });
+    let _again = load(&source, None, false, state);
+    assert_eq!(seen.get(), 1);
+}
+
+#[test]
 fn late_results_for_a_disposed_signal_are_dropped() {
     // A page reload or a closed view disposes the element's signal while its image still
     // loads, sizes or sits in the cache; none of those answers may panic.
