@@ -161,7 +161,7 @@ pub fn home(ui: &Ui) -> El {
 
 /// The app's strings, from `i18n/<locale>.ftl`, carried inside the app.
 pub fn messages() -> Messages {
-    thread_local!(static MESSAGES: Messages = Messages::new("en-US").embedded("en-US", include_str!("../../i18n/cargo-remedy/remedy-templates/en-US.ftl")));
+    thread_local!(static MESSAGES: Messages = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl")));
     MESSAGES.with(Clone::clone)
 }
 

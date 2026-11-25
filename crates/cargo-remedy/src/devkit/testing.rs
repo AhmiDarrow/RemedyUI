@@ -295,6 +295,39 @@ pub struct SceneRun {
     pub seconds: f64,
 }
 
+/// A crate's integration tests: each target's name and file. The files straight under
+/// `tests/` are targets by their names; a crate made of several parts keeps each part's tests
+/// in a folder of its own and names them in its manifest (`[[test]]` with `name` and `path`).
+fn test_targets(dir: &Path) -> Vec<(String, std::path::PathBuf)> {
+    let mut out: Vec<(String, std::path::PathBuf)> = Vec::new();
+    if let Ok(files) = std::fs::read_dir(dir.join("tests")) {
+        for f in files.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "rs")) {
+            let name = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            out.push((name, f));
+        }
+    }
+    let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
+    let value = |line: &str, key: &str| -> Option<String> {
+        let rest = line.trim().strip_prefix(key)?.trim_start().strip_prefix('=')?;
+        Some(rest.trim().trim_matches('"').to_owned())
+    };
+    let mut blocks = manifest.split("[[test]]");
+    let _ = blocks.next();
+    for block in blocks {
+        // The block ends where the next table starts.
+        let own: Vec<&str> = block.lines().skip(1).take_while(|l| !l.trim_start().starts_with('[')).collect();
+        let name = own.iter().find_map(|l| value(l, "name"));
+        let path = own.iter().find_map(|l| value(l, "path"));
+        if let (Some(name), Some(path)) = (name, path)
+            && !out.iter().any(|(n, _)| *n == name)
+        {
+            out.push((name, dir.join(path)));
+        }
+    }
+    out.sort();
+    out
+}
+
 /// The engine's budget scenes: tests in `crates/*/tests` named for a budget, or marked as
 /// measured in release builds.
 pub fn scenes(root: &Path) -> Vec<Scene> {
@@ -304,13 +337,8 @@ pub fn scenes(root: &Path) -> Vec<Scene> {
     dirs.sort();
     for dir in dirs {
         let Some(krate) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else { continue };
-        let Ok(files) = std::fs::read_dir(dir.join("tests")) else { continue };
-        let mut files: Vec<_> =
-            files.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "rs")).collect();
-        files.sort();
-        for f in files {
+        for (test, f) in test_targets(&dir) {
             let Ok(text) = std::fs::read_to_string(&f) else { continue };
-            let test = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
             let mut docs: Vec<&str> = Vec::new();
             let mut attrs: Vec<&str> = Vec::new();
             for line in text.lines() {
@@ -470,10 +498,7 @@ test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; fini
     fn the_engine_budget_scenes_are_found() {
         let Some(root) = crate::devkit::built_from_checkout() else { return };
         let found = scenes(&root);
-        assert!(
-            found.iter().any(|s| s.krate == "remedy-ui-doc-pages" && s.test == "zoom_budget"),
-            "{found:?}"
-        );
+        assert!(found.iter().any(|s| s.krate == "remedy-ui-widgets" && s.test == "zoom_budget"), "{found:?}");
         assert!(
             found.iter().any(|s| s.function == "the_fifty_thousand_file_explorer_meets_its_frame_budget")
         );

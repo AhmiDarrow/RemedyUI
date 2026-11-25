@@ -322,7 +322,7 @@ pub fn home(ui: &Ui) -> El {
 /// read the folder and reload it as you edit, so text changes show without a rebuild.
 pub fn messages() -> Messages {
     thread_local!(static MESSAGES: Messages = {
-        let m = Messages::new("en-US").embedded("en-US", include_str!("../../i18n/cargo-remedy/remedy-templates/en-US.ftl"));
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
         if cfg!(debug_assertions) {
             let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
             m.watch();
@@ -411,7 +411,7 @@ pub fn tray_icon() -> TrayImage {
 /// read the folder and reload it as you edit, so text changes show without a rebuild.
 pub fn messages() -> Messages {
     thread_local!(static MESSAGES: Messages = {
-        let m = Messages::new("en-US").embedded("en-US", include_str!("../../i18n/cargo-remedy/remedy-templates/en-US.ftl"));
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
         if cfg!(debug_assertions) {
             let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
             m.watch();
@@ -503,7 +503,7 @@ pub fn document(ui: &Ui, n: u32) -> El {
 /// read the folder and reload it as you edit, so text changes show without a rebuild.
 pub fn messages() -> Messages {
     thread_local!(static MESSAGES: Messages = {
-        let m = Messages::new("en-US").embedded("en-US", include_str!("../../i18n/cargo-remedy/remedy-templates/en-US.ftl"));
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
         if cfg!(debug_assertions) {
             let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
             m.watch();

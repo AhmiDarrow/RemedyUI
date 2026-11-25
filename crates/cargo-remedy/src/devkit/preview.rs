@@ -220,7 +220,7 @@ fn workspace_manifest(app: &Path) -> Result<(PathBuf, toml::Table)> {
 
 /// `function` is a plain Rust path (it is written into the harness's source).
 fn check_function(function: &str) -> Result<String> {
-    let f = function.trim().trim_start_matches("crate::devkit::");
+    let f = function.trim().trim_start_matches("crate::");
     let ok = !f.is_empty()
         && f.split("::").all(|seg| {
             seg.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
@@ -635,10 +635,10 @@ mod tests {
 use remedy_ui::{El, Ui};
 
 #[preview(theme = "forest", locales = ["en-US", "ar-EG"])]
-pub fn home_preview(ui: &Ui) -> El { crate::devkit::home(ui) }
+pub fn home_preview(ui: &Ui) -> El { crate::home(ui) }
 
 #[preview]
-fn private_preview(ui: &Ui) -> El { crate::devkit::home(ui) }
+fn private_preview(ui: &Ui) -> El { crate::home(ui) }
 
 #[previews]
 pub mod previews {
@@ -646,12 +646,12 @@ pub mod previews {
 
     /// Dark.
     #[preview(size = (400, 600))]
-    pub fn dark(ui: &Ui) -> El { crate::devkit::home(ui) }
+    pub fn dark(ui: &Ui) -> El { crate::home(ui) }
 }
 
 mod hidden {
     #[preview]
-    pub fn inner(ui: &Ui) -> El { crate::devkit::home(ui) }
+    pub fn inner(ui: &Ui) -> El { crate::home(ui) }
 }
 "#;
         let found = declared_in("src/screens.rs", src);
@@ -680,10 +680,7 @@ mod hidden {
     #[test]
     fn function_paths_are_plain_paths() {
         assert_eq!(check_function("home").ok().as_deref(), Some("home"));
-        assert_eq!(
-            check_function("crate::devkit::screens::settings").ok().as_deref(),
-            Some("screens::settings")
-        );
+        assert_eq!(check_function("crate::screens::settings").ok().as_deref(), Some("screens::settings"));
         assert!(check_function("home(ui); std::process::exit(0)").is_err());
         assert!(check_function("").is_err());
         assert!(check_function("a::").is_err());

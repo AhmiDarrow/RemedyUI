@@ -294,7 +294,7 @@ pub fn compile(input: &MarkupInput, ws: &Workspace) -> Result<CompileOutput> {
     for e in &input.elements {
         let Some(path) = e.path.clone().filter(|p| !p.trim().is_empty()) else {
             return Err(ToolError::new(format!(
-                "element `{}` needs `path` (its builder, such as crate::devkit::ui::{}) to compile",
+                "element `{}` needs `path` (its builder, such as crate::ui::{}) to compile",
                 e.name, e.name
             )));
         };
@@ -367,7 +367,7 @@ mod tests {
             name: "fretboard".into(),
             params: vec![ParamSpec { name: "strings".into(), kind: "count".into(), required: true }],
             children: false,
-            path: Some("crate::devkit::ui::fretboard".into()),
+            path: Some("crate::ui::fretboard".into()),
         };
         let input = MarkupInput {
             source: Some("column { fretboard(strings: 6) }".into()),
@@ -377,10 +377,7 @@ mod tests {
         assert!(check(&input, &Workspace::anywhere()).is_ok_and(|o| o.ok));
         let out = compile(&input, &Workspace::anywhere());
         let Ok(out) = out else { unreachable!("compiles") };
-        assert!(
-            out.rust
-                .is_some_and(|r| r.contains("crate::devkit::ui::fretboard") && r.contains("pub fn build"))
-        );
+        assert!(out.rust.is_some_and(|r| r.contains("crate::ui::fretboard") && r.contains("pub fn build")));
         let no_path = MarkupInput { elements: vec![ElementSpec { path: None, ..fret }], ..input };
         assert!(compile(&no_path, &Workspace::anywhere()).is_err());
         let bad_kind = MarkupInput {

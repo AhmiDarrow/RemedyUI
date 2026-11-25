@@ -649,30 +649,41 @@ mod tests {
 
     #[test]
     fn upward_dependencies_are_rejected() {
-        let p = problems(&[pkg("remedy-ui-core", &["remedy-ui-tree"])]);
+        let p = problems(&[pkg("remedy-ui-core", &["remedy-ui-engine"])]);
         assert_eq!(p.len(), 1);
         assert!(p.iter().all(|m| m.contains("must not depend")));
-    }
-
-    #[test]
-    fn sideways_needs_an_entry() {
-        assert!(problems(&[pkg("remedy-ui-widgets-nav", &["remedy-ui-widgets-core"])]).is_empty());
-        assert_eq!(problems(&[pkg("remedy-ui-widgets-data", &["remedy-ui-widgets-nav"])]).len(), 1);
+        // Crates of one layer do not build on each other.
+        assert_eq!(problems(&[pkg("remedy-ui-macros", &["remedy-ui-text"])]).len(), 1);
     }
 
     #[test]
     fn downward_and_unknown() {
-        assert!(problems(&[pkg("remedy-ui-tree", &["remedy-ui-reactive", "remedy-ui-core"])]).is_empty());
+        assert!(problems(&[pkg("remedy-ui-widgets", &["remedy-ui-engine", "remedy-ui-core"])]).is_empty());
         let p = problems(&[pkg("remedy-ui-unlisted", &[])]);
         assert!(p.iter().any(|m| m.contains("has no layer")));
     }
 
     #[test]
     fn the_tools_are_checked_too() {
-        assert!(problems(&[pkg("remedy-mcp", &["remedy-tools", "remedy-ui-core"])]).is_empty());
-        assert!(problems(&[pkg("cargo-remedy", &["remedy-tools"])]).is_empty());
-        // Nothing builds on the tools, and the tools do not build on each other unlisted.
-        assert_eq!(problems(&[pkg("remedy-ui", &["remedy-tools"])]).len(), 1);
-        assert_eq!(problems(&[pkg("remedy-tools", &["remedy-mcp"])]).len(), 1);
+        assert!(problems(&[pkg("cargo-remedy", &["remedy-ui", "remedy-ui-build"])]).is_empty());
+        // Nothing builds on the tools.
+        assert_eq!(problems(&[pkg("remedy-ui", &["cargo-remedy"])]).len(), 1);
+    }
+
+    #[test]
+    fn the_module_tables_agree_with_each_other() {
+        for (krate, module, _) in MODULES {
+            assert!(layer(krate).is_some(), "{krate} (of {module}) has a layer");
+        }
+        let layer_of = |krate: &str, module: &str| {
+            MODULES.iter().find(|(c, m, _)| *c == krate && *m == module).map(|(.., l)| *l)
+        };
+        for (krate, module, used) in SIDEWAYS {
+            let (a, b) = (layer_of(krate, module), layer_of(krate, used));
+            assert!(a.is_some() && a == b, "{krate}: {module} and {used} are modules of one layer");
+        }
+        // The widget families build on the core set; nothing is listed the other way round.
+        assert!(SIDEWAYS.contains(&("remedy-ui-widgets", "nav", "base")));
+        assert!(!SIDEWAYS.contains(&("remedy-ui-widgets", "base", "nav")));
     }
 }

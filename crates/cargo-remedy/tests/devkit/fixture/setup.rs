@@ -22,7 +22,7 @@ fn fixture_workspace(checkout: &std::path::Path) -> std::path::PathBuf {
     let manifest = format!(
         "[package]\nname = \"fixture-app\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nremedy-ui = {{ path = \"{facade}\", default-features = false, features = [\"widgets\"] }}\n\n[workspace]\n"
     );
-    let source = checkout.join("crates").join("remedy-tools").join("tests").join("fixture");
+    let source = checkout.join("crates").join("cargo-remedy").join("tests").join("devkit").join("fixture");
     let copy = |from: std::path::PathBuf, to: std::path::PathBuf| {
         let text = std::fs::read_to_string(&from).unwrap_or_else(|e| fail("fixture source", e));
         if std::fs::read_to_string(&to).ok() != Some(text.clone()) {
