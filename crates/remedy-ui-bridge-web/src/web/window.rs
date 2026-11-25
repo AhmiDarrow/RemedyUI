@@ -53,6 +53,8 @@ pub(crate) struct Win {
     /// The content: canvases, the accessibility mirror and the hidden text field. It takes
     /// keyboard focus for the window.
     pub(crate) surface: HtmlElement,
+    cursor_hidden: std::cell::Cell<bool>,
+    cursor: std::cell::Cell<remedy_ui_host::Cursor>,
     title_el: Option<HtmlElement>,
     cpu: HtmlCanvasElement,
     gpu: HtmlCanvasElement,
@@ -256,6 +258,8 @@ impl Win {
                 kind,
                 frame,
                 surface,
+                cursor_hidden: std::cell::Cell::new(false),
+                cursor: std::cell::Cell::new(remedy_ui_host::Cursor::Default),
                 title_el,
                 cpu,
                 gpu,
@@ -525,7 +529,24 @@ impl Win {
 
     /// Hides the pointer over the window's content (CSS `cursor: none`), or shows it again.
     pub(crate) fn set_cursor_hidden(&self, hidden: bool) {
-        dom::style(&self.surface, &[("cursor", if hidden { "none" } else { "" })]);
+        self.cursor_hidden.set(hidden);
+        self.show_cursor();
+    }
+
+    /// Gives the pointer `cursor`'s shape over the window's content (CSS `cursor`).
+    pub(crate) fn set_cursor(&self, cursor: remedy_ui_host::Cursor) {
+        self.cursor.set(cursor);
+        self.show_cursor();
+    }
+
+    /// Hidden wins over the shape; the default shape is the page's own.
+    fn show_cursor(&self) {
+        let css = match (self.cursor_hidden.get(), self.cursor.get()) {
+            (true, _) => "none",
+            (false, remedy_ui_host::Cursor::Default) => "",
+            (false, shape) => shape.css_name(),
+        };
+        dom::style(&self.surface, &[("cursor", css)]);
     }
 
     /// Shows `icon` for the window: as the page's icon when the window is the page (its

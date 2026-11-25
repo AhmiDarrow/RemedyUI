@@ -717,6 +717,8 @@ pub(crate) struct Inner {
     pub(crate) hovered: Vec<ElementId>,
     /// Elements that hide the mouse pointer while it is over them ([`El::cursor_hidden`]).
     pub(crate) cursor_hiding: std::collections::HashSet<ElementId>,
+    /// The pointer's shape over the elements that set one ([`El::cursor`]).
+    pub(crate) cursors: HashMap<ElementId, remedy_ui_input::Cursor>,
     pub(crate) pressed: Option<ElementId>,
     pub(crate) focus_visible: bool,
     /// The keyboard came up: the next frame scrolls the focused element back into view.
@@ -1005,6 +1007,7 @@ impl Ui {
             scroll_offsets: HashMap::new(),
             hovered: Vec::new(),
             cursor_hiding: std::collections::HashSet::new(),
+            cursors: HashMap::new(),
             pressed: None,
             focus_visible: false,
             reveal_focus: false,
@@ -1294,6 +1297,22 @@ impl Ui {
     pub fn cursor_hidden(&self) -> bool {
         let i = self.0.borrow();
         i.hovered.iter().any(|h| i.cursor_hiding.contains(h))
+    }
+
+    /// The shape the mouse pointer should have: that of the innermost element under it that
+    /// sets one ([`El::cursor`]); text that can be selected has the I-beam unless something
+    /// inside it says otherwise. The runner passes it to the platform after each event.
+    pub fn cursor(&self) -> remedy_ui_input::Cursor {
+        let i = self.0.borrow();
+        // The chain runs from the element under the pointer out to the root.
+        i.hovered
+            .iter()
+            .find_map(|h| {
+                i.cursors.get(h).copied().or_else(|| {
+                    i.els.get(h).is_some_and(|d| d.selectable).then_some(remedy_ui_input::Cursor::Text)
+                })
+            })
+            .unwrap_or_default()
     }
 
     /// Presses in a row on the same spot of the same element, counting the one being
@@ -2195,6 +2214,7 @@ impl El {
             let gone: std::collections::HashSet<ElementId> = ids.iter().copied().collect();
             i.hovered.retain(|h| !gone.contains(h));
             i.cursor_hiding.retain(|h| !gone.contains(h));
+            i.cursors.retain(|h, _| !gone.contains(h));
             i.structure_changed = true;
         }
         // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups
@@ -3372,6 +3392,20 @@ impl El {
             let mut i = self.ui.0.borrow_mut();
             if hidden { i.cursor_hiding.insert(self.id) } else { i.cursor_hiding.remove(&self.id) }
         };
+        // The runner looks again after the event or timer that changed it.
+        if changed {
+            self.ui.request(Request::Frame);
+        }
+        self
+    }
+
+    /// Gives the mouse pointer this shape while it is over the element or its children
+    /// (until a child sets its own): a hand over a link, a resize arrow over a divider,
+    /// `not-allowed` over what cannot be dropped on. [`Cursor::Default`](remedy_ui_input::Cursor::Default)
+    /// is the arrow even inside a parent with another shape. The runner tells the platform
+    /// ([`Ui::cursor`]).
+    pub fn cursor(self, cursor: remedy_ui_input::Cursor) -> Self {
+        let changed = self.ui.0.borrow_mut().cursors.insert(self.id, cursor) != Some(cursor);
         // The runner looks again after the event or timer that changed it.
         if changed {
             self.ui.request(Request::Frame);
