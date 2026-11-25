@@ -93,6 +93,7 @@ mod mkv;
 mod mp4;
 #[allow(unsafe_code)]
 mod os;
+mod pcm;
 mod player;
 #[cfg(feature = "media-session")]
 mod session;
@@ -114,6 +115,9 @@ pub use host::{
     YuvMatrix, merge_ranges, open_source,
 };
 pub use limits::{MediaLimits, media_limits, set_media_limits};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub use pcm::decode_pcm_blocking;
+pub use pcm::{decode_pcm, resample, to_mono};
 pub use player::{
     CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, PipWindowOpener, Player, PlayerOptions,
     Remote, RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
