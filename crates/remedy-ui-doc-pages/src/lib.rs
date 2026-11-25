@@ -47,6 +47,7 @@
 //! ```
 
 mod annot;
+mod input;
 mod layout;
 mod raster;
 mod source;
@@ -54,6 +55,7 @@ mod text;
 mod view;
 
 pub use annot::{Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
+pub use input::{PageCommand, PageHit, PageInput, PageMode, Swipe, ZoomStep};
 pub use layout::{Fit, PageLayout, Rotation, Spread};
 pub use raster::PageStats;
 pub use source::{Cancel, PageSource, PageText, RenderError, RenderRequest, TextRun};

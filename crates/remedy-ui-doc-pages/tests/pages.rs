@@ -459,3 +459,69 @@ fn the_vertical_scroll_bar_sits_on_the_end_side() {
     assert_eq!(thumb(&rtl, 5), right_ltr, "right to left, the same thumb at the left edge");
     assert_eq!(thumb(&rtl, 795), left_ltr);
 }
+
+#[test]
+fn paged_mode_shows_one_page_and_turns_at_its_edges() {
+    let mut w = Win::new(doc(5), WINDOW);
+    w.view.set_fit(Fit::Page);
+    w.view.set_page_mode(PageMode::Paged);
+    w.frame();
+    let at = Point::new(400.0, 300.0);
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(0));
+    // The page fits, so there is nothing to scroll: a notch of the wheel turns it.
+    assert!(w.wheel(at, 48.0, Modifiers::NONE));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(1));
+    assert!(w.key(Key::PageDown, Modifiers::NONE));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(2));
+    assert!(w.key(Key::ArrowUp, Modifiers::NONE));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(1));
+    assert!(w.view.next_page() && w.view.next_page() && w.view.next_page());
+    assert!(!w.view.next_page(), "the last page");
+    assert!(!w.key(Key::PageDown, Modifiers::NONE), "nowhere to go: the key is not the view's");
+    // Zoomed in, the page scrolls inside itself before it turns back.
+    w.view.set_zoom(w.view.zoom().get_untracked().unwrap_or(1.0) * 3.0, None);
+    let y = w.view.scroll_offset().y;
+    assert!(w.key(Key::ArrowUp, Modifiers::NONE));
+    assert!(w.view.scroll_offset().y < y);
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(4));
+    w.view.set_page_mode(PageMode::Continuous);
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(4));
+}
+
+#[test]
+fn the_app_sets_wheel_zoom_and_shortcuts_and_hears_taps() {
+    let mut w = Win::new(doc(3), WINDOW);
+    w.view.set_zoom(1.0, None);
+    w.view.set_input(PageInput {
+        wheel_zoom: Some(ZoomStep::Add(0.01)),
+        wheel_zoom_shift: Some(ZoomStep::Add(0.15)),
+        reset_zoom: 1.25,
+        ..PageInput::default()
+    });
+    let at = Point::new(400.0, 300.0);
+    assert!(w.wheel(at, -48.0, ctrl()));
+    assert!((w.view.zoom().get_untracked().unwrap_or(0.0) - 1.01).abs() < 1e-4);
+    assert!(w.wheel(at, -48.0, ctrl().with_shift()));
+    assert!((w.view.zoom().get_untracked().unwrap_or(0.0) - 1.16).abs() < 1e-4);
+    assert!(w.key(Key::Character("0".into()), ctrl()));
+    assert_eq!(w.view.zoom().get_untracked().ok(), Some(1.25));
+    // A view told to leave the zoom wheel alone does.
+    w.view.set_input(PageInput { wheel_zoom: None, ..PageInput::default() });
+    assert!(!w.wheel(at, -48.0, ctrl()));
+    // Shortcuts move, and a command runs from code.
+    w.view.rebind(PageCommand::NextPage, vec![remedy_ui_input::Chord::new(Modifiers::NONE, Key::Character("n".into()))]);
+    w.view.rebind(PageCommand::LastPage, Vec::new());
+    assert!(w.key(Key::Character("n".into()), Modifiers::NONE));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(1));
+    assert!(!w.key(Key::End, Modifiers::NONE), "unbound");
+    assert!(w.view.run(PageCommand::FirstPage));
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(0));
+    // A click that does not drag is a tap, with the page under it.
+    let taps = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let t = taps.clone();
+    w.view.on_tap(move |hit| t.borrow_mut().push(hit.page.map(|(page, _)| page)));
+    w.frame();
+    w.pointer(0, PointerKind::Mouse, PointerPhase::Down, at, Buttons::PRIMARY);
+    w.pointer(0, PointerKind::Mouse, PointerPhase::Up, at, Buttons::default());
+    assert_eq!(*taps.borrow(), vec![Some(0)]);
+}
