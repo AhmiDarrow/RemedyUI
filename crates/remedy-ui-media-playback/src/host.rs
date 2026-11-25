@@ -415,13 +415,13 @@ pub trait MediaHost: Send + Sync {
     fn name(&self) -> &str;
     /// Opens `source` for decoding.
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError>;
-    /// Opens the default sound output for samples in `format`.
     /// Whether [`MediaHost::open`] takes [`MediaSource::Bytes`] itself. A host that opens
     /// files and URLs only (the default) is handed a private temporary file instead
     /// ([`open_source`]).
     fn opens_bytes(&self) -> bool {
         false
     }
+    /// Opens the default sound output for samples in `format`.
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError>;
     /// Opens the default sound output with the buffering `latency` asks for. A host that has
     /// only one kind gives that.
