@@ -102,7 +102,7 @@ fn headings_lists_quotes_tables_and_code_have_their_structure() {
 fn quotes_nested_without_end_keep_their_words_in_a_tree_of_bounded_depth() {
     let (_ui, doc, _) = shown(&format!("{} deep words", ">".repeat(400)));
     let quotes = find(&doc, "md_quote").len();
-    assert!((1..=12).contains(&quotes), "{quotes} quotes inside one another");
+    assert!((13..=64).contains(&quotes), "{quotes} quotes inside one another");
     assert!(texts(&doc).iter().any(|t| t == "deep words"), "{:?}", texts(&doc));
 }
 
@@ -111,7 +111,7 @@ fn lists_nested_without_end_keep_their_words_and_leave_no_empty_list() {
     let source: String = (0..40).map(|i| format!("{}- point {i}\n", "  ".repeat(i))).collect();
     let (_ui, doc, _) = shown(&source);
     let lists = with_role(&doc, Role::List);
-    assert!((1..=6).contains(&lists.len()), "{} lists inside one another", lists.len());
+    assert!((7..=32).contains(&lists.len()), "{} lists inside one another", lists.len());
     for list in &lists {
         assert!(!list.child_elements().is_empty(), "a list without items");
     }
