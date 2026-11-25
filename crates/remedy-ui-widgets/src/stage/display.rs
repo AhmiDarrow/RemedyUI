@@ -173,7 +173,13 @@ impl State {
         }
         while flaps.len() < chars.len() {
             let i = flaps.len();
-            let letter = ui.el("display_flap_text").nowrap().selectable(true).data_text();
+            // The line is read as one piece of text: its letters are not read again after it.
+            let letter = ui
+                .el("display_flap_text")
+                .nowrap()
+                .selectable(true)
+                .data_text()
+                .semantics(Semantics::new(Role::Label).hidden(true));
             let s = self.clone();
             let cell = ui
                 .el("display_flap")
