@@ -1125,6 +1125,7 @@ impl WebHost {
     fn open_element(source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(match source {
             MediaSource::File(path) => mse::ElementDecoder::bytes(&read_file(path)?)?,
+            MediaSource::Bytes(b) => mse::ElementDecoder::bytes(&b.data)?,
             MediaSource::Url(url) if crate::hls::is_hls(source) => mse::ElementDecoder::hls(url)?,
             MediaSource::Url(url) => mse::ElementDecoder::plain(url)?,
         }))
@@ -1157,8 +1158,12 @@ impl MediaHost for WebHost {
         let out: Shared = Rc::default();
         let slot: Rc<RefCell<Option<Open>>> = Rc::default();
         match source {
-            MediaSource::File(path) => {
-                let bytes = read_file(path)?;
+            MediaSource::File(_) | MediaSource::Bytes(_) => {
+                let bytes = match source {
+                    MediaSource::Bytes(b) => b.data.to_vec(),
+                    MediaSource::File(path) => read_file(path)?,
+                    MediaSource::Url(_) => Vec::new(),
+                };
                 let m = mp4::parse(&bytes).map_err(MediaError::Format)?;
                 let data: SharedBytes =
                     Rc::new(RefCell::new(Bytes { data: bytes, complete: true, dropped: false }));
@@ -1177,6 +1182,10 @@ impl MediaHost for WebHost {
                 Ok(Box::new(WebDecoder { out, open: slot, bytes, info: MediaInfo::default() }))
             }
         }
+    }
+
+    fn opens_bytes(&self) -> bool {
+        true
     }
 
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {

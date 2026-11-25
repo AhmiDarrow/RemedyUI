@@ -349,6 +349,9 @@ impl MfDecoder {
                 std::path::absolute(p).unwrap_or_else(|_| p.clone()).to_string_lossy().into_owned()
             }
             MediaSource::Url(u) => u.clone(),
+            MediaSource::Bytes(_) => {
+                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+            }
         };
         // Pictures stay on the GPU when a renderer takes them there.
         let mut gpu = match remedy_ui_paint::gpu_video_adapter() {

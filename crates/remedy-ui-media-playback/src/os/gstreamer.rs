@@ -587,6 +587,9 @@ impl GstDecoder {
                 s
             }
             MediaSource::Url(u) => u.clone(),
+            MediaSource::Bytes(_) => {
+                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+            }
         };
         let uri = CString::new(uri).map_err(|e| MediaError::NotFound(e.to_string()))?;
         let playbin = g.make("playbin")?;

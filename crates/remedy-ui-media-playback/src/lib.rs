@@ -108,10 +108,10 @@ pub use deps::{DependencyState, MissingDependency};
 pub use engine::{PlaybackState, PlaybackStats};
 pub use feed::AudioFeed;
 pub use host::{
-    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaError, MediaHost, MediaInfo,
+    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaBytes, MediaError, MediaHost, MediaInfo,
     MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource, ScreenStream,
     TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder,
-    YuvMatrix, merge_ranges,
+    YuvMatrix, merge_ranges, open_source,
 };
 pub use limits::{MediaLimits, media_limits, set_media_limits};
 pub use player::{

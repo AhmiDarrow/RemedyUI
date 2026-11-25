@@ -594,6 +594,9 @@ impl NdkDecoder {
                 (Some(f), p.to_string_lossy().into_owned())
             }
             MediaSource::Url(u) => (None, u.clone()),
+            MediaSource::Bytes(_) => {
+                return Err(MediaError::Unsupported("bytes in memory are opened through `open_source`".into()));
+            }
         };
         let location = CString::new(location).map_err(|e| MediaError::NotFound(e.to_string()))?;
         // SAFETY: NDK calls on objects made here, released in `Drop` (or below on failure).
