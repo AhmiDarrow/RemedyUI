@@ -19,10 +19,10 @@ bridge-linux = ["bridge-winit", "dep:arboard", "dep:futures-core", "dep:libc", "
 bridge-macos = ["bridge-winit", "dep:block2", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-user-notifications", "dep:remedy-ui-core", "dep:rfd"]
 bridge-windows = ["bridge-winit", "dep:png", "dep:remedy-ui-core", "dep:rfd", "dep:windows", "dep:windows-collections", "dep:windows-core", "dep:windows-sys"]
 bridge-winit = ["dep:accesskit_winit", "dep:remedy-ui-core", "dep:softbuffer", "dep:winit"]
-embed-gpu = ["dep:remedy-ui-core", "dep:remedy-ui-engine"]
-embed-webview = ["dep:libc", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:webview2-com", "dep:windows", "dep:windows-core"]
+embed-gpu = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/render-gpu", "remedy-ui-engine/view"]
+embed-webview = ["dep:libc", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:webview2-com", "dep:windows", "dep:windows-core", "remedy-ui-engine/view"]
 services-desktop = ["dep:futures-core", "dep:jni", "dep:js-sys", "dep:ndk-context", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:wasm-bindgen", "dep:web-sys", "dep:windows", "dep:windows-core", "dep:windows-sys", "dep:zbus"]
-services-i18n = ["dep:fluent-bundle", "dep:fluent-langneg", "dep:fluent-syntax", "dep:icu_calendar", "dep:icu_datetime", "dep:icu_decimal", "dep:icu_locale_core", "dep:intl-memoizer", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:unic-langid"]
+services-i18n = ["dep:fluent-bundle", "dep:fluent-langneg", "dep:fluent-syntax", "dep:icu_calendar", "dep:icu_datetime", "dep:icu_decimal", "dep:icu_locale_core", "dep:intl-memoizer", "dep:remedy-ui-core", "dep:remedy-ui-engine", "dep:serde_json", "dep:unic-langid", "remedy-ui-engine/view"]
 services-i18n-language-names = ["dep:icu_locale", "dep:js-sys", "dep:wasm-bindgen", "dep:writeable"]
 services-net = ["dep:js-sys", "dep:remedy-ui-core", "dep:rustls", "dep:serde", "dep:serde_json", "dep:ureq", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:web-sys"]
 services-webstorage = ["dep:js-sys", "dep:snap", "dep:wasm-bindgen", "dep:web-sys"]
@@ -38,7 +38,7 @@ icu_decimal = { version = "=2.3.0", default-features = false, features = ["compi
 icu_locale_core = { version = "=2.4.0", default-features = false, optional = true }
 intl-memoizer = { version = "=0.5.3", optional = true }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "render-gpu", "view"], optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
 serde = { version = "=1.0.229", optional = true }
 serde_json = { version = "=1.0.154", optional = true }
 snap = { version = "=1.1.2", optional = true }
