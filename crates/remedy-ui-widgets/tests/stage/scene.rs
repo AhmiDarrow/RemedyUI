@@ -4,10 +4,10 @@
 mod common;
 
 use common::*;
-use remedy_ui_core::{Color, Rect, Size};
-use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::ColorRole;
+use remedy_ui_core::{Color, Rect, Size};
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::stage::{
     Anchor, Fit, Ink, Layer, PixelArt, PixelScale, Place, SceneOptions, SpriteOptions, scene, sprite,

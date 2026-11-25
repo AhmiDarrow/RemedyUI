@@ -5,10 +5,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::base::{Icon, MenuItem};
 use remedy_ui_core::input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_engine::view::{El, Ui};
-use crate::base::{Icon, MenuItem};
 
 /// One command as the widgets show it.
 #[derive(Clone, Debug, PartialEq)]

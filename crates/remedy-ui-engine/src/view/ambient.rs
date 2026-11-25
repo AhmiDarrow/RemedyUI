@@ -22,8 +22,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Rect};
 use remedy_ui_core::tree::{Dirty, ElementId};
+use remedy_ui_core::{Point, Rect};
 
 use crate::view::Request;
 use crate::view::element::{El, Inner, PaintCx, Ui};

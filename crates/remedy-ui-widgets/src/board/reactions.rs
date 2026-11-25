@@ -1,10 +1,10 @@
 //! Reactions: emoji with counts that people toggle, a component any widget (or app screen)
 //! can use. Shown as toggle buttons that say their count and whether they are the viewer's.
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Action as A11yAction, Role, Semantics};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_engine::view::{El, Ui};
-use crate::base as w;
 
 pub use crate::board::labels::ReactionLabels;
 use crate::board::labels::fill;

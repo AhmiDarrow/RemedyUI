@@ -6,16 +6,18 @@
 
 use std::time::{Duration, Instant};
 
+use remedy_ui_core::host::{App, Host, HostEvent, WindowOptions};
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, CornerRadii, Rect, Size};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
+use remedy_ui_engine::paint::{Brush, DisplayList};
+use remedy_ui_engine::render_gpu::{
+    GpuCompositor, GpuContext, GpuRenderer, GpuSurface, LadderOptions, Presented,
+};
 use remedy_ui_platform::bridge_windows::WindowsHooks;
 use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
 use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Rect, Size};
-use remedy_ui_core::host::{App, Host, HostEvent, WindowOptions};
-use remedy_ui_core::input::ScrollPhysics;
-use remedy_ui_engine::paint::{Brush, DisplayList};
-use remedy_ui_engine::render_gpu::{GpuCompositor, GpuContext, GpuRenderer, GpuSurface, LadderOptions, Presented};
 
 const FRAMES: usize = 600;
 const WARMUP: usize = 60;

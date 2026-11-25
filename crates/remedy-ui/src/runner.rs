@@ -7,8 +7,6 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, LayerId};
-use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
 use remedy_ui_core::host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
     TrayIcon, Unsupported, WindowIcon, WindowId, WindowOptions,
@@ -16,11 +14,13 @@ use remedy_ui_core::host::{
 use remedy_ui_core::input::{
     Buttons, GestureSettings, PointerEvent, PointerKind, PointerPhase, ScrollPhysics, VelocityTracker,
 };
-use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_core::style::{StyleSheet, Theme};
-use remedy_ui_text::{FontCollection, FontFile};
 use remedy_ui_core::tree::ElementId;
+use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
+use remedy_ui_engine::compositor::{Compositor, LayerId};
+use remedy_ui_engine::render_cpu::CpuCompositor;
 use remedy_ui_engine::view::{Request, Ui};
+use remedy_ui_text::{FontCollection, FontFile};
 
 use crate::geometry::{GeometryStore, data_dir};
 
@@ -210,7 +210,9 @@ impl AppConfig {
     pub fn new(name: impl Into<String>) -> Self {
         #[cfg(feature = "widgets")]
         let (theme, sheet): (Theme, SheetBuilder) = (
-            remedy_ui_widgets::themes::PALETTES.first().map_or_else(Theme::dark_forest, remedy_ui_widgets::themes::theme),
+            remedy_ui_widgets::themes::PALETTES
+                .first()
+                .map_or_else(Theme::dark_forest, remedy_ui_widgets::themes::theme),
             Rc::new(remedy_ui_widgets::themes::sheet),
         );
         #[cfg(not(feature = "widgets"))]
@@ -1538,8 +1540,9 @@ impl App {
         if self.0.borrow().power.is_some() {
             return Ok(());
         }
-        let ui = remedy_ui_core::reactive::waker()
-            .map_err(|e| remedy_ui_platform::services_desktop::DesktopError::Platform { reason: e.to_string() })?;
+        let ui = remedy_ui_core::reactive::waker().map_err(|e| {
+            remedy_ui_platform::services_desktop::DesktopError::Platform { reason: e.to_string() }
+        })?;
         let watch = remedy_ui_platform::services_desktop::power::watch(move |e| {
             let _ = ui.post(move || {
                 let f = POWER.with(|p| p.borrow().clone());
@@ -2401,7 +2404,8 @@ impl Win {
                     None if p.layer.is_none() => {
                         // No scroll container under the finger. An element that scrolls
                         // itself takes the drag as it takes the wheel.
-                        let wheel = remedy_ui_core::input::WheelEvent::new(e.position, moved).with_precise(true);
+                        let wheel =
+                            remedy_ui_core::input::WheelEvent::new(e.position, moved).with_precise(true);
                         if self.ui.wheel(&wheel) {
                             p.by_view = true;
                         } else if !p.by_view && dx.abs() > dy.abs() {
@@ -2532,11 +2536,15 @@ impl Runner {
         // The engine's own messages write numbers the locale's way (Arabic-Indic digits in
         // Arabic, a comma for decimals in German), from the same data the app's do.
         #[cfg(feature = "i18n")]
-        remedy_ui_engine::view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
-            let max = places.map_or(remedy_ui_platform::services_i18n::MAX_SCALE, |p| p.min(28) as u8);
-            let d = remedy_ui_platform::services_i18n::Decimal::from_f64(value, max)?;
-            Some(remedy_ui_platform::services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
-        })));
+        remedy_ui_engine::view::strings::set_number_format(Some(std::rc::Rc::new(
+            |locale, value, places| {
+                let max = places.map_or(remedy_ui_platform::services_i18n::MAX_SCALE, |p| p.min(28) as u8);
+                let d = remedy_ui_platform::services_i18n::Decimal::from_f64(value, max)?;
+                Some(
+                    remedy_ui_platform::services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()),
+                )
+            },
+        )));
         let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
         // Images fetched from addresses are kept across runs in the app's cache folder (its
         // own data folder's `cache` when the app names one).
@@ -3403,7 +3411,11 @@ impl Runner {
             a.last = Some(at);
             let (delta, origin, window) = (a.delta(dt), a.origin, w.host);
             if delta != Vec2::ZERO {
-                self.wheel(host, window, &remedy_ui_core::input::WheelEvent::new(origin, delta).with_precise(true));
+                self.wheel(
+                    host,
+                    window,
+                    &remedy_ui_core::input::WheelEvent::new(origin, delta).with_precise(true),
+                );
             }
             host.request_frame(window);
         }
@@ -3737,7 +3749,11 @@ fn gpu_device<'a>(
                     Ok(handles) => {
                         *waiting = true;
                         let wake = host.waker();
-                        remedy_ui_engine::render_gpu::GpuContext::prepare_shared(&ladder, handles, move |_| wake());
+                        remedy_ui_engine::render_gpu::GpuContext::prepare_shared(
+                            &ladder,
+                            handles,
+                            move |_| wake(),
+                        );
                     }
                     Err(_) => *slot = Some(None),
                 },
@@ -3759,7 +3775,10 @@ fn new_gpu() -> Option<remedy_ui_engine::render_gpu::GpuCompositor> {
     let ladder = remedy_ui_engine::render_gpu::LadderOptions::default();
     // The process's shared device: GPU content the app embeds renders on the same one.
     let ctx = remedy_ui_engine::render_gpu::GpuContext::shared(&ladder).ok()?;
-    Some(remedy_ui_engine::render_gpu::GpuCompositor::new(remedy_ui_engine::render_gpu::GpuRenderer::new(ctx, None), ladder))
+    Some(remedy_ui_engine::render_gpu::GpuCompositor::new(
+        remedy_ui_engine::render_gpu::GpuRenderer::new(ctx, None),
+        ladder,
+    ))
 }
 
 impl remedy_ui_core::host::App for Runner {

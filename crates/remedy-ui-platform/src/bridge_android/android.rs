@@ -2,12 +2,12 @@
 
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use jni::objects::GlobalRef;
 use crate::bridge_winit::winit::event_loop::EventLoop;
 use crate::bridge_winit::winit::platform::android::EventLoopBuilderExtAndroid;
 use crate::bridge_winit::winit::platform::android::activity::AndroidApp;
 use crate::bridge_winit::winit::window::{Window, WindowId as WinitId};
 use crate::bridge_winit::{PlatformHooks, RunError, UserEvent, WindowNotice};
+use jni::objects::GlobalRef;
 use remedy_ui_core::host::accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
 use remedy_ui_core::host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, ForegroundTask,
@@ -350,7 +350,8 @@ impl AndroidHooks {
                     self.app_events.push(HostEvent::FileDialog(remedy_ui_core::host::DialogId(id), paths));
                 }
                 Notice::Permission(id, granted) => {
-                    self.app_events.push(HostEvent::Permission(remedy_ui_core::host::PermissionId(id), granted));
+                    self.app_events
+                        .push(HostEvent::Permission(remedy_ui_core::host::PermissionId(id), granted));
                 }
                 Notice::Notification(id, response) => {
                     self.app_events.push(HostEvent::Notification(id, response));
@@ -647,7 +648,11 @@ impl PlatformHooks for AndroidHooks {
         std::mem::take(&mut self.drag_ends)
     }
 
-    fn set_text_input(&mut self, window: &Window, state: Option<&remedy_ui_core::host::TextInputState>) -> bool {
+    fn set_text_input(
+        &mut self,
+        window: &Window,
+        state: Option<&remedy_ui_core::host::TextInputState>,
+    ) -> bool {
         let Ok(j) = &self.java else { return false };
         let r = match state {
             Some(s) => {
@@ -761,9 +766,11 @@ impl PlatformHooks for AndroidHooks {
 pub fn run(app: impl App) -> Result<(), RunError> {
     // Keep the activity in ACTIVITY so `launch_extra`, `install_apk` and the rest can still
     // reach it after the event loop has started (window code, background work).
-    let activity = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone().ok_or_else(|| {
-        RunError::new("no Android activity: start the app with crate::main!")
-    })?;
+    let activity = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| RunError::new("no Android activity: start the app with crate::main!"))?;
     let _ = RUNNING.set(activity.clone());
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())

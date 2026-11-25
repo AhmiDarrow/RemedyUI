@@ -23,7 +23,8 @@
 /// The update strip's own words in every language the engine ships, from `i18n/*.ftl`. Apps
 /// reword them, or add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the
 /// name `services-update`; [`BannerText`] replaces them outright.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("services-update");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("services-update");
 
 use std::path::{Path, PathBuf};
 

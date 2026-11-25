@@ -1,7 +1,7 @@
 //! Icons (vector, drawn as strokes on a 24-unit grid), images, avatars and canvases.
 
-use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Point;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_engine::view::{El, PaintCx, Ui};
 
@@ -874,7 +874,9 @@ fn strokes_for(icon: Icon, rtl: bool) -> Path {
     }
     let points = |el: &remedy_ui_engine::paint::PathEl| -> Vec<Point> {
         match *el {
-            remedy_ui_engine::paint::PathEl::MoveTo(a) | remedy_ui_engine::paint::PathEl::LineTo(a) => vec![a],
+            remedy_ui_engine::paint::PathEl::MoveTo(a) | remedy_ui_engine::paint::PathEl::LineTo(a) => {
+                vec![a]
+            }
             remedy_ui_engine::paint::PathEl::QuadTo(a, b) => vec![a, b],
             remedy_ui_engine::paint::PathEl::CubicTo(a, b, c) => vec![a, b, c],
             remedy_ui_engine::paint::PathEl::Close => Vec::new(),
@@ -994,7 +996,10 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
         .style(remedy_ui_core::style::StylePatch::default().background(color).radius(size / 2.0))
         .child(
             ui.el("avatar_initials").text(remedy_ui_engine::view::RichText::plain(initials)).nowrap().style(
-                remedy_ui_core::style::StylePatch::default().foreground(fg).weight(700.0).text_size(size * 0.4),
+                remedy_ui_core::style::StylePatch::default()
+                    .foreground(fg)
+                    .weight(700.0)
+                    .text_size(size * 0.4),
             ),
         )
         .semantics(Semantics::new(Role::Image).label(name.to_owned()))
@@ -1017,7 +1022,8 @@ mod tests {
             path.elements()
                 .iter()
                 .filter_map(|e| match *e {
-                    remedy_ui_engine::paint::PathEl::MoveTo(a) | remedy_ui_engine::paint::PathEl::LineTo(a) => Some(a.x),
+                    remedy_ui_engine::paint::PathEl::MoveTo(a)
+                    | remedy_ui_engine::paint::PathEl::LineTo(a) => Some(a.x),
                     _ => None,
                 })
                 .collect()
@@ -1127,7 +1133,9 @@ mod tests {
             let path = strokes(icon);
             assert!(path.elements().len() > 1, "{icon:?} draws nothing");
             for el in path.elements() {
-                if let remedy_ui_engine::paint::PathEl::MoveTo(q) | remedy_ui_engine::paint::PathEl::LineTo(q) = *el {
+                if let remedy_ui_engine::paint::PathEl::MoveTo(q)
+                | remedy_ui_engine::paint::PathEl::LineTo(q) = *el
+                {
                     assert!(
                         (0.0..=24.0).contains(&q.x) && (0.0..=24.0).contains(&q.y),
                         "{icon:?} leaves the grid at {q:?}"

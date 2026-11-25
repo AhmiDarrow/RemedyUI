@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, Rect};
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, Rect};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_engine::paint::{Affine, Brush, DisplayList};
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 

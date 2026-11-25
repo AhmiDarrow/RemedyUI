@@ -10,11 +10,11 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Point, Rect};
 use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, PointerPhase};
 use remedy_ui_core::layout::Align;
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
+use remedy_ui_core::{Insets, Point, Rect};
 use remedy_ui_engine::view::{El, IntoProp, Prop, RichText, TextStylePatch, Ui};
 
 use crate::base::icons::{Icon, icon};
@@ -568,8 +568,11 @@ impl Chain {
         let size = ui.theme().type_scale.body;
         // Entries read in the direction of what opened the menu (the menu itself is placed in
         // window coordinates, so it keeps the overlay layer's).
-        let direction =
-            if self.rtl { remedy_ui_core::layout::Direction::Rtl } else { remedy_ui_core::layout::Direction::Ltr };
+        let direction = if self.rtl {
+            remedy_ui_core::layout::Direction::Rtl
+        } else {
+            remedy_ui_core::layout::Direction::Ltr
+        };
         let mut row = ui
             .el("menu_item")
             .row()

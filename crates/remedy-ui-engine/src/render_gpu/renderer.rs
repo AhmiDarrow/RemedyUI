@@ -1,7 +1,7 @@
 //! Drawing display lists into GPU textures, and reading them back.
 
-use remedy_ui_core::Color;
 use crate::paint::{Affine, DisplayList};
+use remedy_ui_core::Color;
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -4,11 +4,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_widgets::automation::*;
 use remedy_ui_core::Size;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request as ViewRequest, Ui};
+use remedy_ui_text::FontCollection;
+use remedy_ui_widgets::automation::*;
 use remedy_ui_widgets::base as w;
 use remedy_ui_widgets::nav::Commands;
 
@@ -97,7 +97,9 @@ fn trusted(ui: &Ui, name: &str) -> Option<El> {
     None
 }
 
-fn settings(t: &mut T) -> (Signal<bool>, remedy_ui_engine::view::TextField, remedy_ui_engine::view::TextField) {
+fn settings(
+    t: &mut T,
+) -> (Signal<bool>, remedy_ui_engine::view::TextField, remedy_ui_engine::view::TextField) {
     let noise = Signal::new(false);
     let name = w::text_input(&t.ui, "Display name");
     name.set_value("Sam");

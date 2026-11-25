@@ -4,15 +4,15 @@
 
 use std::time::Duration;
 
-use remedy_ui_platform::bridge_windows::WindowsHooks;
-use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
-use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
-use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
-use remedy_ui_core::{Rect, Size};
 use remedy_ui_core::host::{
     App, Host, HostEvent, Pixels, SystemSettings, TextInputState, TrayIcon, TrayImage, TrayItem, WindowId,
     WindowOptions,
 };
+use remedy_ui_core::{Rect, Size};
+use remedy_ui_platform::bridge_windows::WindowsHooks;
+use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
+use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+use remedy_ui_platform::bridge_winit::{UserEvent, run_on};
 
 #[derive(Default)]
 struct Probe {

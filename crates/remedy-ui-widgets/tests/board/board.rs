@@ -11,12 +11,12 @@ mod hostile;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::{Point, Size};
 use remedy_ui_engine::script_lua::LuaEngine;
 use remedy_ui_engine::script_wasm::WasmEngine;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::board::*;
 
 fn ui() -> Ui {
@@ -93,8 +93,11 @@ fn audit(ui: &Ui) -> Vec<String> {
     remedy_ui_widgets::devtools::audit(ui)
         .iter()
         .map(|p| {
-            let what =
-                ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default();
+            let what = ui
+                .element(p.element)
+                .info()
+                .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                .unwrap_or_default();
             format!("{} [{what}]", p.message())
         })
         .collect()
@@ -341,7 +344,10 @@ fn a_handler_that_stops_is_reported_and_the_widget_starts_again() {
     assert!(stopped.iter().any(|t| t.contains("too many steps")), "{stopped:?}");
     let failures = ui.failures();
     assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures.iter().all(|f| f.phase == remedy_ui_engine::view::FailurePhase::Handler), "{failures:?}");
+    assert!(
+        failures.iter().all(|f| f.phase == remedy_ui_engine::view::FailurePhase::Handler),
+        "{failures:?}"
+    );
     click(&ui, &named(&ui, "Start again"));
     assert!(has_text(&ui, "ready"), "the widget runs again");
     assert!(texts_like(&ui, "This widget stopped").is_empty());

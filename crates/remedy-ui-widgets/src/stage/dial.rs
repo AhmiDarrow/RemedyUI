@@ -4,13 +4,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Point, Rect, Vec2};
-use remedy_ui_core::input::{Key, KeyEvent, PointerPhase, WheelEvent};
-use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
-use remedy_ui_core::reactive::Signal;
-use remedy_ui_engine::view::{El, PaintCx, TextPaint, Ui};
 use crate::viz::{Clock, Moved, smooth};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::input::{Key, KeyEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Point, Rect, Vec2};
+use remedy_ui_engine::paint::{Brush, Item, Path, Stroke, StrokeCap};
+use remedy_ui_engine::view::{El, PaintCx, TextPaint, Ui};
 
 use crate::stage::common::{Motion, number_text, snap};
 

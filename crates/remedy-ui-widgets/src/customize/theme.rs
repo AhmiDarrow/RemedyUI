@@ -10,7 +10,9 @@ use remedy_ui_core::style::{Density, Theme};
 use remedy_ui_engine::view::Ui;
 use serde_json::{Map, Value, json};
 
-use crate::customize::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_in, tr_now};
+use crate::customize::{
+    Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_in, tr_now,
+};
 
 /// The theme file's name in the config folder.
 pub(crate) const THEME_FILE: &str = "theme.json";
@@ -936,8 +938,7 @@ impl Customizations {
         let Value::Object(map) = doc else {
             return Err(not_object());
         };
-        let theme =
-            crate::themes::from_tokens(&doc_text(&map), &default).map_err(CustomizeError::Token)?;
+        let theme = crate::themes::from_tokens(&doc_text(&map), &default).map_err(CustomizeError::Token)?;
         let mut file = diff_doc(&default, &theme, &map);
         let name = theme.name.clone();
         // Files are checked (and copied in) inside the change, so undo takes the copies too.
@@ -968,8 +969,7 @@ impl Customizations {
     pub fn export_theme_text(&self) -> Result<String, CustomizeError> {
         let (default, doc) = self.theme_parts()?;
         // As the file says it: the theme's fonts by the names its tokens use.
-        let theme =
-            crate::themes::from_tokens(&doc_text(&doc), &default).map_err(CustomizeError::Token)?;
+        let theme = crate::themes::from_tokens(&doc_text(&doc), &default).map_err(CustomizeError::Token)?;
         let mut full = match serde_json::from_str::<Value>(&crate::themes::to_tokens(&theme)) {
             Ok(Value::Object(m)) => m,
             _ => Map::new(),

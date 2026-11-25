@@ -2,13 +2,13 @@
 
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Action, Current, Role, Semantics};
+use crate::base::{self as w, Icon, MenuItem};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Action, Current, Role, Semantics};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::{States, StylePatch};
 use remedy_ui_engine::view::{Align, El, Ui};
-use crate::base::{self as w, Icon, MenuItem};
 
 /// One tab.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -92,7 +92,11 @@ pub fn tabs(
                     .row()
                     .align(Align::Center)
                     .gap(unit)
-                    .child(u.el("tab_label").text(remedy_ui_engine::view::RichText::plain(t.title.clone())).nowrap())
+                    .child(
+                        u.el("tab_label")
+                            .text(remedy_ui_engine::view::RichText::plain(t.title.clone()))
+                            .nowrap(),
+                    )
                     .on_click({
                         let id = id.clone();
                         move || selected.set(Some(id.clone()))
@@ -116,8 +120,9 @@ pub fn tabs(
                 if t.closable {
                     let (c1, c2, c3) = (close.clone(), id.clone(), id.clone());
                     let (u1, title) = (u.clone(), t.title.clone());
-                    let name =
-                        move || crate::nav::STRINGS.format(&u1, "tab-close", &[("title", title.as_str().into())]);
+                    let name = move || {
+                        crate::nav::STRINGS.format(&u1, "tab-close", &[("title", title.as_str().into())])
+                    };
                     let close_btn = w::icon_button(&u, Icon::Close, name, move || c1(&c2))
                         .variant("quiet")
                         .width(w::MIN_TARGET)
@@ -368,8 +373,8 @@ pub fn breadcrumbs(
                             })
                             .collect();
                         // It shows "…"; its name says what it holds.
-                        let more =
-                            w::menu_button(&u, crate::nav::tr_fn(&u, "breadcrumbs-more"), items).variant("quiet");
+                        let more = w::menu_button(&u, crate::nav::tr_fn(&u, "breadcrumbs-more"), items)
+                            .variant("quiet");
                         if let Some(l) = more.child_elements().into_iter().next() {
                             let _ = l.text(remedy_ui_engine::view::RichText::plain("…".to_owned()));
                         }

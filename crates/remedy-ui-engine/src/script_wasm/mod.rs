@@ -53,11 +53,11 @@
 //! a lock held), so after any stop the widget starts over from a fresh instance of its
 //! module.
 
-use remedy_ui_core::time::WorkClock;
 use crate::script::{
     Action, Described, Language, Limits, Manifest, Node, ScriptEngine, ScriptError, ScriptWidget,
     SettingSpec, StepRate,
 };
+use remedy_ui_core::time::WorkClock;
 use serde_json::Value;
 use wasmi::errors::LimiterError;
 use wasmi::{

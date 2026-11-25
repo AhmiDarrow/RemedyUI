@@ -6,12 +6,12 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::base::{self as w, Icon};
 use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::input::Key;
 use remedy_ui_core::style::States;
-use remedy_ui_text::{Block, Mark, RichEditor};
 use remedy_ui_engine::view::{El, FieldKind, TextField, Ui};
-use crate::base::{self as w, Icon};
+use remedy_ui_text::{Block, Mark, RichEditor};
 
 /// Someone (or something) people can mention.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -229,7 +229,8 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 old.remove();
             }
             let current = f.read_rich(|e| e.link_at_caret().map(|(_, u)| u)).flatten();
-            let address = w::text_input(&ui, crate::doc_rich::tr(&ui, "link-address")).placeholder("https://");
+            let address =
+                w::text_input(&ui, crate::doc_rich::tr(&ui, "link-address")).placeholder("https://");
             if let Some(u) = &current {
                 address.set_value(u);
                 address.select_all();
@@ -311,7 +312,9 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
             .gap(unit * 0.5)
             .layout(|l| l.wrap = true)
             .children(buttons)
-            .semantics(move || Semantics::new(Role::Group).label(crate::doc_rich::tr(&u, "formatting-toolbar")));
+            .semantics(move || {
+                Semantics::new(Role::Group).label(crate::doc_rich::tr(&u, "formatting-toolbar"))
+            });
         let _ = root.clone().child(bar);
     }
     let _ = root.clone().child(field_el.clone());
@@ -326,7 +329,10 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 t.button.state(States::SELECTED, on);
                 let (u, label) = (u.clone(), t.label);
                 let _ = t.button.clone().semantics(move || {
-                    Semantics::new(Role::Button).label(crate::doc_rich::tr(&u, label)).checked(on).action(Action::Click)
+                    Semantics::new(Role::Button)
+                        .label(crate::doc_rich::tr(&u, label))
+                        .checked(on)
+                        .action(Action::Click)
                 });
             }
         }

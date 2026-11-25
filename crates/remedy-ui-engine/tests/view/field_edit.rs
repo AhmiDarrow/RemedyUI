@@ -3,12 +3,12 @@
 
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Point, Size};
 use remedy_ui_engine::view::{FieldKind, InputPurpose, Ui};
+use remedy_ui_text::FontCollection;
 
 fn fonts() -> FontCollection {
     let mut f = FontCollection::new();

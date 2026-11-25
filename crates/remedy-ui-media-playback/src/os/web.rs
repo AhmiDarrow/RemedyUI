@@ -356,7 +356,8 @@ impl Drop for WebFrame {
 /// `frame` as a picture on the GPU, when a renderer takes it there and the decoder can spare it.
 fn gpu_picture(out: &Shared, frame: VideoFrame) -> Result<Picture, VideoFrame> {
     let held = out.borrow().held.clone();
-    if remedy_ui_engine::paint::gpu_video_adapter() != Some(GpuAdapter::Browser) || held.get() >= HELD_FRAMES {
+    if remedy_ui_engine::paint::gpu_video_adapter() != Some(GpuAdapter::Browser) || held.get() >= HELD_FRAMES
+    {
         return Err(frame);
     }
     let (width, height) = (frame.display_width(), frame.display_height());

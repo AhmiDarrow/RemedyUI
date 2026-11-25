@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use remedy_tools::docs::{CatalogInput, DocKind, Library, ReadInput, SearchInput, describe_widget};
+use cargo_remedy::devkit::docs::{CatalogInput, DocKind, Library, ReadInput, SearchInput, describe_widget};
 
 use super::{Args, err};
 

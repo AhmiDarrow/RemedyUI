@@ -6,13 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::Role;
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_widgets::doc_pages::*;
 use remedy_ui_core::input::{
     Buttons, Key, Modifiers, PinchEvent, PinchPhase, PointerKind, PointerPhase, ScrollPhysics,
 };
+use remedy_ui_core::{Color, Point, Size};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
+use remedy_ui_widgets::doc_pages::*;
 
 mod common;
 use common::*;

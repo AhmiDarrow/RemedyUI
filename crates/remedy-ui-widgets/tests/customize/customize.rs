@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use remedy_ui_core::a11y::Action;
-use remedy_ui_core::{Color, Size};
-use remedy_ui_widgets::customize::*;
 use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers, Platform};
-use remedy_ui_platform::services_i18n::{Catalog, MessageEntry, Messages};
 use remedy_ui_core::style::Theme;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Size};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_platform::services_i18n::{Catalog, MessageEntry, Messages};
+use remedy_ui_text::FontCollection;
+use remedy_ui_widgets::customize::*;
 use remedy_ui_widgets::nav::Commands;
 
 /// Unwraps what a test needs, failing it with `why`.
@@ -610,8 +610,8 @@ fn the_theme_editor_works_from_assistive_technology() {
     assert!(type_into(&ui, "Cards hex", "#f0f0f0"));
     assert_eq!(ui.theme().colors.card, Color::rgb8(0xf0, 0xf0, 0xf0));
     frame(&ui);
-    let contrast =
-        find_where(&ui, "Contrast", |s| s.role() == remedy_ui_core::a11y::Role::Status).must("the contrast status");
+    let contrast = find_where(&ui, "Contrast", |s| s.role() == remedy_ui_core::a11y::Role::Status)
+        .must("the contrast status");
     let value = contrast.composed_semantics().and_then(|s| s.value_text().map(str::to_owned)).must("a value");
     assert!(value.contains("below WCAG"), "light cards under light text are flagged: {value}");
     assert!(act(&ui, "Reset theme", Action::Click));
@@ -735,7 +735,11 @@ fn the_settings_page_shows_notices_toolbars_and_text() {
 const SETTINGS_RUI: &str = "column { switch(label: \"Noise suppression\", checked: $noise) }\n";
 
 /// A screen the app builds through the customizations, with its built-in version.
-fn screen(c: &Customizations, ui: &Ui, noise: remedy_ui_core::reactive::Signal<bool>) -> remedy_ui_widgets::rui::Layout {
+fn screen(
+    c: &Customizations,
+    ui: &Ui,
+    noise: remedy_ui_core::reactive::Signal<bool>,
+) -> remedy_ui_widgets::rui::Layout {
     let scope = remedy_ui_widgets::rui::Scope::new().flag("noise", noise);
     let built_in = move |ui: &Ui| remedy_ui_widgets::base::switch(ui, "Noise suppression", noise);
     c.layout(ui, "settings.rui", &scope, SETTINGS_RUI, built_in).must("layouts are on")

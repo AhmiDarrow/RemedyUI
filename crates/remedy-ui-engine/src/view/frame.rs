@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use remedy_ui_core::a11y::{Role, Semantics};
 use crate::compositor::{Layer, LayerId, LayerTree, ScrollSnap, SnapPoint};
-use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
 use crate::paint::{Affine, Brush, DisplayList, GlyphRun, Item};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::style::{BorderStyle, States, StyleKey};
-use remedy_ui_text::{Antialias, Hinting, Paragraph};
 use remedy_ui_core::tree::{Dirty, ElementId};
+use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
+use remedy_ui_text::{Antialias, Hinting, Paragraph};
 
 use crate::view::element::{ElData, Inner, PaintCx, Ui, root_key};
 
@@ -68,7 +68,10 @@ struct StickCx {
 /// The physical sides an element sticks to (start and end following its parent's direction,
 /// right to left when `parent_rtl` says so), from its style sheet or its layout; `None` when
 /// it is not sticky.
-fn sticky_sides(d: &ElData, parent_rtl: impl FnOnce() -> bool) -> Option<remedy_ui_core::style::StickyInsets> {
+fn sticky_sides(
+    d: &ElData,
+    parent_rtl: impl FnOnce() -> bool,
+) -> Option<remedy_ui_core::style::StickyInsets> {
     let side = |v: f32| v.is_finite().then_some(v);
     let sheet = d.resolved.sticky.sticks();
     let s = if sheet {
@@ -127,7 +130,11 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
 /// let b = remedy_ui_engine::view::gradient_brush(&g, Size::new(200.0, 100.0), &Theme::dark_forest());
 /// assert!(matches!(b, Brush::Elliptical { .. }));
 /// ```
-pub fn gradient_brush(g: &remedy_ui_core::style::Gradient, size: Size, theme: &remedy_ui_core::style::Theme) -> Brush {
+pub fn gradient_brush(
+    g: &remedy_ui_core::style::Gradient,
+    size: Size,
+    theme: &remedy_ui_core::style::Theme,
+) -> Brush {
     use remedy_ui_core::style::GradientGeometry as G;
     let stops: Vec<_> =
         g.stops(theme).into_iter().map(|(offset, color)| crate::paint::Stop { offset, color }).collect();
@@ -1221,7 +1228,9 @@ impl Ui {
             if d.inline_link.is_some() {
                 let parent = i.tree.parent(id);
                 let width = parent.and_then(|p| rects.get(&p)).map_or(0.0, |p| p.width());
-                r = parent.and_then(|p| crate::view::links::placed_rect(i, id, p, width)).unwrap_or(Rect::ZERO);
+                r = parent
+                    .and_then(|p| crate::view::links::placed_rect(i, id, p, width))
+                    .unwrap_or(Rect::ZERO);
             }
             rects.insert(id, r);
             let un = Point::new(parent_un.x + r.min.x, parent_un.y + r.min.y);

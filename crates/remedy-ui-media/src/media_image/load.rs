@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use remedy_ui_engine::paint::Image;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_engine::paint::Image;
 
 use crate::media_image::decode::{
     DecodeError, Decoded, decode, dimensions, dimensions_from, fitted_scalable, format_of, router,
@@ -538,7 +538,10 @@ pub fn probe(source: &Source, state: Signal<ImageState>) {
 }
 
 /// [`probe`], returning the fetch of an address: dropping it lets the fetch go.
-pub(crate) fn probe_held(source: &Source, state: Signal<ImageState>) -> Option<crate::media_image::remote::Fetching> {
+pub(crate) fn probe_held(
+    source: &Source,
+    state: Signal<ImageState>,
+) -> Option<crate::media_image::remote::Fetching> {
     let key = source.key();
     let known = CACHE.with(|c| c.borrow_mut().known(&key));
     if let Some((size, _)) = known {

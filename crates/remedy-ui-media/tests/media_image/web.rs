@@ -12,9 +12,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::Size;
+use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_media::media_image::*;
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{El, Ui};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::*;

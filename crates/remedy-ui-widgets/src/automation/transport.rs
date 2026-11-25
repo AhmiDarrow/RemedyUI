@@ -103,7 +103,11 @@ impl Agents {
                     let known =
                         tokens.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&token);
                     if !known {
-                        let _ = writeln!(stream, "{}", crate::automation::to_json(&Answer::Refused(Refused::NoAccess)));
+                        let _ = writeln!(
+                            stream,
+                            "{}",
+                            crate::automation::to_json(&Answer::Refused(Refused::NoAccess))
+                        );
                         return;
                     }
                     serve(stream, id, &waker, &stop);

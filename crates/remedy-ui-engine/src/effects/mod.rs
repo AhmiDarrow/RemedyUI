@@ -386,11 +386,7 @@ impl Instance {
 
     /// Binds a picture to texture parameter `name` (`None` unbinds it; sampling an unbound
     /// texture reads transparent black).
-    pub fn set_texture(
-        &mut self,
-        name: &str,
-        image: Option<crate::paint::Image>,
-    ) -> Result<(), ParamError> {
+    pub fn set_texture(&mut self, name: &str, image: Option<crate::paint::Image>) -> Result<(), ParamError> {
         let Some(i) = self.effect.texture(name) else { return Err(ParamError::Unknown(name.to_owned())) };
         if let Some(slot) = self.textures.get_mut(i) {
             *slot = image;

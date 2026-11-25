@@ -23,7 +23,8 @@
 /// The image view's own words (what screen readers hear when an image cannot be shown) in
 /// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
 /// with [`remedy_ui_engine::view::strings::add_messages`] under the name `media-image`.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("media-image");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("media-image");
 
 mod decode;
 mod load;
@@ -38,9 +39,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::reactive::{Effect, Signal};
 use remedy_ui_core::{Point, Rect};
 use remedy_ui_engine::paint::{Brush, Image, Item, Path, Sampling, Stroke};
-use remedy_ui_core::reactive::{Effect, Signal};
 use remedy_ui_engine::view::{El, Ui, show};
 
 pub use decode::{
@@ -362,7 +363,9 @@ fn build(ui: &Ui, source: Source, alt: String, fit: Fit, loader: Loader, options
                 if l.aspect_ratio.is_none() {
                     l.aspect_ratio = Some(w.max(1) as f32 / h.max(1) as f32);
                 }
-                if l.width == remedy_ui_core::layout::Length::Auto && l.height == remedy_ui_core::layout::Length::Auto {
+                if l.width == remedy_ui_core::layout::Length::Auto
+                    && l.height == remedy_ui_core::layout::Length::Auto
+                {
                     l.width = remedy_ui_core::layout::Length::Px(w as f32 / scale);
                     l.max_width = remedy_ui_core::layout::Length::Percent(1.0);
                 }

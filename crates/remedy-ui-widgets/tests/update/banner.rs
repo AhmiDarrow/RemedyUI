@@ -2,8 +2,8 @@
 
 use remedy_ui_core::Size;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_widgets::update::{Release, UpdateState, update_banner};
 use remedy_ui_engine::view::Ui;
+use remedy_ui_widgets::update::{Release, UpdateState, update_banner};
 
 fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);

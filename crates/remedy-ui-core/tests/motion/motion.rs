@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use remedy_ui_core::{Color, Point};
 use remedy_ui_core::motion::*;
+use remedy_ui_core::{Color, Point};
 
 fn ms(v: u64) -> Duration {
     Duration::from_millis(v)

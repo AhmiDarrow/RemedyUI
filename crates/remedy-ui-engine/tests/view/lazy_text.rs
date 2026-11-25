@@ -2,14 +2,14 @@
 //! frame lays out and draws the lines in the window, scrolling down draws the lines it
 //! reaches, and typing in the middle of the text keeps the caret where the text is.
 
-use remedy_ui_engine::compositor::{Layer, LayerTree};
-use remedy_ui_core::{Size, Vec2};
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::Item;
 use remedy_ui_core::style::{StyleSheet, Theme};
-use remedy_ui_text::{FontCollection, LAZY_MIN_BYTES};
+use remedy_ui_core::{Size, Vec2};
+use remedy_ui_engine::compositor::{Layer, LayerTree};
+use remedy_ui_engine::paint::Item;
 use remedy_ui_engine::view::{FieldKind, Ui};
+use remedy_ui_text::{FontCollection, LAZY_MIN_BYTES};
 
 const SIZE: Size = Size { width: 420.0, height: 300.0 };
 

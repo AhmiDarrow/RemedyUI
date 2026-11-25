@@ -579,8 +579,8 @@ impl Java {
         what: &'static str,
         f: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> JResult<()> + Send + 'static,
     ) -> Result<(), String> {
-        let bridge =
-            crate::bridge_android::android::bridge().ok_or_else(|| "the bridge's Java half has not started".to_owned())?;
+        let bridge = crate::bridge_android::android::bridge()
+            .ok_or_else(|| "the bridge's Java half has not started".to_owned())?;
         let vm = self.vm.clone();
         app.run_on_java_main_thread(Box::new(move || {
             let Ok(mut env) = vm.attach_current_thread() else { return };

@@ -1,12 +1,12 @@
 //! The calendar, the date picker and the time picker.
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
+use crate::base::{self as w, Icon};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
 use remedy_ui_engine::view::{Align, El, FieldKind, Justify, Ui};
-use crate::base::{self as w, Icon};
 
 use remedy_ui_platform::services_i18n::{CalendarSymbols, Date, NumberSymbols, Time, month_grid};
 
@@ -89,8 +89,10 @@ pub fn calendar(
                     let mut row = w::row(&u3).fill_width().gap(unit / 2.0);
                     for d in week {
                         let d = *d;
-                        let text =
-                            num.format(remedy_ui_platform::services_i18n::Decimal::from_int(i64::from(d.day)), 0);
+                        let text = num.format(
+                            remedy_ui_platform::services_i18n::Decimal::from_int(i64::from(d.day)),
+                            0,
+                        );
                         let variant = if d == chosen { "primary" } else { "quiet" };
                         // The keyboard cursor gets a ring in the accent color.
                         let ring = {

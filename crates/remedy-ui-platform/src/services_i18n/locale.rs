@@ -479,7 +479,8 @@ impl CalendarSymbols {
     pub fn format_instant(&self, local_seconds: i64, style: DateTimeStyle) -> String {
         let date = Date::from_days_since_epoch(local_seconds.div_euclid(86_400));
         let s = local_seconds.rem_euclid(86_400);
-        let time = crate::services_i18n::calendar::Time { hour: (s / 3600) as u8, minute: (s / 60 % 60) as u8 };
+        let time =
+            crate::services_i18n::calendar::Time { hour: (s / 3600) as u8, minute: (s / 60 % 60) as u8 };
         self.format_date_time(date, time, (s % 60) as u8, style)
     }
 
@@ -494,7 +495,11 @@ impl CalendarSymbols {
     }
 
     /// Reads a time typed the locale's way, or as `13:05` / `1:05 pm`.
-    pub fn parse_time(&self, s: &str, numbers: &NumberSymbols) -> Option<crate::services_i18n::calendar::Time> {
+    pub fn parse_time(
+        &self,
+        s: &str,
+        numbers: &NumberSymbols,
+    ) -> Option<crate::services_i18n::calendar::Time> {
         let mut t: String = s
             .chars()
             .filter(|c| !matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}'))

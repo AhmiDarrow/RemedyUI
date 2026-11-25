@@ -107,11 +107,13 @@ mod platform {
     }
 
     pub(super) fn add_recent(_app: &Entry, file: &Path) -> Result<(), DesktopError> {
-        crate::services_desktop::os::macos::add_recent(file).map_err(|reason| DesktopError::unsupported("recent files", reason))
+        crate::services_desktop::os::macos::add_recent(file)
+            .map_err(|reason| DesktopError::unsupported("recent files", reason))
     }
 
     pub(super) fn clear_recent(_app: &Entry) -> Result<(), DesktopError> {
-        crate::services_desktop::os::macos::clear_recent().map_err(|reason| DesktopError::unsupported("recent files", reason))
+        crate::services_desktop::os::macos::clear_recent()
+            .map_err(|reason| DesktopError::unsupported("recent files", reason))
     }
 }
 

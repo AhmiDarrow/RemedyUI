@@ -6,7 +6,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::effects::{CpuEffect, Effect, FrameInput, Instance, LIBRARY, Limits, MAX_EFFECT_PIXELS};
+use remedy_ui_engine::effects::{
+    CpuEffect, Effect, FrameInput, Instance, LIBRARY, Limits, MAX_EFFECT_PIXELS,
+};
 
 fn effect(src: &str) -> Arc<Effect> {
     match Effect::compile(src) {
@@ -113,7 +115,9 @@ fn register_reuse_under_pressure_keeps_every_value() {
     let pic = CpuEffect::new().render(&Instance::new(e), &FrameInput::new(16.0, 1.0, 1.0, 0.0));
     for x in 0..16u32 {
         let expect: f32 = (0..n)
-            .map(|i| remedy_ui_engine::effects::vm::hash4([i as f32, x as f32, 0.0, 0.0], 2)[0] * (i + 1) as f32)
+            .map(|i| {
+                remedy_ui_engine::effects::vm::hash4([i as f32, x as f32, 0.0, 0.0], 2)[0] * (i + 1) as f32
+            })
             .sum::<f32>()
             / 820.0;
         let got = f32::from(pic.pixels[(x * 4) as usize]) / 255.0;

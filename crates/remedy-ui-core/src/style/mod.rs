@@ -25,9 +25,9 @@ mod states;
 mod theme;
 mod tokens;
 
+pub use crate::{LineHeight, TextAlign, TextTransform};
 pub use contrast::{CONTRAST_AA, CONTRAST_AAA, ensure_contrast};
 pub use gradient::{Extent, Gradient, GradientGeometry, GradientStop, ParseGradientError, Pos, RadialSize};
-pub use crate::{LineHeight, TextAlign, TextTransform};
 pub use resolve::{
     BorderEdge, BorderSide, BorderStyle, LetterSpacing, ResolvedStyle, Shadow, StickyInsets, StyleKey,
     StylePatch, StyleSheet,

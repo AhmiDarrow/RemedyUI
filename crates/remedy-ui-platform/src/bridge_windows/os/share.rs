@@ -14,7 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_core::host::{HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported, Waker};
+use remedy_ui_core::host::{
+    HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported, Waker,
+};
 use windows::ApplicationModel::DataTransfer::{
     DataPackage, DataRequestedEventArgs, DataTransferManager, ShareCompletedEventArgs,
 };

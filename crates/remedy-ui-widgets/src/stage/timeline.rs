@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
+use crate::viz::{Clock, Moved, smooth};
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Rect, Size};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::{Rect, Size};
 use remedy_ui_engine::view::{El, Ui};
-use crate::viz::{Clock, Moved, smooth};
 
 use crate::stage::common::{Motion, Place, Slot, layer};
 
@@ -319,21 +319,22 @@ pub fn timeline<T: Clone + 'static>(
     });
     let s = state.clone();
     // The glide follows data, so it settles even while ambient motion is off.
-    let (el, motion) = Motion::attach_kind(el, options.clock, remedy_ui_engine::view::TickKind::Live, move |dt| {
-        let (from, to) = (s.shown_head.get(), s.head.get());
-        // A glide in screen pixels, so it settles the same at any scale.
-        let px = smooth(
-            (from - to) as f32 * s.scale as f32,
-            0.0,
-            dt,
-            Duration::from_millis(90),
-            Duration::from_millis(90),
-        );
-        let next = if px == 0.0 { to } else { to + f64::from(px) / s.scale };
-        s.shown_head.set(next);
-        s.refresh();
-        Moved { changed: false, pending: next != to }
-    });
+    let (el, motion) =
+        Motion::attach_kind(el, options.clock, remedy_ui_engine::view::TickKind::Live, move |dt| {
+            let (from, to) = (s.shown_head.get(), s.head.get());
+            // A glide in screen pixels, so it settles the same at any scale.
+            let px = smooth(
+                (from - to) as f32 * s.scale as f32,
+                0.0,
+                dt,
+                Duration::from_millis(90),
+                Duration::from_millis(90),
+            );
+            let next = if px == 0.0 { to } else { to + f64::from(px) / s.scale };
+            s.shown_head.set(next);
+            s.refresh();
+            Moved { changed: false, pending: next != to }
+        });
 
     // Scrubbing.
     let sign = match state.newest_at {

@@ -1,12 +1,12 @@
 //! Previews, golden images, the accessibility check and the inspector.
 
-use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_widgets::devtools::*;
 use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
 use remedy_ui_core::style::StylePatch;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_engine::view::Ui;
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base as w;
+use remedy_ui_widgets::devtools::*;
 
 fn ui() -> Ui {
     let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
@@ -434,12 +434,10 @@ fn the_audit_finds_pointer_only_and_invisible_focus() {
 fn the_audit_finds_focus_that_does_not_show() {
     let ui = ui();
     // The default ring shows focus; so does a rule that changes the background instead.
-    let ringed = ui
-        .el("box")
-        .width(40.0)
-        .height(40.0)
-        .focusable(true)
-        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Ringed"));
+    let ringed =
+        ui.el("box").width(40.0).height(40.0).focusable(true).semantics(
+            remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Ringed"),
+        );
     let unmarked = ui
         .el("box")
         .width(40.0)

@@ -58,15 +58,17 @@ pub use frame::{Frame, FrameStats, Placement, gradient_brush};
 pub use history::HistoryItem;
 pub use prop::{IntoProp, Prop};
 pub use remedy_ui_core::a11y::Action as A11yAction;
-pub use remedy_ui_core::host::{DragData, DragEvent, DropEffect, EnterKey, ImeEvent, InputPurpose, PointerCaps};
+pub use remedy_ui_core::host::{
+    DragData, DragEvent, DropEffect, EnterKey, ImeEvent, InputPurpose, PointerCaps,
+};
 pub use remedy_ui_core::input::WheelEvent;
 pub use remedy_ui_core::layout::{Align, Justify};
 pub use remedy_ui_core::style::{
     ColorRole, Dp, Gradient, GradientStop, LineHeight, Pad, Pos, Radius, Space, Style, TextRole,
     TextTransform,
 };
-pub use remedy_ui_text::{InlineObject, RichText, SpanBackground, TextStylePatch};
 pub use remedy_ui_core::tree::ElementId;
+pub use remedy_ui_text::{InlineObject, RichText, SpanBackground, TextStylePatch};
 pub use spatial::SpatialTuning;
 
 use remedy_ui_core::host::TextInputState;

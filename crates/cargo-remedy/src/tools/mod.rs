@@ -162,7 +162,7 @@ impl Args {
 }
 
 /// A tool error as a command's error.
-pub fn err(e: remedy_tools::ToolError) -> String {
+pub fn err(e: cargo_remedy::devkit::ToolError) -> String {
     e.0
 }
 

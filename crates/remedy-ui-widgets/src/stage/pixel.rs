@@ -6,12 +6,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::viz::{Clock, Moved};
 use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::style::Theme;
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
 use remedy_ui_engine::paint::{Image, Item, Sampling};
-use remedy_ui_core::style::Theme;
 use remedy_ui_engine::view::{El, IntoProp, PaintCx, Ui};
-use crate::viz::{Clock, Moved};
 
 use crate::stage::common::{Ink, Motion};
 

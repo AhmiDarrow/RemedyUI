@@ -4,10 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Color, Point, Rect, Vec2};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Color, Point, Rect, Vec2};
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::{El, TextPaint, Ui};
 
 use crate::extra::qr::{EncodeOptions, QrCode, QrError};

@@ -3,14 +3,14 @@
 
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Role, Semantics};
+use crate::base::{self as w, Icon};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_core::layout::{Length, Position};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::StylePatch;
 use remedy_ui_engine::view::{Align, El, Justify, Ui};
-use crate::base::{self as w, Icon};
 
 /// The window edge a panel comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,7 +105,8 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
 pub fn sheet(ui: &Ui, title: impl Into<String>, open: Signal<bool>, content: El) -> El {
     let title = title.into();
     let unit = ui.theme().spacing.unit;
-    let close = w::icon_button(ui, Icon::Close, crate::nav::tr_fn(ui, "panel-close"), move || open.set(false));
+    let close =
+        w::icon_button(ui, Icon::Close, crate::nav::tr_fn(ui, "panel-close"), move || open.set(false));
     let head = w::row(ui)
         .align(Align::Center)
         .fill_width()
@@ -171,8 +172,10 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
     let buttons = w::row(ui)
         .gap(unit / 2.0)
         .child(
-            w::icon_button(ui, Icon::Minus, crate::nav::tr_fn(ui, "title-bar-minimize"), move || (a1.minimize)())
-                .variant("quiet"),
+            w::icon_button(ui, Icon::Minus, crate::nav::tr_fn(ui, "title-bar-minimize"), move || {
+                (a1.minimize)()
+            })
+            .variant("quiet"),
         )
         .child(max)
         .child(

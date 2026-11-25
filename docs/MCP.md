@@ -12,7 +12,7 @@ From a RemedyUI checkout:
 cargo install --path crates/remedy-mcp
 ```
 
-This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (the `remedy-templates` crate, shared with `cargo remedy new`).
+This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/cargo-remedy/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (the `remedy-templates` crate, shared with `cargo remedy new`).
 
 ### Smaller builds
 
@@ -117,7 +117,7 @@ An app exposes what to preview as plain public functions in its library, `pub fn
 
 For each preview, the server does this:
 
-1. It writes a small harness crate into `<app's target>/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
+1. It writes a small harness crate into `<app's target>/cargo-remedy/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
 2. It builds the harness into the app's target folder, so the harness shares the app's compiled dependencies.
 3. It runs the harness. The harness renders with the devtools' `Preview`, using the CPU renderer, so the pixels are the same as the app's golden images.
 
@@ -188,8 +188,8 @@ A debug build serves its devtools with `Window::serve_devtools` or `RemoteServer
 `remedy-mcp` is also a library. Other tools can serve some or all of the groups:
 
 ```rust
-use remedy_mcp::{Config, Server};
-use remedy_tools::{Group, Workspace};
+use cargo_remedy::mcp::{Config, Server};
+use cargo_remedy::devkit::{Group, Workspace};
 
 let config = Config::new(Workspace::new([project_dir])?);
 let server = Server::builder(config)
@@ -198,7 +198,7 @@ let server = Server::builder(config)
 server.serve_stdio().await?;
 ```
 
-Each group is a `ToolGroup` (`remedy_mcp::group(Group::Docs)`). A tool of your own can be added with `ServerBuilder::group`. `Server::call(name, args)` calls a tool directly, without MCP. The logic under every tool is a plain function in `remedy-tools` (for example `remedy_tools::preview::render`), with typed input and output.
+Each group is a `ToolGroup` (`cargo_remedy::mcp::group(Group::Docs)`). A tool of your own can be added with `ServerBuilder::group`. `Server::call(name, args)` calls a tool directly, without MCP. The logic under every tool is a plain function in `remedy-tools` (for example `cargo_remedy::devkit::preview::render`), with typed input and output.
 
 ## Engine APIs the tools depend on
 

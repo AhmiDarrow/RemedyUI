@@ -18,7 +18,6 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_core::host::{
     AccessibilityEvent, App, Badge, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog,
     ForegroundTask, Host, HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted,
@@ -29,6 +28,7 @@ use remedy_ui_core::input::{
     Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
     WheelEvent,
 };
+use remedy_ui_core::{Point, Rect, Size, Vec2};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -888,7 +888,11 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.set_tray(tray)
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_core::host::accesskit::TreeUpdate) {
+    fn update_accessibility(
+        &mut self,
+        window: WindowId,
+        update: remedy_ui_core::host::accesskit::TreeUpdate,
+    ) {
         let Some(wid) = self.state.ids.get(&window).copied() else { return };
         let Some((_, w)) = self.state.windows.get_mut(&wid) else { return };
         match w.a11y.as_mut() {

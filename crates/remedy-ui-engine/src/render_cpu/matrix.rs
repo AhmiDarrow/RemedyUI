@@ -4,8 +4,8 @@
 //! pixel for pixel. Both renderers and both walks (display lists and composites) share what is
 //! here, so they cut the same pictures.
 
-use remedy_ui_core::{ColorMatrix, Rect};
 use crate::paint::{Affine, DisplayList, Item, PaintLimits};
+use remedy_ui_core::{ColorMatrix, Rect};
 use vello_cpu::kurbo;
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{ImageSource, Pixmap};

@@ -1,11 +1,11 @@
 //! A number field with exact decimals, units and the locale's way of writing numbers.
 
+use crate::base as w;
 use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
 use remedy_ui_engine::view::{Align, El, FieldKind, InputPurpose, Ui};
-use crate::base as w;
 
 use remedy_ui_platform::services_i18n::{Decimal, DecimalError, NumberSymbols};
 

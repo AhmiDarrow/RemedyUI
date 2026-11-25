@@ -166,7 +166,11 @@ fn compiled_from_source_with_untrusted_limits() {
     let ui = ui();
     let src =
         "effect stripes(color c = #ff0080) { pass p { out = vec4(c.rgb, step(0.5, fract(px.x / 8.0))); } }";
-    let made = remedy_ui_engine::media_effects::effect_from_source(&ui, src, &remedy_ui_engine::effects::Limits::untrusted());
+    let made = remedy_ui_engine::media_effects::effect_from_source(
+        &ui,
+        src,
+        &remedy_ui_engine::effects::Limits::untrusted(),
+    );
     assert!(made.is_ok());
     let bad = remedy_ui_engine::media_effects::effect_from_source(
         &ui,

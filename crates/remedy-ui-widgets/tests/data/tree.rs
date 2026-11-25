@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Point, Vec2};
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::base as w;
 use remedy_ui_widgets::data::*;
@@ -411,9 +411,10 @@ fn assistive_technology_selects_opens_and_closes_rows() {
     assert_eq!(labels(&t), ["docs", "letters", "cv.pdf", "notes.md", "music", "readme.txt"]);
     let docs = row(&t, 0);
     let sem = find(&t.tree, "tree_item").first().and_then(El::info).and_then(|i| i.semantics);
-    assert!(sem.is_some_and(
-        |s| s.expanded_state() == Some(true) && s.actions().contains(&remedy_ui_core::a11y::Action::Collapse)
-    ));
+    assert!(
+        sem.is_some_and(|s| s.expanded_state() == Some(true)
+            && s.actions().contains(&remedy_ui_core::a11y::Action::Collapse))
+    );
     assert!(t.ui.accessibility_action(docs, remedy_ui_core::a11y::Action::Collapse));
     frame(&t.ui);
     assert_eq!(labels(&t), ["docs", "music", "readme.txt"]);

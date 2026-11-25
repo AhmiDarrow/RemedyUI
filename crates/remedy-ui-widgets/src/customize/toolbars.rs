@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::nav::Commands;
 use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_engine::view::Ui;
-use crate::nav::Commands;
 use serde_json::Value;
 
 use crate::customize::{Area, Customizations, CustomizeError, Notice, Words, files, tr_now};

@@ -20,7 +20,9 @@ use remedy_ui_platform::bridge_winit::run_on;
 
 #[cfg(windows)]
 mod os {
-    pub use remedy_ui_platform::bridge_windows::pointer::{click, move_to, position, screen_size, showing, under};
+    pub use remedy_ui_platform::bridge_windows::pointer::{
+        click, move_to, position, screen_size, showing, under,
+    };
     use remedy_ui_platform::bridge_winit::UserEvent;
     use remedy_ui_platform::bridge_winit::winit::event_loop::EventLoop;
     use remedy_ui_platform::bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;

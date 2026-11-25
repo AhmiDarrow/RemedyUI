@@ -17,8 +17,8 @@ use remedy_ui_core::time::Instant;
 use remedy_ui_engine::script::{Node, ScriptWidget, TextStyle};
 use remedy_ui_engine::script_lua::LuaEngine;
 use remedy_ui_engine::script_wasm::WasmEngine;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::Ui;
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::board::*;
 use wasm_bindgen_test::*;
 

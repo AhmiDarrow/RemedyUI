@@ -6,7 +6,8 @@
 /// The data widgets' own words (counts, sort states, keyboard hints, status lines) in every
 /// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-data`.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("widgets-data");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("widgets-data");
 
 /// Message `id` of this pack in the window's locale, kept current as the locale changes
 /// when read inside a property closure or binding.

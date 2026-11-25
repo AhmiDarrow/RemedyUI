@@ -3,12 +3,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
+use crate::base::{self as w, Icon};
 use remedy_ui_core::Insets;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::input::{Key, Platform};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_engine::view::{Align, El, FieldKind, Ui};
-use crate::base::{self as w, Icon};
 
 use crate::nav::commands::{CommandInfo, Commands};
 
@@ -252,8 +252,9 @@ impl CommandPalette {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ =
-                        l2.clone().child(w::text(&u, crate::nav::tr_fn(&u, "palette-no-match")).variant("muted"));
+                    let _ = l2
+                        .clone()
+                        .child(w::text(&u, crate::nav::tr_fn(&u, "palette-no-match")).variant("muted"));
                 }
                 for (i, c) in found.iter().enumerate() {
                     let (me2, id) = (me.clone(), c.id.clone());

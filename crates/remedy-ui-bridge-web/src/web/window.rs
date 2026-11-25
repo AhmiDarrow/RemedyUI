@@ -5,11 +5,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::host::{
     DropEffect, HostEvent, Pixels, ResizeEdge, SafeArea, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_core::input::KeyEvent;
+use remedy_ui_core::{Point, Size};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{HtmlCanvasElement, HtmlElement};

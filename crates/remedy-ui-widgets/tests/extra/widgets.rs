@@ -5,9 +5,9 @@ mod common;
 
 use common::*;
 use remedy_ui_core::a11y::{Action, Role};
-use remedy_ui_core::{Color, Point};
 use remedy_ui_core::input::{Key, Modifiers};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Color, Point};
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::extra::{
     Ecc, QrCode, QrOptions, RatingOptions, Swatch, SwatchOptions, color_swatch_grid, qr_code, rating,

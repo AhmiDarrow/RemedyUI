@@ -649,18 +649,28 @@ dependencies = [
 name = "cargo-remedy"
 version = "1.0.0-rc.1"
 dependencies = [
+ "bytes",
+ "cargo-remedy",
  "flate2",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "minisign",
  "png",
  "proc-macro2",
- "remedy-templates",
- "remedy-tools",
  "remedy-ui",
  "remedy-ui-build",
+ "remedy-ui-core",
+ "remedy-ui-engine",
+ "remedy-ui-widgets",
+ "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "syn 2.0.119",
+ "tokio",
  "toml",
+ "tower-service",
  "zip",
 ]
 
@@ -3959,49 +3969,6 @@ name = "remedy-lua"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c896ddeaa5170f14a42cd6267cb239ab743cbaf44f2580bb5ff1ccb2fb57091e"
-
-[[package]]
-name = "remedy-mcp"
-version = "1.0.0-rc.1"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "png",
- "remedy-tools",
- "remedy-ui",
- "remedy-ui-core",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "tower-service",
-]
-
-[[package]]
-name = "remedy-templates"
-version = "1.0.0-rc.1"
-dependencies = [
- "png",
- "remedy-ui-core",
-]
-
-[[package]]
-name = "remedy-tools"
-version = "1.0.0-rc.1"
-dependencies = [
- "flate2",
- "png",
- "remedy-templates",
- "remedy-ui-engine",
- "remedy-ui-widgets",
- "schemars",
- "serde",
- "serde_json",
- "toml",
-]
 
 [[package]]
 name = "remedy-ui"

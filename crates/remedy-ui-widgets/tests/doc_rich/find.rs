@@ -4,9 +4,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use remedy_ui_widgets::doc_rich::*;
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_widgets::doc_rich::*;
 
 mod common;
 use common::*;

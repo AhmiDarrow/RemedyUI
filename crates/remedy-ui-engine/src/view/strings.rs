@@ -42,7 +42,10 @@ macro_rules! engine_strings {
             &[
                 ("en", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/en.ftl"))),
                 ("es", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/es.ftl"))),
-                ("zh-Hans", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/zh-Hans.ftl"))),
+                (
+                    "zh-Hans",
+                    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/zh-Hans.ftl")),
+                ),
                 ("hi", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/hi.ftl"))),
                 ("ar", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/ar.ftl"))),
                 ("fr", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n/", $name, "/fr.ftl"))),

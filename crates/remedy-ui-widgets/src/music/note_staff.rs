@@ -6,11 +6,11 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::Brush;
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
+use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::{El, TextPaint, Ui};
 
 use crate::music::glyphs::{
@@ -1033,7 +1033,9 @@ fn note_staff_with(
             let key = match options.key {
                 0 => crate::music::say(&locale, "key-no-accidentals", &[]),
                 k if k > 0 => crate::music::say(&locale, "key-sharps", &[("count", i32::from(k).into())]),
-                k => crate::music::say(&locale, "key-flats", &[("count", u32::from(k.unsigned_abs()).into())]),
+                k => {
+                    crate::music::say(&locale, "key-flats", &[("count", u32::from(k.unsigned_abs()).into())])
+                }
             };
             let mut value = String::new();
             if let Some(e) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {

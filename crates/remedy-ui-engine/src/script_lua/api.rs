@@ -6,7 +6,9 @@ use std::time::Duration;
 use remedy_lua::{Error, Lua, TableRef, Value};
 use remedy_ui_core::motion::{Animation, Easing, Motion, Spring};
 
-use crate::script_lua::world::{Caps, Comp, CompKind, Element, Id, Owned, Ref, Signal, SignalKind, Timer, World};
+use crate::script_lua::world::{
+    Caps, Comp, CompKind, Element, Id, Owned, Ref, Signal, SignalKind, Timer, World,
+};
 
 /// How often the widget asks for a frame while something moves or a frame hook is set.
 pub(crate) const FRAME: Duration = Duration::from_millis(16);

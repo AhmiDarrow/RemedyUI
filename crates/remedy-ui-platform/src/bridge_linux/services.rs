@@ -394,12 +394,13 @@ impl Tray {
             Ok(conn) => self.conn = Some(conn),
             Err(sni) => {
                 let state = self.state.clone();
-                let x = crate::bridge_linux::xtray::XTray::start(t, move |e| push(&state, e)).map_err(|x| {
-                    Unsupported::new(
-                        "the tray",
-                        format!("the desktop has no StatusNotifier host ({sni}), and {}", x.reason),
-                    )
-                })?;
+                let x =
+                    crate::bridge_linux::xtray::XTray::start(t, move |e| push(&state, e)).map_err(|x| {
+                        Unsupported::new(
+                            "the tray",
+                            format!("the desktop has no StatusNotifier host ({sni}), and {}", x.reason),
+                        )
+                    })?;
                 self.xembed = Some(x);
             }
         }

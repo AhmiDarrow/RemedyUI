@@ -12,7 +12,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_engine::script::{Action, Engines, Limits, Node, Package, ScriptError, ScriptWidget, TextStyle};
+use remedy_ui_engine::script::{
+    Action, Engines, Limits, Node, Package, ScriptError, ScriptWidget, TextStyle,
+};
 use remedy_ui_engine::script_lua::{Grants, LuaEngine, LuaWidget};
 use serde_json::{Map, Value, json};
 

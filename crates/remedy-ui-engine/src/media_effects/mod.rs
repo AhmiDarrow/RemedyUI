@@ -40,11 +40,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::time::Instant;
-use remedy_ui_core::{CornerRadii, Rect};
 use crate::effects::{CompileError, CpuEffect, Effect, FrameInput, Instance, Limits, ParamError, Value};
 use crate::paint::{Blend, Image, Item, Sampling};
 use crate::view::{El, ElementId, PaintCx, Ui, WeakUi};
+use remedy_ui_core::time::Instant;
+use remedy_ui_core::{CornerRadii, Rect};
 
 /// Where the element's frames are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -8,14 +8,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
+use crate::base::{self as w, Icon, Rejection};
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
 use remedy_ui_core::tree::ElementId;
+use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_engine::view::{Align, Drag, DropEffect, El, FieldKind, Justify, Ui};
-use crate::base::{self as w, Icon, Rejection};
 
 use crate::data::model::{SORT_OFF_THREAD, Selection, SortDirection, SortValue, sorted_order};
 use crate::data::rows::{RowBuilder, Rows};
@@ -263,11 +263,9 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 let width = width_of(c);
                 let editing_here = edit_now.as_ref().is_some_and(|(ek, cid)| *ek == k && *cid == col.id);
                 let content = if editing_here && let Some((get, set)) = &col.edit {
-                    let field = ui2.text_field("text_input", FieldKind::Single).label(crate::data::format_now(
-                        &ui2,
-                        "table-edit",
-                        &[("column", col.title.as_str().into())],
-                    ));
+                    let field = ui2.text_field("text_input", FieldKind::Single).label(
+                        crate::data::format_now(&ui2, "table-edit", &[("column", col.title.as_str().into())]),
+                    );
                     field.set_value(&get(&row));
                     let (f2, set, row2) = (field.clone(), set.clone(), row.clone());
                     let commit = Rc::new(move || match set(&row2, f2.value()) {

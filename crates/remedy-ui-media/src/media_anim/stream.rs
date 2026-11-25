@@ -16,8 +16,8 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use crate::media_image::{DecodeError, Source, SourceId, Stamp, decode_for_box, spawn_job};
-use remedy_ui_engine::paint::Image;
 use remedy_ui_core::reactive::Waker;
+use remedy_ui_engine::paint::Image;
 
 use crate::media_anim::policy;
 use crate::media_anim::route::{FrameSource, Loops, Opened, open};

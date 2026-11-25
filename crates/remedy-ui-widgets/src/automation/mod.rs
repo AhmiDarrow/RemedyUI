@@ -27,7 +27,8 @@
 /// for what agents did) in every language the engine ships, from `i18n/*.ftl`. Apps reword
 /// them, or add a language, with [`remedy_ui_engine::view::strings::add_messages`] under the name
 /// `automation`.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("automation");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("automation");
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -37,10 +38,10 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_core::a11y::{Action, Role};
-use remedy_ui_engine::view::{El, Ui};
 use crate::base as w;
 use crate::nav::Commands;
+use remedy_ui_core::a11y::{Action, Role};
+use remedy_ui_engine::view::{El, Ui};
 use serde::{Deserialize, Serialize};
 
 mod transport;

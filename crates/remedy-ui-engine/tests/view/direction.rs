@@ -3,14 +3,14 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Color, Size};
 use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Size};
+use remedy_ui_engine::compositor::Compositor;
+use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
 use remedy_ui_engine::view::{Ui, WindowDirection};
+use remedy_ui_text::FontCollection;
 
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 const BLUE: Color = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };

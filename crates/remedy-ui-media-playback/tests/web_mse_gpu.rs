@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
-use remedy_ui_media_playback::{MediaSource, PlaybackState, Player, PlayerOptions, WebBackend};
 use remedy_ui_engine::paint::GpuAdapter;
+use remedy_ui_media_playback::{MediaSource, PlaybackState, Player, PlayerOptions, WebBackend};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;

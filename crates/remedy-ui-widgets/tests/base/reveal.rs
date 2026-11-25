@@ -1,12 +1,12 @@
 //! `reveal_on_hover`: a slider folded beside its button until the pointer comes over them or
 //! keyboard focus goes in, and reachable by Tab and screen readers while folded.
 
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Key, KeyEvent, PointerEvent, PointerPhase};
 use remedy_ui_core::layout::Align;
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Point, Size};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base as w;
 
 fn ui() -> Ui {

@@ -3,8 +3,8 @@
 //! frame drawn from damage is the same frame on the CPU and the GPU.
 
 use crate::compositor::{CompositeOp, LayerId, TileKey};
-use remedy_ui_core::{Color, CornerRadii, Rect};
 use crate::paint::FilterBudget;
+use remedy_ui_core::{Color, CornerRadii, Rect};
 use vello_cpu::kurbo;
 
 use crate::render_cpu::matrix::{Budget, picture_rect};
@@ -229,9 +229,7 @@ fn walk<T: CompositeTarget>(
                 skip = 1;
             }
             CompositeOp::PushFilter {
-                filter: crate::paint::Filter::ColorMatrix { matrix },
-                region,
-                ..
+                filter: crate::paint::Filter::ColorMatrix { matrix }, region, ..
             } if let Some(m) = matrices.admit(matrix) => {
                 let end = filter_end(all, first + k);
                 let left = areas.last().map_or(budget, |a| a.1);

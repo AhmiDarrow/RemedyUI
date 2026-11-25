@@ -7,16 +7,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Point, Size};
-use remedy_ui_widgets::devtools::Snapshot;
 use remedy_ui_core::input::{PointerEvent, PointerPhase, ScrollPhysics};
-use remedy_ui_media_playback::*;
-use remedy_ui_media::media_video::{Picture, PixelFormat};
+use remedy_ui_core::{Point, Size};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::CpuCompositor;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::{Picture, PixelFormat};
+use remedy_ui_media_playback::*;
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base::Icon;
+use remedy_ui_widgets::devtools::Snapshot;
 
 /// Portal's glyphs, as its page draws them: filled paths, and `.line` paths stroked 1.8 wide.
 fn portal_svg(icon: Icon) -> Option<&'static str> {
@@ -78,7 +78,10 @@ fn pip_button(ui: &Ui) -> El {
         .align(remedy_ui_core::layout::Align::Center)
         .justify(remedy_ui_core::layout::Justify::Center)
         .child(svg(ui, PIP, size))
-        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button).label("Picture in picture"))
+        .semantics(
+            remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button)
+                .label("Picture in picture"),
+        )
 }
 
 /// A frame of Portal's test file (tests/fixtures/portal-frame.png), as a decoder gives it.
@@ -147,7 +150,8 @@ struct Window {
 
 impl Window {
     fn new(id: &str, size: Size) -> Window {
-        let theme = remedy_ui_widgets::themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
+        let theme =
+            remedy_ui_widgets::themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
         let mut fonts = FontCollection::new();
         for face in remedy_ui_fonts::all() {
             let _ = fonts.add_static(face.data);
@@ -435,7 +439,8 @@ fn up_next_reads_as_portals_card_with_a_spaced_label() {
     let ui = view.ui().clone();
     let words = |spaced: bool| {
         let look = remedy_ui_core::style::StylePatch::default().text_size(12.0);
-        let look = if spaced { look.letter_spacing(remedy_ui_core::style::LetterSpacing::Em(0.08)) } else { look };
+        let look =
+            if spaced { look.letter_spacing(remedy_ui_core::style::LetterSpacing::Em(0.08)) } else { look };
         let el = ui.el("label").nowrap().style(look).text("UP NEXT").layout(|l| {
             l.position = remedy_ui_core::layout::Position::Absolute;
             l.inset = remedy_ui_core::Insets {

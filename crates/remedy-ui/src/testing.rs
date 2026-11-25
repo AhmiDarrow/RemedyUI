@@ -27,10 +27,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use remedy_ui_core::a11y::{Action, ReaderNode, Role};
-use remedy_ui_platform::bridge_headless::HeadlessHost;
 use remedy_ui_core::host::{HostEvent, WindowId};
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 
 use crate::{App, AppConfig, GeometryStore, Runner, Window, WindowSpec};
 

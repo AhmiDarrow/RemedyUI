@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_core::{CornerRadii, Point, Rect, Size, Vec2};
+use crate::paint::{Affine, DisplayList};
 use remedy_ui_core::input::{ScrollAxis, ScrollPhysics};
 use remedy_ui_core::motion::{Animation, Motion};
-use crate::paint::{Affine, DisplayList};
+use remedy_ui_core::{CornerRadii, Point, Rect, Size, Vec2};
 
 use crate::compositor::damage::Damage;
 use crate::compositor::layer::{Layer, LayerId, LayerTree, Scrollbars};

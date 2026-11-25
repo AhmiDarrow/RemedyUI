@@ -6,9 +6,9 @@
 //! `REMEDY_SHOTS=<dir>` writes RemedyUI's pictures too.
 
 use remedy_ui_core::Color;
-use remedy_ui_widgets::devtools::{Preview, Snapshot};
 use remedy_ui_core::style::{ColorRef, ColorRole, Gradient, Style};
 use remedy_ui_engine::view::Ui;
+use remedy_ui_widgets::devtools::{Preview, Snapshot};
 
 /// A case's background color: `var(--name)` of Portal's, or a hex color.
 fn color(css: &str) -> ColorRef {

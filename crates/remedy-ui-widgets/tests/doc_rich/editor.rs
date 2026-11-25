@@ -6,10 +6,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::Role;
-use remedy_ui_widgets::doc_rich::*;
 use remedy_ui_core::input::{Key, KeyEvent};
-use remedy_ui_text::{Block, Mark, RichDoc};
 use remedy_ui_engine::view::{El, TextField, Ui};
+use remedy_ui_text::{Block, Mark, RichDoc};
+use remedy_ui_widgets::doc_rich::*;
 
 mod common;
 use common::*;

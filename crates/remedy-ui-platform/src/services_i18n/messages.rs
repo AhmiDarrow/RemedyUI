@@ -288,7 +288,11 @@ impl Messages {
     /// best matching locales first, then the default, and within a locale later sources over
     /// earlier ones. Sources read from the folder `without` are left out (what the app's own
     /// messages say, beneath a person's overrides). Tracked.
-    pub fn entries(&self, locale: &str, without: Option<&Path>) -> Vec<crate::services_i18n::ftl::MessageEntry> {
+    pub fn entries(
+        &self,
+        locale: &str,
+        without: Option<&Path>,
+    ) -> Vec<crate::services_i18n::ftl::MessageEntry> {
         self.0.revision.get();
         let resources = self.0.resources.borrow();
         let origins = self.0.origins.borrow();
@@ -477,7 +481,8 @@ impl Memoizable for LocaleNumbers {
 
 fn format_number(v: &FluentValue<'_>, memo: &IntlLangMemoizer) -> Option<String> {
     let FluentValue::Number(FluentNumber { value, options }) = v else { return None };
-    let max = options.maximum_fraction_digits.map_or(crate::services_i18n::decimal::MAX_SCALE, |m| m.min(28) as u8);
+    let max =
+        options.maximum_fraction_digits.map_or(crate::services_i18n::decimal::MAX_SCALE, |m| m.min(28) as u8);
     let d = Decimal::from_f64(*value, max)?;
     let min = options.minimum_fraction_digits.unwrap_or(0).min(28) as u8;
     let places = d.scale().clamp(min, max.max(min));

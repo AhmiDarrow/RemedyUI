@@ -95,14 +95,14 @@ mod android;
 mod os;
 
 #[cfg(target_os = "android")]
+pub use crate::bridge_winit::RunError;
+#[cfg(target_os = "android")]
+pub use crate::bridge_winit::winit::platform::android::activity::AndroidApp;
+#[cfg(target_os = "android")]
 pub use android::{
     AndroidHooks, ApkInstall, HELD_GRACE, attach, can_request_package_installs, data_dir, hold_process,
     install_apk, launch_extra, log, run, set_held_grace,
 };
-#[cfg(target_os = "android")]
-pub use crate::bridge_winit::RunError;
-#[cfg(target_os = "android")]
-pub use crate::bridge_winit::winit::platform::android::activity::AndroidApp;
 
 /// Declares the app's Android entry point: the activity starts `entry` (a `fn()`) with the
 /// bridge attached, so `run` (and `remedy_ui::run`) find the activity. Compiles to nothing

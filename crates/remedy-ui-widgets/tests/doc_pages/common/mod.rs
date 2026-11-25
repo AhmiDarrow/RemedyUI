@@ -7,15 +7,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
-use remedy_ui_widgets::doc_pages::*;
 use remedy_ui_core::input::{
     Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, WheelEvent,
 };
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
 use remedy_ui_engine::paint::{Affine, Brush, DisplayList, Image, Item, Path, Stroke};
 use remedy_ui_engine::render_cpu::CpuRenderer;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
+use remedy_ui_widgets::doc_pages::*;
 
 /// US Letter, in points.
 pub const LETTER: Size = Size { width: 612.0, height: 792.0 };

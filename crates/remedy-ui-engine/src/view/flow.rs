@@ -474,7 +474,9 @@ pub fn play_enter(el: &El, t: &Transition) {
 /// leaves, then calls `gone` (which removes it).
 pub fn play_exit(el: &El, t: &Transition, gone: impl FnOnce() + 'static) {
     let _ = el.ui.tree().set_hit_mode(el.id, remedy_ui_core::tree::HitMode::None);
-    let _ = el.clone().semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Group).hidden(true));
+    let _ = el
+        .clone()
+        .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Group).hidden(true));
     if t.from.is_empty() {
         gone();
         return;

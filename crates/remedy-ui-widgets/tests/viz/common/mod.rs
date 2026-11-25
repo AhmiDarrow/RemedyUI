@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use std::cell::RefCell;
 
-use remedy_ui_engine::compositor::{Compositor, LayerTree};
-use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::{Color, Point, Size};
+use remedy_ui_engine::compositor::{Compositor, LayerTree};
 use remedy_ui_engine::render_cpu::CpuCompositor;
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::viz::Clock;
 
 pub const SIZE: Size = Size { width: 300.0, height: 400.0 };
@@ -126,7 +126,10 @@ pub fn audit(ui: &Ui) -> Vec<String> {
             format!(
                 "{} [{}]",
                 p.message(),
-                ui.element(p.element).info().map(|i| remedy_ui_widgets::devtools::describe(&i)).unwrap_or_default()
+                ui.element(p.element)
+                    .info()
+                    .map(|i| remedy_ui_widgets::devtools::describe(&i))
+                    .unwrap_or_default()
             )
         })
         .collect()

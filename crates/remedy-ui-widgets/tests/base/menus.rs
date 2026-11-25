@@ -5,11 +5,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{ReaderNode, Role};
-use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_core::reactive::Signal;
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_engine::view::{El, FieldKind, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base::{self as w, MenuItem};
 
 struct T {

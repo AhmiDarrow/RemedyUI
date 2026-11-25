@@ -3,15 +3,15 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, LayerTree};
-use remedy_ui_core::{Color, ColorMatrix, Size};
 use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_core::layout::Length;
+use remedy_ui_core::style::{Shadow, States, Style, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::{Color, ColorMatrix, Size};
+use remedy_ui_engine::compositor::{Compositor, LayerTree};
 use remedy_ui_engine::paint::{Filter, Item};
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
-use remedy_ui_core::style::{Shadow, States, Style, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::Ui;
+use remedy_ui_text::FontCollection;
 
 fn ui() -> Ui {
     let mut sheet = StyleSheet::new();
@@ -230,10 +230,10 @@ fn each_side_can_have_its_own_border() {
     assert_eq!(at(98, 40), [255, 255, 255, 255], "no border at the end");
     assert_eq!(at(60, 58), [255, 255, 255, 255], "nor at the bottom");
     assert!(
-        items(&tree)
-            .iter()
-            .any(|i| matches!(i, Item::StrokePath { stroke, brush: remedy_ui_engine::paint::Brush::Solid(c), .. }
-            if *c == blue && stroke.dashes == [6.0, 6.0])),
+        items(&tree).iter().any(
+            |i| matches!(i, Item::StrokePath { stroke, brush: remedy_ui_engine::paint::Brush::Solid(c), .. }
+            if *c == blue && stroke.dashes == [6.0, 6.0])
+        ),
         "the start is a dashed blue stroke"
     );
     // The content sits inside each side's own width.

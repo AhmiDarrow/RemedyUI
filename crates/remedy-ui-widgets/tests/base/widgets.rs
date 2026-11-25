@@ -4,13 +4,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::Compositor;
-use remedy_ui_core::{Point, Size};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Point, Size};
+use remedy_ui_engine::compositor::Compositor;
 use remedy_ui_engine::render_cpu::{CpuCompositor, Frame};
-use remedy_ui_text::FontCollection;
 use remedy_ui_engine::view::{El, Request, Ui};
+use remedy_ui_text::FontCollection;
 use remedy_ui_widgets::base as w;
 
 struct T {
@@ -377,7 +377,8 @@ fn a_tooltip_in_the_corner_stays_inside_the_window() {
     let mut t = T::new();
     // A gear at the top right, its tooltip long: it must slide back, not run off the edge.
     let b = w::icon_button(&t.ui, w::Icon::Settings, "Settings and preferences for this window", || {});
-    t.ui.root().child(w::row(&t.ui).fill_width().justify(remedy_ui_engine::view::Justify::End).child(b.clone()));
+    t.ui.root()
+        .child(w::row(&t.ui).fill_width().justify(remedy_ui_engine::view::Justify::End).child(b.clone()));
     t.frame();
     let c = b.bounds().unwrap_or_default().center();
     t.ui.pointer(&ptr(PointerPhase::Move, c, Buttons::default()));
@@ -465,7 +466,10 @@ fn assistive_technology_can_dismiss_a_toast_as_a_click_does() {
     t.frame();
     assert!(t.ui.tree().len() > before);
     let s = toast.composed_semantics().unwrap_or_else(|| unreachable!("a toast has semantics"));
-    assert!(s.actions().contains(&remedy_ui_core::a11y::Action::Click), "the click that dismisses it is offered");
+    assert!(
+        s.actions().contains(&remedy_ui_core::a11y::Action::Click),
+        "the click that dismisses it is offered"
+    );
     assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_core::a11y::Action::Click));
     t.frame();
     assert_eq!(t.ui.tree().len(), before, "dismissed before its time");
@@ -476,8 +480,10 @@ fn toasts_showing_together_stack_in_the_corner_asked_for() {
     let mut t = T::new();
     t.frame();
     let before = t.ui.tree().len();
-    let first = w::toast_at(&t.ui, "Shared Photos", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
-    let second = w::toast_at(&t.ui, "Invite copied", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
+    let first =
+        w::toast_at(&t.ui, "Shared Photos", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
+    let second =
+        w::toast_at(&t.ui, "Invite copied", Duration::from_secs(60), remedy_ui_core::layout::Align::End);
     t.frame();
     let (a, b) = (first.bounds().unwrap_or_default(), second.bounds().unwrap_or_default());
     assert!(a.max.y <= b.min.y, "the newer toast sits under the older one, not on it: {a:?} {b:?}");
@@ -1035,7 +1041,11 @@ fn choices_with_nothing_chosen_take_arrows_and_letters() {
     // Its list is a list box of options, the chosen one selected.
     let reader = t.ui.reader_view();
     assert!(reader.iter().any(|n| n.role == remedy_ui_core::a11y::Role::ListBox), "a list box");
-    assert_eq!(reader.iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Option).count(), 3, "three options");
+    assert_eq!(
+        reader.iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Option).count(),
+        3,
+        "three options"
+    );
     assert!(t.key(Key::Escape));
     t.frame();
     assert_eq!(said().expanded_state(), Some(false), "closed again");

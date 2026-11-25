@@ -4,17 +4,17 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::paint::{Brush, DisplayList};
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_core::host::{ImeEvent, TextInputState};
 use remedy_ui_core::input::{Key, KeyEvent, Modifiers, Platform};
-use crate::paint::{Brush, DisplayList};
 use remedy_ui_core::style::{ResolvedStyle, Theme};
+use remedy_ui_core::tree::Dirty;
+use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_text::{
     Block, CodeEditor, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
     SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextSelection, TextStyle,
 };
-use remedy_ui_core::tree::Dirty;
 
 use crate::view::decoration::{self, Decoration, DecorationKind};
 use crate::view::element::{El, Ui};
@@ -700,7 +700,9 @@ impl Field {
         let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
             FieldKind::Multi | FieldKind::Rich | FieldKind::Code => Role::MultilineTextInput,
-            FieldKind::Single if self.purpose == remedy_ui_core::host::InputPurpose::Search => Role::SearchInput,
+            FieldKind::Single if self.purpose == remedy_ui_core::host::InputPurpose::Search => {
+                Role::SearchInput
+            }
             FieldKind::Single => Role::TextInput,
         });
         if let Some(l) = &self.label {
@@ -751,7 +753,9 @@ impl Field {
                 // A secret is a password unless the app says it is a code or a PIN.
                 v_.enter = self.enter;
                 v_.purpose = match self.purpose {
-                    remedy_ui_core::host::InputPurpose::Text => remedy_ui_core::host::InputPurpose::CurrentPassword,
+                    remedy_ui_core::host::InputPurpose::Text => {
+                        remedy_ui_core::host::InputPurpose::CurrentPassword
+                    }
                     p => p,
                 };
                 v_

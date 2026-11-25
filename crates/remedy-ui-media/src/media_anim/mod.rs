@@ -28,7 +28,8 @@
 /// The animation view's own words (its play button's names) in every language the engine
 /// ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_engine::view::strings::add_messages`] under the name `media-anim`.
-pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("media-anim");
+pub static STRINGS: remedy_ui_engine::view::strings::Strings =
+    remedy_ui_engine::engine_strings!("media-anim");
 
 #[cfg(any(feature = "media-anim-gif", feature = "media-anim-apng", feature = "media-anim-webp"))]
 mod canvas;
@@ -43,17 +44,17 @@ mod view;
 use std::any::Any;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Insets, Point, Rect};
-use remedy_ui_core::layout::{AUTO, Align, Justify, Position};
 use crate::media_image::{ImageState, Loader, image_with};
-use remedy_ui_engine::paint::{Brush, Item, Path};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::layout::{AUTO, Align, Justify, Position};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::StylePatch;
+use remedy_ui_core::{CornerRadii, Insets, Point, Rect};
+use remedy_ui_engine::paint::{Brush, Item, Path};
 use remedy_ui_engine::view::{El, Ui};
 
-pub use policy::set_memory_budget;
 pub use crate::media_image::{Fit, Source};
+pub use policy::set_memory_budget;
 pub use stream::{cached, resident_frames, trim_memory};
 
 use view::{Control, Lease};

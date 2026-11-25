@@ -13,12 +13,12 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{Color, Point, Rect, Size};
 use crate::input::{GamepadTuning, KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
+use crate::{Color, Point, Rect, Size};
 
 mod badge;
-pub use badge::Badge;
 pub use crate::input::Cursor;
+pub use badge::Badge;
 
 pub use accesskit;
 pub use raw_window_handle;

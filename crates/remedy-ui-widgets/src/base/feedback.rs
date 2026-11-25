@@ -3,10 +3,10 @@
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_core::layout::{Align, Length, Position};
-use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{CornerRadii, Point, Rect};
+use remedy_ui_engine::paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_engine::view::{El, IntoProp, PaintCx, Ui};
 
 /// How long one turn of an engine-drawn indeterminate animation takes.

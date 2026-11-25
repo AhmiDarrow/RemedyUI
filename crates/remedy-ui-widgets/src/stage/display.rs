@@ -4,13 +4,13 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::{CornerRadii, Rect, Size};
-use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::Brush;
-use remedy_ui_core::reactive::untrack;
-use remedy_ui_engine::view::{El, IntoProp, PaintCx, RichText, Ui};
 use crate::viz::{Clock, Moved};
+use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::reactive::untrack;
+use remedy_ui_core::{CornerRadii, Rect, Size};
+use remedy_ui_engine::paint::Brush;
+use remedy_ui_engine::view::{El, IntoProp, PaintCx, RichText, Ui};
 
 use crate::stage::common::Motion;
 

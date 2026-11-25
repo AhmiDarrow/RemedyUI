@@ -5,12 +5,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Color, Rect};
+use crate::viz::{Clock, Moved, Ticker};
 use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_core::reactive::untrack;
 use remedy_ui_core::style::{ColorRole, Theme};
+use remedy_ui_core::{Color, Rect};
 use remedy_ui_engine::view::{El, TickKind, Ui};
-use crate::viz::{Clock, Moved, Ticker};
 
 /// A color for art and strokes: a theme role (which follows the theme) or a fixed color.
 ///
@@ -278,7 +278,11 @@ impl LineStyle {
     }
 
     /// Strokes `path` with this style under the painter's theme.
-    pub(crate) fn stroke(&self, cx: &mut remedy_ui_engine::view::PaintCx<'_>, path: remedy_ui_engine::paint::Path) {
+    pub(crate) fn stroke(
+        &self,
+        cx: &mut remedy_ui_engine::view::PaintCx<'_>,
+        path: remedy_ui_engine::paint::Path,
+    ) {
         let t = cx.theme;
         let mut stroke = remedy_ui_engine::paint::Stroke::new(self.width.unwrap_or(t.stroke.max(1.0)));
         stroke.cap = remedy_ui_engine::paint::StrokeCap::Round;

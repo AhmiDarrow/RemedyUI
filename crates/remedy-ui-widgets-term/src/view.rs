@@ -10,15 +10,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Live, Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_core::host::ImeEvent;
-use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::input::{
+    Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase, WheelEvent,
+};
 use remedy_ui_core::layout::Length;
-use remedy_ui_engine::paint::{Brush, DisplayList, GlyphRun, Item, Path, Stroke};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::style::Theme;
-use remedy_ui_text::{Antialias, Hinting, ParagraphOptions, RichText, RunFont, TextStyle};
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_engine::paint::{Brush, DisplayList, GlyphRun, Item, Path, Stroke};
 use remedy_ui_engine::view::{El, PaintCx, TextInput, Ui};
+use remedy_ui_text::{Antialias, Hinting, ParagraphOptions, RichText, RunFont, TextStyle};
 
 use crate::boxdraw;
 use crate::cell::{Attrs, Cell, Line, Underline};
@@ -2090,7 +2092,9 @@ fn paint_row(cx: &mut PaintCx<'_>, v: &RowView, look: &mut Look, cache: &mut Gly
             let image = cache
                 .pictures
                 .entry(pic.id)
-                .or_insert_with(|| remedy_ui_engine::paint::Image::new(pic.width, pic.height, pic.rgba.clone()))
+                .or_insert_with(|| {
+                    remedy_ui_engine::paint::Image::new(pic.width, pic.height, pic.rgba.clone())
+                })
                 .clone();
             let (pw, ph) = (piece.cell_px.0.max(1) as f32, piece.cell_px.1.max(1) as f32);
             let (w, h) = (pic.width as f32 * cw / pw, pic.height as f32 * lh / ph);

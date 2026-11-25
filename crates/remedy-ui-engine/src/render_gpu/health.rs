@@ -131,7 +131,8 @@ pub fn verdict(key: &str) -> Option<Verdict> {
 /// Records `verdict` for the backend `key` (written through when a folder is set).
 pub fn record(key: &str, verdict: Verdict) {
     with(|h| {
-        if h.verdicts.len() >= crate::render_gpu::gpu_limits().health_entries && !h.verdicts.contains_key(key) {
+        if h.verdicts.len() >= crate::render_gpu::gpu_limits().health_entries && !h.verdicts.contains_key(key)
+        {
             return;
         }
         h.verdicts.insert(key.to_string(), verdict);
@@ -181,8 +182,8 @@ fn write_file(h: &Health) {
 
 /// The self-test scene, 64 × 64 at scale 1: what interfaces draw most.
 fn scene() -> crate::paint::DisplayList {
-    use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect};
     use crate::paint::{Brush, DisplayList, Filter, Image, Item, Sampling, Stop};
+    use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect};
     let mut l = DisplayList::new();
     l.fill_rect(Rect::new(0.0, 0.0, 32.0, 32.0), Brush::Solid(Color::rgb8(230, 40, 30)));
     l.fill_rect(Rect::new(32.0, 0.0, 64.0, 32.0), Brush::Solid(Color::rgb8(30, 180, 60)));
@@ -408,13 +409,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(compare(&[0; 8], &[0; 4]).worst == 255, "a frame of the wrong size is wrong");
         // The reference scene against a black frame (what a broken driver often gives).
-        let Ok(want) = crate::render_cpu::CpuRenderer::new().render(
-            &scene(),
-            64,
-            64,
-            1.0,
-            remedy_ui_core::Color::WHITE,
-        ) else {
+        let Ok(want) =
+            crate::render_cpu::CpuRenderer::new().render(&scene(), 64, 64, 1.0, remedy_ui_core::Color::WHITE)
+        else {
             unreachable!("renders")
         };
         let off = compare(&want.pixels, &vec![0; want.pixels.len()]);

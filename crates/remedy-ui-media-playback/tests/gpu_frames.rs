@@ -11,9 +11,9 @@
 use std::time::Duration;
 
 use remedy_ui_core::{Color, CornerRadii, Rect};
-use remedy_ui_media_playback::*;
 use remedy_ui_engine::paint::{DisplayList, Item, VideoFrame};
 use remedy_ui_engine::render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+use remedy_ui_media_playback::*;
 
 fn clip() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clip.mp4")

@@ -3,8 +3,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use remedy_ui_macros::Store;
 use remedy_ui_core::reactive::{Effect, Segment, Store, StoreError, batch};
+use remedy_ui_macros::Store;
 
 #[derive(Store, Clone, PartialEq, Debug)]
 struct Message {

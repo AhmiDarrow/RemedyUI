@@ -44,7 +44,10 @@ pub(crate) trait Frames: Send {
 pub(crate) enum Opened {
     /// Frames to play.
     // A build with no animated format opens none.
-    #[cfg_attr(not(any(feature = "media-anim-gif", feature = "media-anim-apng", feature = "media-anim-webp")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(feature = "media-anim-gif", feature = "media-anim-apng", feature = "media-anim-webp")),
+        allow(dead_code)
+    )]
     Animated(Box<dyn Frames>),
     /// One picture (a still image of any format the image loader reads).
     Still,
@@ -147,8 +150,7 @@ impl crate::media_image::Format for ApngFirstFrame {
         let frame = apng
             .next()?
             .ok_or_else(|| DecodeError::Malformed(String::from("the animation has no frames")))?;
-        let image =
-            crate::media_image::finish_rgba(size.0, size.1, frame.rgba, profile.as_ref(), show_at)?;
+        let image = crate::media_image::finish_rgba(size.0, size.1, frame.rgba, profile.as_ref(), show_at)?;
         Ok(crate::media_image::Decoded::new(image, size))
     }
 }

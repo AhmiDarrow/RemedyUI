@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Color, Insets, Size, Vec2};
 use remedy_ui_core::reactive::{Executor, Job, Resource, Signal, run_posted, use_context};
 use remedy_ui_core::style::{ColorRole, Dp, Radius, Space, States, Style, StylePatch, StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_core::{Color, Insets, Size, Vec2};
 use remedy_ui_engine::view::motion::{Easing, Motion, Target};
 use remedy_ui_engine::view::{El, FailurePhase, Request, Transition, Ui, catch_errors, show, suspense};
+use remedy_ui_text::FontCollection;
 
 /// Unwraps what a test needs, failing it with `why`.
 trait Must<T> {

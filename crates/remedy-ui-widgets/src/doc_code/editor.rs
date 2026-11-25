@@ -4,10 +4,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_text::RichText;
-use remedy_ui_engine::view::{CodeColors, El, FieldKind, TextField, Ui};
 use crate::base as w;
+use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_engine::view::{CodeColors, El, FieldKind, TextField, Ui};
+use remedy_ui_text::RichText;
 
 use crate::doc_code::highlight::{Highlighter, Kind};
 use crate::doc_code::view::CodeOptions;

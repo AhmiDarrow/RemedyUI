@@ -467,7 +467,8 @@ impl VkChain {
             let _ = device.poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: None });
         }
         // How long to wait for the next image before reporting the swapchain busy.
-        let wait = u64::try_from(crate::render_gpu::gpu_limits().swapchain_wait.as_nanos()).unwrap_or(u64::MAX);
+        let wait =
+            u64::try_from(crate::render_gpu::gpu_limits().swapchain_wait.as_nanos()).unwrap_or(u64::MAX);
         // SAFETY: an acquire on this chain's swapchain with an unsignalled semaphore of its own.
         let index = match unsafe {
             self.swapchain_fns.acquire_next_image(self.raw, wait, semaphore, vk::Fence::null())

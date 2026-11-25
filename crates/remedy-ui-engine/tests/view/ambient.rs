@@ -5,11 +5,13 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_core::{Point, Size, Vec2};
 use remedy_ui_core::layout::Length;
 use remedy_ui_core::style::{StyleSheet, Theme};
+use remedy_ui_core::{Point, Size, Vec2};
+use remedy_ui_engine::view::{
+    AmbientLoop, AmbientMode, AmbientPolicy, AmbientTick, El, Request, TickKind, Ui,
+};
 use remedy_ui_text::FontCollection;
-use remedy_ui_engine::view::{AmbientLoop, AmbientMode, AmbientPolicy, AmbientTick, El, Request, TickKind, Ui};
 
 const SIZE: Size = Size { width: 200.0, height: 120.0 };
 

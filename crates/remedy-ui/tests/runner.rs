@@ -10,8 +10,8 @@ use remedy_ui::layout::Length;
 use remedy_ui::reactive::Signal;
 use remedy_ui::style::{States, StylePatch, StyleSheet};
 use remedy_ui::{App, AppConfig, FieldKind, GeometryStore, Runner, WindowSpec};
-use remedy_ui_platform::bridge_headless::HeadlessHost;
 use remedy_ui_core::{Color, Point, Size};
+use remedy_ui_platform::bridge_headless::HeadlessHost;
 
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 

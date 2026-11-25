@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
-use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Vec2};
+use remedy_ui_engine::compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_engine::paint::{Blend, Brush, DisplayList, Filter, Item, Path};
 use remedy_ui_engine::render_cpu::{CpuCompositor, CpuRenderer, Frame};
 use remedy_ui_engine::render_gpu::*;
@@ -405,7 +405,10 @@ fn random_list(rng: &mut Rng, mats: &mut Rng) -> DisplayList {
                 color: c,
             })),
             6 => l.push(Item::PopFilter),
-            7 => l.push(Item::PushLayer { opacity: rng.f(0.0, 1.0), blend: remedy_ui_engine::paint::Blend::Normal }),
+            7 => l.push(Item::PushLayer {
+                opacity: rng.f(0.0, 1.0),
+                blend: remedy_ui_engine::paint::Blend::Normal,
+            }),
             8 => l.push(Item::PopLayer),
             9 => l.push_clip(r, CornerRadii::all(rng.f(0.0, 8.0))),
             10 => l.pop_clip(),
@@ -567,7 +570,8 @@ fn recoloured() -> DisplayList {
     l.pop_filter();
     // Inverted half-transparent content, rotated.
     l.push(Item::PushTransform(
-        remedy_ui_engine::paint::Affine::rotate(0.4).then(remedy_ui_engine::paint::Affine::translate(Vec2::new(60.0, 90.0))),
+        remedy_ui_engine::paint::Affine::rotate(0.4)
+            .then(remedy_ui_engine::paint::Affine::translate(Vec2::new(60.0, 90.0))),
     ));
     l.push_filter(Filter::ColorMatrix {
         matrix: ColorMatrix::invert(1.0).then(&ColorMatrix::hue_rotate(90.0)),

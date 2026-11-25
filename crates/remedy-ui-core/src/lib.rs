@@ -39,12 +39,12 @@ pub use scrollbar::{ScrollbarColor, ScrollbarVisibility, ScrollbarWidth};
 pub use text::{LineHeight, TextAlign, TextTransform};
 pub use units::Scale;
 
-pub mod input;
 pub mod a11y;
+pub mod host;
+pub mod input;
 pub mod layout;
 pub mod motion;
-pub mod tree;
-pub mod style;
-pub mod host;
 pub mod reactive;
+pub mod style;
 pub mod testing;
+pub mod tree;

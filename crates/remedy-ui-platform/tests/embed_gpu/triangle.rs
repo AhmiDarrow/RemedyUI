@@ -10,8 +10,8 @@ use std::rc::Rc;
 
 use common::*;
 use remedy_ui_core::Point;
-use remedy_ui_platform::embed_gpu::*;
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_platform::embed_gpu::*;
 
 /// Checks the triangle in the composed frame at angle 0, then turned half a circle.
 fn rotates(gpu: bool) {
@@ -92,7 +92,10 @@ fn animating_renders_a_new_picture_every_frame_until_stopped() {
         s.frame();
     }
     assert_eq!(view.stats().rendered, 4, "one per frame");
-    assert!(s.ui.take_requests().contains(&remedy_ui_engine::view::Request::Frame), "asks for the next frame");
+    assert!(
+        s.ui.take_requests().contains(&remedy_ui_engine::view::Request::Frame),
+        "asks for the next frame"
+    );
     view.set_animating(false);
     s.frame();
     let before = view.stats().rendered;

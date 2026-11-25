@@ -4,11 +4,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Point, Rect};
 use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerPhase};
 use remedy_ui_core::layout::{AUTO, Align, Position};
 use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_core::style::States;
+use remedy_ui_core::{Insets, Point, Rect};
 use remedy_ui_engine::view::{El, MenuKey, Prop, RichText, Ui};
 
 use crate::base::menus::{BarLink, Chain, MenuItem, Open, alt_shows_keys, mnemonic_text};

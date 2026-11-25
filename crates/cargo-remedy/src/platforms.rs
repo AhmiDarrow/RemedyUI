@@ -810,8 +810,8 @@ mod tests {
         );
         // Every class the manifest names is in the bridge's dex the APK carries (a dex file
         // names its classes).
-        let bridge =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../remedy-ui-platform/bridge-android/dex/classes.dex");
+        let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../remedy-ui-platform/bridge-android/dex/classes.dex");
         let dex = std::fs::read(&bridge).unwrap_or_default();
         assert!(dex.starts_with(b"dex\n"), "{}", bridge.display());
         assert!(

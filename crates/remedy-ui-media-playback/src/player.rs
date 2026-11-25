@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use remedy_ui_media::media_video::VideoSink;
 use remedy_ui_core::reactive::{Memo, Signal};
 use remedy_ui_engine::view::{El, Ui};
+use remedy_ui_media::media_video::VideoSink;
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
@@ -2423,7 +2423,8 @@ impl Player {
             return;
         }
         if on {
-            let (full, theater) = remedy_ui_core::reactive::untrack(|| (self.is_fullscreen(), self.is_theater()));
+            let (full, theater) =
+                remedy_ui_core::reactive::untrack(|| (self.is_fullscreen(), self.is_theater()));
             if full {
                 self.request_fullscreen(false);
             }

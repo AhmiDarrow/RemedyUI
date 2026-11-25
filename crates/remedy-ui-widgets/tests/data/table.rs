@@ -6,9 +6,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use remedy_ui_core::{Point, Vec2};
 use remedy_ui_core::input::{Buttons, Key, PointerPhase};
 use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::{Point, Vec2};
 use remedy_ui_engine::view::{El, Ui};
 use remedy_ui_widgets::base as w;
 use remedy_ui_widgets::data::*;

@@ -1,7 +1,7 @@
 //! Rich documents to Markdown and back.
 
-use remedy_ui_widgets::doc_rich::{MarkdownFormat, RichFormat};
 use remedy_ui_text::{Block, Mark, RichDoc};
+use remedy_ui_widgets::doc_rich::{MarkdownFormat, RichFormat};
 
 fn round_trip(doc: RichDoc) {
     let doc = doc.normalized();

@@ -1,7 +1,7 @@
 //! Themes, contrast and resolution.
 
-use remedy_ui_core::{Color, Insets};
 use remedy_ui_core::style::*;
+use remedy_ui_core::{Color, Insets};
 
 #[test]
 fn ensure_contrast_moves_only_as_far_as_needed() {

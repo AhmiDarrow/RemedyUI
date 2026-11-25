@@ -110,7 +110,8 @@ mod platform {
     pub(super) type Hold = crate::services_desktop::os::power::Request;
 
     pub(super) fn on_battery() -> Result<bool, DesktopError> {
-        crate::services_desktop::os::power::on_battery().map_err(|r| DesktopError::unsupported("power status", r))
+        crate::services_desktop::os::power::on_battery()
+            .map_err(|r| DesktopError::unsupported("power status", r))
     }
 
     pub(super) fn watch(f: Callback) -> Result<Watch, DesktopError> {
@@ -118,7 +119,8 @@ mod platform {
     }
 
     pub(super) fn inhibit(kind: Inhibit, _app: &str, reason: &str) -> Result<Hold, DesktopError> {
-        crate::services_desktop::os::power::request(kind == Inhibit::Display, reason).map_err(DesktopError::platform)
+        crate::services_desktop::os::power::request(kind == Inhibit::Display, reason)
+            .map_err(DesktopError::platform)
     }
 }
 
@@ -130,7 +132,8 @@ mod platform {
     pub(super) type Hold = crate::services_desktop::os::macos::Assertion;
 
     pub(super) fn on_battery() -> Result<bool, DesktopError> {
-        crate::services_desktop::os::macos::on_battery().map_err(|r| DesktopError::unsupported("power status", r))
+        crate::services_desktop::os::macos::on_battery()
+            .map_err(|r| DesktopError::unsupported("power status", r))
     }
 
     pub(super) fn watch(f: Callback) -> Result<Watch, DesktopError> {
@@ -139,7 +142,8 @@ mod platform {
 
     pub(super) fn inhibit(kind: Inhibit, app: &str, reason: &str) -> Result<Hold, DesktopError> {
         let what = if reason.is_empty() { app.to_owned() } else { format!("{app}: {reason}") };
-        crate::services_desktop::os::macos::assert_awake(kind == Inhibit::Display, &what).map_err(DesktopError::platform)
+        crate::services_desktop::os::macos::assert_awake(kind == Inhibit::Display, &what)
+            .map_err(DesktopError::platform)
     }
 }
 

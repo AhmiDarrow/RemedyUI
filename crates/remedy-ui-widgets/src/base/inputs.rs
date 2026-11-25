@@ -64,9 +64,12 @@ pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
     let f = field.clone();
     let shown = remedy_ui_core::reactive::Signal::new(false);
     let u = ui.clone();
-    let b = crate::base::icon_button(ui, crate::base::Icon::Eye, crate::base::tr(ui, "show-password"), move || {
-        shown.update(|v| *v = !*v)
-    });
+    let b = crate::base::icon_button(
+        ui,
+        crate::base::Icon::Eye,
+        crate::base::tr(ui, "show-password"),
+        move || shown.update(|v| *v = !*v),
+    );
     let b2 = b.clone();
     b.bind(move || {
         let on = shown.get();
