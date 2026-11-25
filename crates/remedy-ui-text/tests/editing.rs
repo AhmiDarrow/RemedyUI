@@ -56,6 +56,15 @@ fn ctrl_backspace_deletes_the_previous_word() {
     assert_eq!(ed.text(), "one two ");
     ed.delete_word(false, 1);
     assert_eq!(ed.text(), "one ");
+    // A long rule with no word in reach: a step takes part of it, never the text beyond it.
+    let rule = "-".repeat(5000);
+    let mut ed = TextEditor::new(&format!("keep this\n{rule}"));
+    ed.delete_word(false, 2);
+    assert!(ed.text().starts_with("keep this\n-"), "{} bytes left", ed.len());
+    let mut ed = TextEditor::new(&format!("{rule}keep"));
+    ed.set_selection(0, 0);
+    ed.delete_word(true, 3);
+    assert!(ed.text().ends_with("-keep"), "{} bytes left", ed.len());
 }
 
 #[test]

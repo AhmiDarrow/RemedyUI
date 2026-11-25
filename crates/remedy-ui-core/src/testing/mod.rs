@@ -4,8 +4,9 @@
 //! drive an app the way a user would and check exactly what each frame had to do. Time only
 //! moves when the test moves it, so animations, timers and debounces are deterministic.
 //!
-//! This is the M1 cut: tree, clock, timers, posted work, scripted events and focus. Layout,
-//! rendering, input recognition and screenshots join as their crates land.
+//! It covers what this crate holds: the tree, the clock, timers, posted work, scripted events
+//! and focus. Layout, rendering, input recognition and screenshots are tested through the
+//! engine's own views, on the headless bridge.
 //!
 //! ```
 //! use remedy_ui_core::reactive::{Effect, Signal};
@@ -138,13 +139,17 @@ impl Harness {
     pub fn after(&self, delay: Duration, f: impl FnOnce() + 'static) {
         let seq = self.next_seq.get();
         self.next_seq.set(seq + 1);
-        self.timers.borrow_mut().push(Timer { due: self.now.get() + delay, seq, f: Box::new(f) });
+        self.timers.borrow_mut().push(Timer {
+            due: self.now.get().saturating_add(delay),
+            seq,
+            f: Box::new(f),
+        });
     }
 
     /// Moves the clock forward, firing every timer that comes due, in time order (ties in the
     /// order they were set). Each timer runs in its own batch. Returns how many fired.
     pub fn advance(&self, by: Duration) -> usize {
-        let end = self.now.get() + by;
+        let end = self.now.get().saturating_add(by);
         let mut fired = 0;
         loop {
             let next = {

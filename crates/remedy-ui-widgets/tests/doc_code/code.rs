@@ -175,6 +175,16 @@ fn highlighting_after_an_edit_colors_only_what_changed() {
 }
 
 #[test]
+fn lines_added_at_the_end_are_colored_in_the_state_the_code_above_left() {
+    let mut h = Highlighter::new("rs");
+    h.update("fn a() {}\n/* open");
+    let longer = "fn a() {}\n/* open\nstill a comment\n";
+    let incremental: Vec<LineRuns> = h.update(longer).to_vec();
+    assert_eq!(incremental, highlight(longer, "rs"));
+    assert_eq!(incremental.get(2).and_then(|l| l.first()).map(|(_, k)| *k), Some(Kind::Comment));
+}
+
+#[test]
 fn the_code_editor_types_at_several_cursors_and_numbers_its_lines() {
     use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
     let ui = ui();

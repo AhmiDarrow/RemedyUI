@@ -51,7 +51,7 @@ fn secs(d: Duration) -> f64 {
 }
 
 fn duration(s: f64) -> Duration {
-    if s.is_finite() { Duration::from_secs_f64(s.max(0.0)) } else { Duration::ZERO }
+    Duration::try_from_secs_f64(s.max(0.0)).unwrap_or_default()
 }
 
 /// A `TimeRanges` as media time.

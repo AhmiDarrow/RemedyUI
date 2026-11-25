@@ -317,12 +317,13 @@ impl Child {
     /// Waits up to `grace` for its process to end (its standard error closing: no other
     /// process holds it), stopping it after that.
     pub(crate) fn wait_exit(&mut self, grace: Duration) -> (String, String) {
-        let until = Instant::now() + grace;
+        // A grace too long for the clock has no end.
+        let until = Instant::now().checked_add(grace);
         let ended = loop {
             if self.read_err() {
                 break true;
             }
-            if Instant::now() >= until {
+            if until.is_some_and(|u| Instant::now() >= u) {
                 break false;
             }
             std::thread::sleep(Duration::from_millis(1));

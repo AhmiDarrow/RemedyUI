@@ -145,7 +145,9 @@ impl NumberSymbols {
                 .clone()
         });
         let (m, s) = v.parts();
-        let below = options.threshold.is_some_and(|t| Decimal::new(m.abs(), s).is_some_and(|a| a < t));
+        let below = options
+            .threshold
+            .is_some_and(|t| m.checked_abs().and_then(|a| Decimal::new(a, s)).is_some_and(|a| a < t));
         let (Some(fs), Ok(mut d)) = (fs, v.to_string().parse::<IcuDecimal>()) else {
             return self.format(v, v.scale());
         };

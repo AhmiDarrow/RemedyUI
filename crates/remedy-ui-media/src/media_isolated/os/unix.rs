@@ -350,11 +350,14 @@ impl Child {
     }
 
     pub(crate) fn wait_exit(&mut self, grace: Duration) -> (String, String) {
-        let until = Instant::now() + grace;
+        // A grace too long for the clock has no end.
+        let until = Instant::now().checked_add(grace);
         let status = loop {
             match self.proc.try_wait() {
                 Ok(Some(s)) => break Some(s),
-                Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(1)),
+                Ok(None) if until.is_none_or(|u| Instant::now() < u) => {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
                 _ => {
                     self.killer().kill();
                     break self.proc.wait().ok();

@@ -1,5 +1,5 @@
 //! Images from addresses in a real browser page (run with the web bridge's
-//! `tools/web-test.sh`, which starts `tools/test-serve.py` on another port, so every image is
+//! `tools/web-test.sh`, which starts `media-image/tools/test-serve.py` on another port, so every image is
 //! from another origin): a server that allows it (CORS) shows, its real size reported; one
 //! that does not fails, saying why, and the app's fallback shows, unless the app names an
 //! image proxy (`set_web_proxy`), through which it shows; a fetch is aborted when its element

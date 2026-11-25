@@ -133,7 +133,11 @@ pub fn record(key: &str, verdict: Verdict) {
     with(|h| {
         if h.verdicts.len() >= crate::render_gpu::gpu_limits().health_entries && !h.verdicts.contains_key(key)
         {
-            return;
+            // Full. A verdict for another engine version is never asked for again (the version
+            // is part of the key), so one of those makes room; without one, nothing is added.
+            let version = concat!(" v", env!("CARGO_PKG_VERSION"));
+            let Some(stale) = h.verdicts.keys().find(|k| !k.ends_with(version)).cloned() else { return };
+            h.verdicts.remove(&stale);
         }
         h.verdicts.insert(key.to_string(), verdict);
         write_file(h);
@@ -169,7 +173,19 @@ fn read_file(dir: &std::path::Path) -> Vec<(String, Verdict)> {
 
 fn write_file(h: &Health) {
     let Some(dir) = &h.dir else { return };
-    let mut lines: Vec<String> = h.verdicts.iter().map(|(k, v)| format!("{k}\t{}", v.word())).collect();
+    // A line longer than the reader takes would be skipped: a long reason is cut to fit.
+    let most = crate::render_gpu::gpu_limits().health_line;
+    let mut lines: Vec<String> = h
+        .verdicts
+        .iter()
+        .map(|(k, v)| {
+            let mut line = format!("{k}\t{}", v.word());
+            while line.len() > most {
+                line.pop();
+            }
+            line
+        })
+        .collect();
     lines.sort();
     let body = lines.join("\n") + "\n";
     let path = dir.join(FILE);
@@ -248,12 +264,19 @@ fn run_self_test(ctx: &GpuContext) -> Result<(), GpuError> {
     let want = crate::render_cpu::CpuRenderer::new()
         .render(&list, 64, 64, 1.0, Color::WHITE)
         .map_err(|e| GpuError::Render(format!("the CPU reference: {e}")))?;
+    // Errors from before the test (opening the device) are not the test's: kept for the app.
+    let earlier = ctx.take_errors();
     let mut gpu = crate::render_gpu::GpuRenderer::new(ctx.clone(), None);
-    let got = gpu.render(&list, 64, 64, 1.0, Color::WHITE)?;
+    let got = gpu.render(&list, 64, 64, 1.0, Color::WHITE);
+    let raised = ctx.take_errors();
+    for e in earlier {
+        ctx.record_error(e);
+    }
+    let got = got?;
     if ctx.is_lost() {
         return Err(GpuError::Lost);
     }
-    if let Some(e) = ctx.take_errors().into_iter().next() {
+    if let Some(e) = raised.into_iter().next() {
         return Err(GpuError::Render(format!("the self-test raised a GPU error: {e}")));
     }
     let off = compare(&want.pixels, &got.pixels);
@@ -395,6 +418,28 @@ mod tests {
             assert_eq!(Verdict::parse(&v.word()), Some(v));
         }
         assert_eq!(Verdict::parse("maybe"), None);
+        // A full list lets go of another engine version's verdict for a new one, and a reason
+        // too long for a line is cut to one the reader takes.
+        let most = crate::render_gpu::gpu_limits().health_entries;
+        let here = |i: usize| format!("test adapter {i} v{}", env!("CARGO_PKG_VERSION"));
+        record("test adapter of an older engine v0.0.0", Verdict::Passed);
+        for i in 0..most {
+            record(&here(i), Verdict::Failed("y".repeat(crate::render_gpu::MAX_HEALTH_LINE * 2)));
+        }
+        assert_eq!(verdict("test adapter of an older engine v0.0.0"), None);
+        assert!(verdict(&here(0)).is_some());
+        let dir = std::env::temp_dir().join(format!("remedy-health-full-{}", std::process::id()));
+        with(|h| {
+            let was = h.dir.replace(dir.clone());
+            write_file(h);
+            h.dir = was;
+        });
+        let read = read_file(&dir);
+        assert!(read.iter().any(|(k, v)| *k == here(0) && matches!(v, Verdict::Failed(_))), "{read:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+        for i in 0..most {
+            forget(&here(i));
+        }
         let dir = std::env::temp_dir().join(format!("remedy-health-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let long = "x".repeat(crate::render_gpu::MAX_HEALTH_LINE * 2);

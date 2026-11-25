@@ -245,3 +245,28 @@ fn tray_menus_checks_submenus_and_urgency_are_recorded() {
     assert_eq!(host.notifications().last().map(|n| n.urgency), Some(Urgency::Warning));
     assert_eq!(Notification::new(1, "", "").urgency, Urgency::Info, "news by default");
 }
+
+#[test]
+fn a_window_closed_by_an_earlier_frame_gets_no_frame() {
+    /// Closes the second window in the first one's frame, and notes every frame.
+    struct Closer(WindowId, Vec<WindowId>);
+    impl App for Closer {
+        fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
+            if let HostEvent::Frame { window, .. } = event {
+                self.1.push(window);
+                host.close_window(self.0);
+            }
+        }
+    }
+    let mut host = HeadlessHost::new();
+    let (Ok(a), Ok(b)) =
+        (host.create_window(&WindowOptions::default()), host.create_window(&WindowOptions::default()))
+    else {
+        unreachable!("headless windows open")
+    };
+    host.request_frame(a);
+    host.request_frame(b);
+    let mut app = Closer(b, Vec::new());
+    host.turn(&mut app);
+    assert_eq!(app.1, vec![a], "the closed window is not drawn");
+}

@@ -375,6 +375,10 @@ impl Dispatch<WlDataDevice, ()> for State {
                     (None, Some(o)) => read_data(conn, o, &mimes),
                     (None, None) => (DragData::default(), None),
                 };
+                // A drop the app never answered ends here.
+                if let Some(o) = s.incoming.take().and_then(|old| old.offer) {
+                    o.destroy();
+                }
                 s.incoming =
                     Some(In { offer: id, serial, window, mime, data: data.clone(), at, dropped: false });
                 s.events.push((window, DragEvent::Enter { position: Some(at), data }));
@@ -386,8 +390,9 @@ impl Dispatch<WlDataDevice, ()> for State {
                 }
             }
             wl_data_device::Event::Leave => {
-                if let Some(inc) = s.incoming.take()
-                    && !inc.dropped
+                // A leave also follows a drop: that offer stays until the app has answered.
+                if s.incoming.as_ref().is_some_and(|inc| !inc.dropped)
+                    && let Some(inc) = s.incoming.take()
                 {
                     if let Some(o) = inc.offer {
                         o.destroy();

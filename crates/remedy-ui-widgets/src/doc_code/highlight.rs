@@ -270,8 +270,15 @@ impl Highlighter {
             return &self.runs;
         };
         // The first line that differs; everything above keeps its colors.
-        let first =
-            self.lines.iter().zip(&new).take_while(|(a, b)| a.as_str() == **b).count().min(self.states.len());
+        // (The state after the last line is not kept, so lines added at the end are colored on
+        // from the last line there was: never from a fresh state.)
+        let first = self
+            .lines
+            .iter()
+            .zip(&new)
+            .take_while(|(a, b)| a.as_str() == **b)
+            .count()
+            .min(self.states.len().saturating_sub(1));
         // How many lines at the end are unchanged: where coloring may stop early.
         let tail = self
             .lines

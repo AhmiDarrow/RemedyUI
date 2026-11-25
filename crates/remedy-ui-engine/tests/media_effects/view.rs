@@ -257,3 +257,16 @@ fn the_app_sets_the_largest_side_of_a_frame() {
     let (w, h) = view.stats().pixels;
     assert!(w <= 64 && h <= 64 && w > 0, "{w} × {h}");
 }
+
+/// A still frame is drawn once and kept: what it cost is no frame rate, so it does not move
+/// the quality ladder (which would draw it again, smaller).
+#[test]
+fn a_still_frame_keeps_its_resolution_whatever_it_cost() {
+    let ui = ui();
+    ui.set_reduced_motion(true);
+    let view = mount(&ui, "fire");
+    view.set_cpu_budget(Duration::from_nanos(1));
+    let mut t = Duration::ZERO;
+    run(&ui, &mut t, 5);
+    assert_eq!((view.stats().level, view.stats().frames), (0, 1), "{:?}", view.stats());
+}

@@ -43,10 +43,12 @@ pub struct Area {
 
 impl Area {
     fn overlaps(&self, other: &Area) -> bool {
-        self.col < other.col + other.cols
-            && other.col < self.col + self.cols
-            && self.row < other.row + other.rows
-            && other.row < self.row + self.rows
+        // A board from a peer may hold any numbers: their sums are taken where they fit.
+        let end = |at: u32, span: u32| u64::from(at) + u64::from(span);
+        u64::from(self.col) < end(other.col, other.cols)
+            && u64::from(other.col) < end(self.col, self.cols)
+            && u64::from(self.row) < end(other.row, other.rows)
+            && u64::from(other.row) < end(self.row, self.rows)
     }
 }
 
@@ -97,6 +99,10 @@ impl std::fmt::Display for BoardError {
 
 impl std::error::Error for BoardError {}
 
+/// The last row an area may end on: the grid the board is laid out on numbers its lines in
+/// 16 bits, and a row past them cannot be placed (nor a board that tall be laid out).
+const LAST_ROW: u64 = i16::MAX as u64 - 1;
+
 /// A fresh id with `prefix` that the board does not use yet.
 fn fresh(board: &Board, prefix: &str) -> String {
     let used = |id: &str| board.areas.iter().any(|a| a.id == id || a.widgets.iter().any(|w| w.id == id));
@@ -131,14 +137,17 @@ impl Board {
         serde_json::to_string_pretty(&Board { version: FORMAT, ..self.clone() }).unwrap_or_default()
     }
 
-    /// Checks the board is whole: columns in range, ids unique, areas inside and apart.
+    /// Checks the board is whole: columns in range, ids unique, areas inside the grid (its
+    /// columns, and the rows a grid can number) and apart.
     pub fn check(&self) -> Result<(), BoardError> {
         if self.columns == 0 || self.columns > 48 {
             return Err(BoardError::Invalid(format!("{} columns", self.columns)));
         }
         let mut ids = std::collections::HashSet::new();
         for (i, a) in self.areas.iter().enumerate() {
-            if a.cols == 0 || a.rows == 0 || a.col + a.cols > self.columns {
+            let right = u64::from(a.col) + u64::from(a.cols);
+            let bottom = u64::from(a.row) + u64::from(a.rows);
+            if a.cols == 0 || a.rows == 0 || right > u64::from(self.columns) || bottom > LAST_ROW {
                 return Err(BoardError::OutsideGrid);
             }
             if !ids.insert(a.id.clone()) {
@@ -158,7 +167,7 @@ impl Board {
 
     /// Rows the board spans (the lowest area's end).
     pub fn rows(&self) -> u32 {
-        self.areas.iter().map(|a| a.row + a.rows).max().unwrap_or(0)
+        self.areas.iter().map(|a| a.row.saturating_add(a.rows)).max().unwrap_or(0)
     }
 
     /// The area `id`.
@@ -233,7 +242,7 @@ impl Board {
             rows: rows.max(1),
             widgets: Vec::new(),
         };
-        if col + moved.cols > self.columns {
+        if u64::from(col) + u64::from(moved.cols) > u64::from(self.columns) {
             return Err(BoardError::OutsideGrid);
         }
         // The error names the area that would be covered.
@@ -379,5 +388,23 @@ mod tests {
         let bad = r#"{"version": 1, "columns": 4, "areas": [{"id": "a", "col": 0, "cols": 3, "row": 0, "rows": 1}, {"id": "b", "col": 2, "cols": 2, "row": 0, "rows": 1}]}"#;
         assert_eq!(Board::from_json(bad), Err(BoardError::Overlap("b".into())));
         assert!(matches!(Board::from_json("[]"), Err(BoardError::Invalid(_))));
+    }
+
+    #[test]
+    fn a_board_with_numbers_past_the_grid_is_refused_not_wrapped() {
+        let far = |col: u64, cols: u64, row: u64, rows: u64| {
+            format!(
+                r#"{{"version": 1, "columns": 12, "areas": [
+                    {{"id": "a", "col": 0, "cols": 6, "row": 0, "rows": 1}},
+                    {{"id": "b", "col": {col}, "cols": {cols}, "row": {row}, "rows": {rows}}}]}}"#
+            )
+        };
+        let max = u64::from(u32::MAX);
+        // Sums that would wrap around to a place on the grid.
+        assert_eq!(Board::from_json(&far(max, 2, 1, 1)), Err(BoardError::OutsideGrid));
+        assert_eq!(Board::from_json(&far(6, 6, max, 2)), Err(BoardError::OutsideGrid));
+        // A row no grid line reaches.
+        assert_eq!(Board::from_json(&far(6, 6, 4_000_000_000, 1)), Err(BoardError::OutsideGrid));
+        assert!(Board::from_json(&far(6, 6, 30_000, 1)).is_ok());
     }
 }

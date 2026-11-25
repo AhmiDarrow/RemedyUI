@@ -27,7 +27,8 @@ impl PeakHold {
         let level = if level.is_finite() { level.clamp(0.0, 1.0) } else { 0.0 };
         if level >= self.peak {
             self.peak = level;
-            self.held_until = now + self.hold;
+            // A hold as long as time itself (hold for good) must not overflow.
+            self.held_until = now.saturating_add(self.hold);
         } else if now > self.held_until {
             if self.fall_per_second > 0.0 {
                 let from = self.last.max(self.held_until);

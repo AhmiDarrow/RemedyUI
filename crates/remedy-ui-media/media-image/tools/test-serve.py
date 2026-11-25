@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Serves images for the browser test of images from addresses (`tests/web.rs`): one any page
+"""Serves images for the browser test of images from addresses (`tests/media_image/web.rs`): one any page
 may read (CORS), one without CORS headers, an image proxy that serves it with CORS (`/proxy?url=`), and
 one that trickles for minutes. Prints the port
 it listens on (a free one on 127.0.0.1), then serves until killed.
 
-    tools/test-serve.py
+    media-image/tools/test-serve.py
 """
 
 import http.server

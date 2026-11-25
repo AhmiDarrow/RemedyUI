@@ -215,7 +215,7 @@ pub fn decode(bytes: &[u8], show_at: Option<(u32, u32)>) -> Result<Decoded, Deco
     let orientation = dec.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
     // The decoded pixels, plus their RGBA copy: reserve both before the decoder allocates,
     // so a picture too large for this machine is an error and not an abort.
-    let need = dec.total_bytes().saturating_add(u64::from(w) * u64::from(h) * 4);
+    let need = dec.total_bytes().saturating_add(u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4));
     let need = usize::try_from(need).map_err(|_| DecodeError::TooLarge { width: w, height: h })?;
     {
         let mut probe: Vec<u8> = Vec::new();
@@ -253,7 +253,7 @@ fn finish(mut rgba: RgbaImage, srgb: Option<&Srgb>, show_at: Option<(u32, u32)>)
 /// size (cheap, and exact enough for what Lanczos then does).
 fn scale_down(rgba: &RgbaImage, tw: u32, th: u32) -> RgbaImage {
     let staged;
-    let from = if rgba.width() >= tw * 4 && rgba.height() >= th * 4 {
+    let from = if rgba.width() / 4 >= tw && rgba.height() / 4 >= th {
         staged = imageops::thumbnail(rgba, tw * 2, th * 2);
         &staged
     } else {

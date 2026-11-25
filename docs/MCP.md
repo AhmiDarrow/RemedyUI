@@ -2,39 +2,39 @@
 
 `remedy-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server. With it, an AI agent (Claude Code or any other MCP client) can build apps with RemedyUI: search the docs and the widget catalog, check `.rui` markup, create an app, look at its screens as images, audit them, and run its tests. It can also operate a running RemedyUI app that the person has granted it access to.
 
-The tools' logic lives in the `cargo-remedy::devkit` crate. `cargo remedy` offers the same tools as commands ([CLI.md](CLI.md)).
+The tools' logic lives in `cargo-remedy::devkit`. `cargo remedy` offers the same tools as commands ([CLI.md](CLI.md)).
 
 ## Install
 
 From a RemedyUI checkout:
 
 ```sh
-cargo install --path crates/remedy-mcp
+cargo install --path crates/cargo-remedy --bin remedy-mcp --features mcp-full
 ```
 
-This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/cargo-remedy/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (the `cargo-remedy::templates` crate, shared with `cargo remedy new`).
+This needs no `remedy-ui` facade, app or checkout. The docs come with it: `cargo xtask docs-index` writes an index of the guides, design docs, every engine crate's rustdoc and the widget catalog into `crates/cargo-remedy/remedy-tools/data`, the index is committed (`cargo xtask check` fails when it is out of date), and the tools embed it, so a build from crates.io has the docs too. To follow a checkout as it changes, add `--docs-root <checkout>`. `new_app` uses the app templates directly (`cargo-remedy::templates`, shared with `cargo remedy new`).
 
 ### Smaller builds
 
-Each tool group is a cargo feature. `full` is the default and includes `http`. A build with fewer groups compiles only the engine crates those groups need:
+The server is the `remedy-mcp` binary of `cargo-remedy`, behind its `mcp` feature, and each tool group is an `mcp-*` feature; `mcp-full` has every group and `mcp-http`. A build with fewer groups compiles only the engine crates those groups need:
 
 | Feature | Tools | What it compiles in |
 |---|---|---|
-| `docs` | `docs_search`, `docs_read`, `widget_catalog`; the guides as resources | the docs index only |
-| `markup` | `rui_check`, `rui_compile`, `rui_elements` | `remedy-ui-widgets::rui` without its runtime |
-| `effects` | `rfx_check`, `rfx_render`, `rfx_library` | `remedy-ui-engine::effects` (its compiler and CPU interpreter) |
-| `scaffold` | `new_app` | `cargo-remedy::templates` (the app templates, shared with `cargo remedy new`) |
-| `preview` | `render_preview`, `list_previews`, `a11y_audit` | nothing (it builds a harness against the app) |
-| `testing` | `run_tests`, `budget_check` | nothing (it runs Cargo) |
-| `live` | `app_connect`, `app_snapshot`, `app_act`, `app_command`, `app_undo`, `app_wait`, `app_disconnect` | nothing (it speaks the protocol) |
-| `devtools` | `devtools_connect`, `devtools_tree`, `devtools_element`, `devtools_semantics`, `devtools_signals`, `devtools_updates`, `devtools_timings`, `devtools_disconnect` | nothing (it speaks the protocol) |
-| `http` | streamable HTTP (`--http`) | hyper |
+| `mcp-docs` | `docs_search`, `docs_read`, `widget_catalog`; the guides as resources | the docs index only |
+| `mcp-markup` | `rui_check`, `rui_compile`, `rui_elements` | `remedy-ui-widgets::rui` without its runtime |
+| `mcp-effects` | `rfx_check`, `rfx_render`, `rfx_library` | `remedy-ui-engine::effects` (its compiler and CPU interpreter) |
+| `mcp-scaffold` | `new_app` | `cargo-remedy::templates` (the app templates, shared with `cargo remedy new`) |
+| `mcp-preview` | `render_preview`, `list_previews`, `a11y_audit` | nothing (it builds a harness against the app) |
+| `mcp-testing` | `run_tests`, `budget_check` | nothing (it runs Cargo) |
+| `mcp-live` | `app_connect`, `app_snapshot`, `app_act`, `app_command`, `app_undo`, `app_wait`, `app_disconnect` | nothing (it speaks the protocol) |
+| `mcp-devtools` | `devtools_connect`, `devtools_tree`, `devtools_element`, `devtools_semantics`, `devtools_signals`, `devtools_updates`, `devtools_timings`, `devtools_disconnect` | nothing (it speaks the protocol) |
+| `mcp-http` | streamable HTTP (`--http`) | hyper |
 
 ```sh
-cargo install --path crates/remedy-mcp --no-default-features --features docs,markup
+cargo install --path crates/cargo-remedy --bin remedy-mcp --no-default-features --features mcp,mcp-docs,mcp-markup
 ```
 
-Even a full build can serve fewer tools: `--tools docs,live` offers only those groups. A name that isn't a group, or a group not built in, is refused at start.
+Even a full build can serve fewer tools: `--tools docs,live` offers only those groups (by their names, without `mcp-`). A name that isn't a group, or a group not built in, is refused at start.
 
 ## Set up in Claude Code
 
@@ -117,7 +117,7 @@ An app exposes what to preview as plain public functions in its library, `pub fn
 
 For each preview, the server does this:
 
-1. It writes a small harness crate into `<app's target>/cargo-remedy/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
+1. It writes a small harness crate into `<app's target>/remedy-tools/preview/<crate>`. The harness depends on the app, and on the app's own `remedy-ui` dependency with the `devtools` feature added.
 2. It builds the harness into the app's target folder, so the harness shares the app's compiled dependencies.
 3. It runs the harness. The harness renders with the devtools' `Preview`, using the CPU renderer, so the pixels are the same as the app's golden images.
 
@@ -185,7 +185,7 @@ A debug build serves its devtools with `Window::serve_devtools` or `RemoteServer
 
 ## Embedding
 
-`remedy-mcp` is also a library. Other tools can serve some or all of the groups:
+The server is also a library (`cargo_remedy::mcp`, with the `mcp` feature). Other tools can serve some or all of the groups:
 
 ```rust
 use cargo_remedy::mcp::{Config, Server};

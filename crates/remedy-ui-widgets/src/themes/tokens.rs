@@ -172,7 +172,8 @@ fn read_px(v: &Value, path: &str) -> Result<f32, TokenError> {
         Value::String(s) => s.trim().trim_end_matches("px").trim().parse::<f64>().ok(),
         _ => None,
     }
-    .filter(|n| n.is_finite() && *n >= 0.0)
+    // Finite as the `f32` the theme keeps, too: 1e300 is a number but no size.
+    .filter(|n| (*n as f32).is_finite() && *n >= 0.0)
     .ok_or_else(|| bad(path, "a size is a number of pixels, such as \"14px\""))?;
     Ok(n as f32)
 }
@@ -182,16 +183,20 @@ fn read_ms(v: &Value, path: &str) -> Result<Duration, TokenError> {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => {
             let s = s.trim();
-            match s.strip_suffix("ms") {
-                Some(m) => m.trim().parse::<f64>().ok(),
-                None => s.trim_end_matches('s').trim().parse::<f64>().ok().map(|v| v * 1000.0),
+            // Seconds only when it says so: a bare "150" is milliseconds, as the number 150 is.
+            match (s.strip_suffix("ms"), s.strip_suffix('s')) {
+                (Some(m), _) => m.trim().parse::<f64>().ok(),
+                (None, Some(sec)) => sec.trim().parse::<f64>().ok().map(|v| v * 1000.0),
+                (None, None) => s.parse::<f64>().ok(),
             }
         }
         _ => None,
     }
     .filter(|n| n.is_finite() && *n >= 0.0)
     .ok_or_else(|| bad(path, "a duration is a number of milliseconds, such as \"150ms\""))?;
-    Ok(Duration::from_secs_f64(n / 1000.0))
+    // A time too long for a `Duration` is turned down like any other bad value.
+    Duration::try_from_secs_f64(n / 1000.0)
+        .map_err(|_| bad(path, "a duration is a number of milliseconds, such as \"150ms\""))
 }
 
 fn read_families(v: &Value, path: &str) -> Result<Vec<String>, TokenError> {
@@ -372,5 +377,13 @@ mod tests {
             from_tokens(r#"{ "size": { "body": "-3px" } }"#, &base),
             Err(TokenError::Value { .. })
         ));
+        // Numbers too large to be a size or a time are turned down, not a crash.
+        for file in [r#"{ "motion": { "quick": 1e300 } }"#, r#"{ "size": { "body": 1e300 } }"#] {
+            assert!(matches!(from_tokens(file, &base), Err(TokenError::Value { .. })), "{file}");
+        }
+        // A bare number in a string is milliseconds, as a bare number is.
+        let quick = |file: &str| from_tokens(file, &base).map(|t| t.motion.quick);
+        assert_eq!(quick(r#"{ "motion": { "quick": "150" } }"#), Ok(Duration::from_millis(150)));
+        assert_eq!(quick(r#"{ "motion": { "quick": "0.2s" } }"#), Ok(Duration::from_millis(200)));
     }
 }

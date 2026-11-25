@@ -125,6 +125,18 @@ struct State {
 
 type Shared = Rc<RefCell<State>>;
 
+impl Drop for State {
+    fn drop(&mut self) {
+        // A field that went away without a check in flight would stay in the table for good.
+        let id = self.id;
+        let _ = HOOKS.try_with(|h| {
+            if let Ok(mut h) = h.try_borrow_mut() {
+                h.remove(&id);
+            }
+        });
+    }
+}
+
 thread_local! {
     /// Hooks waiting for answers, by id: the waker's closures run on this thread and find
     /// them here, since the closures themselves must be `Send`.

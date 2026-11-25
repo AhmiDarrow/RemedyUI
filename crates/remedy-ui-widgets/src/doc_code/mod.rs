@@ -4,7 +4,7 @@
 //! [`diff_view`]). Grammars are Sublime Text's, read by syntect with its pure-Rust regex
 //! engine; apps add their own with [`add_grammar`].
 //!
-//! Layer 5: built only from public engine APIs and `widgets-core`.
+//! Layer 5: built only from public engine APIs and the base widgets ([`crate::base`]).
 
 /// The code views' own words (fold buttons, how diff lines are read) in every language the
 /// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with

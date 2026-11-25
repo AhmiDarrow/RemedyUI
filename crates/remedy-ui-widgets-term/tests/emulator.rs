@@ -511,3 +511,31 @@ fn screen_text_leaves_out_trailing_blank_rows_only() {
     e.feed(b"\x1b[2;1Hmid\x1b[3;1H   ");
     assert_eq!(e.screen_text(), "\nmid", "the blank row before stays, those after go");
 }
+
+#[test]
+fn resets_reports_and_cut_strings_at_their_edges() {
+    // A hard reset keeps the scrollback, so its links keep their own addresses.
+    let mut e = Emulator::new(10, 2);
+    e.feed(b"\x1b]8;;https://a.example\x07old\x1b]8;;\x07\r\n\r\n\r\n");
+    let old = e.history_line(0).and_then(|l| l.cells().first()).map_or(0, |c| c.link);
+    assert_ne!(old, 0);
+    e.feed(b"\x1bc\x1b]8;;https://b.example\x07new");
+    assert_eq!(e.link(old), Some("https://a.example"));
+    // A cursor restored above a scroll region that moved since still reports a row in it.
+    let mut e = emu(10, 20, "\x1b[5;10r\x1b[?6h\x1b7\x1b[10;20r\x1b8\x1b[6n");
+    assert_eq!(String::from_utf8(e.take_replies()).unwrap_or_default(), "\x1b[1;1R");
+    // A sequence that cuts an over-long string short by starting is still obeyed.
+    let mut e = Emulator::new(80, 24);
+    e.set_string_limit(64 * 1024);
+    e.feed(b"\x1b]2;");
+    let chunk = vec![b'A'; 1 << 16];
+    for _ in 0..4 {
+        e.feed(&chunk);
+    }
+    e.feed(b"\x1b[31mafter");
+    assert_eq!(e.line(0).map(Line::text).as_deref(), Some("after"));
+    assert_eq!(cell(&e, 0, 0).fg, TermColor::Indexed(1));
+    // A sixel hue far past a full circle is a hue all the same.
+    let e = emu(10, 4, "\x1bPq#1;1;4294967295;50;100~\x1b\\");
+    assert_eq!(e.line(0).map(|l| l.pictures().len()), Some(1));
+}

@@ -62,7 +62,10 @@ pub fn move_octaves(ms: &mut [StaffMeasure], c: StaffCursor, octaves: i32) -> bo
 
 /// Sharpens (`+1`) or flattens (`-1`) every pitch of the event; 0 makes them natural.
 pub fn alter(ms: &mut [StaffMeasure], c: StaffCursor, delta: i8) -> bool {
-    transpose(ms, c, |p| Pitch { alter: if delta == 0 { 0 } else { (p.alter + delta).clamp(-2, 2) }, ..p })
+    transpose(ms, c, |p| {
+        let alter = if delta == 0 { 0 } else { p.alter.saturating_add(delta).clamp(-2, 2) };
+        Pitch { alter, ..p }
+    })
 }
 
 fn push_pitch(e: &mut StaffEvent, p: Pitch, add: bool) -> bool {
@@ -165,7 +168,7 @@ pub fn change_value(ms: &mut [StaffMeasure], c: StaffCursor, longer: bool) -> bo
 /// Cycles the event through no dot, one dot and two dots.
 pub fn toggle_dot(ms: &mut [StaffMeasure], c: StaffCursor) -> bool {
     let Some(e) = event_mut(ms, c) else { return false };
-    e.dots = (e.dots + 1) % 3;
+    e.dots = (e.dots % 3 + 1) % 3;
     true
 }
 

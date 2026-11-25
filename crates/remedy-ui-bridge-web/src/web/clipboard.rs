@@ -39,6 +39,12 @@ pub(crate) fn shortcut(letter: &str, platform: Platform, pressed: bool) -> KeyEv
         .with_text(None)
 }
 
+/// Forgets what an earlier copy left for a `copy` or `cut` event that never came (a copy
+/// made from a button): the event about to come carries only what the app copies for it.
+pub(crate) fn forget_pending(d: &Driver) {
+    d.state.borrow_mut().clip.pending = None;
+}
+
 fn focused_window(d: &Driver) -> Option<Rc<super::window::Win>> {
     let active = super::dom::active_element()?;
     d.windows().into_iter().find(|w| w.frame.contains(Some(&active)))
@@ -55,6 +61,7 @@ pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window, doc: &web_sys::Docu
                 // From the browser's menu, not a shortcut: ask the app as the shortcut would.
                 let platform = d.state.borrow().settings.platform;
                 let letter = if kind == "copy" { "c" } else { "x" };
+                forget_pending(&d);
                 d.post(HostEvent::Key(w.id, shortcut(letter, platform, true)));
                 d.post(HostEvent::Key(w.id, shortcut(letter, platform, false)));
             }

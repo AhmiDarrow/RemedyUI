@@ -264,6 +264,13 @@ struct Shown {
     cache: RefCell<HashMap<(usize, usize), Rendered>>,
 }
 
+/// How long one frame shows at `fps` frames a second (above zero), a day at most: a rate too
+/// low to count as a time must not overflow the timer.
+fn frame_time(fps: f32) -> Duration {
+    const DAY: Duration = Duration::from_secs(86_400);
+    Duration::try_from_secs_f32(1.0 / fps).map_or(DAY, |d| d.min(DAY))
+}
+
 /// Snaps a logical coordinate to the device pixel grid.
 fn snap(v: f32, scale: f32) -> f32 {
     if scale > 0.0 { (v * scale).round() / scale } else { v }
@@ -310,7 +317,8 @@ pub fn sprite(
         if n <= 1 || fps <= 0.0 {
             return Moved::default();
         }
-        let per = Duration::from_secs_f32(1.0 / fps);
+        // At least a millisecond a frame, so a huge rate cannot spin the loop below.
+        let per = frame_time(fps).max(Duration::from_millis(1));
         let mut since = sh.since.get() + dt;
         let mut frame = sh.frame.get();
         while since >= per {
@@ -327,7 +335,7 @@ pub fn sprite(
         let ix = src.state_index(&name);
         // A sprite drawn at 8 frames a second needs 8 steps a second, whatever the window's rate.
         let (_, fps) = src.frames_fps(ix);
-        motion.set_min_interval(if fps > 0.0 { Duration::from_secs_f32(1.0 / fps) } else { Duration::ZERO });
+        motion.set_min_interval(if fps > 0.0 { frame_time(fps) } else { Duration::ZERO });
         if sh.state.replace(ix) != ix {
             sh.frame.set(0);
             sh.since.set(Duration::ZERO);
@@ -397,7 +405,7 @@ fn draw(cx: &mut PaintCx<'_>, source: &SpriteSource, shown: &Shown, scale: Pixel
             let (col, row) = (cell % cols, cell / cols);
             let dest = Rect::from_origin_size(at, size);
             let whole = Rect::from_origin_size(
-                Point::new(at.x - (col * cw) as f32 * s, at.y - (row * ch) as f32 * s),
+                Point::new(at.x - col as f32 * cw as f32 * s, at.y - row as f32 * ch as f32 * s),
                 Size::new(sheet.image.width as f32 * s, sheet.image.height as f32 * s),
             );
             cx.list.push_clip(dest, CornerRadii::ZERO);

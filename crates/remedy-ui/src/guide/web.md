@@ -116,7 +116,7 @@ tests use. Build the crate as a `cdylib` for the browser, with the facade's `web
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-remedy-ui = { version = "0.1", features = ["web"] }
+remedy-ui = { version = "1", features = ["web"] }
 ```
 
 ## Routes and the address

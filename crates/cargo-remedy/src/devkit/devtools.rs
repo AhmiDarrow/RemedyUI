@@ -115,7 +115,8 @@ pub fn text(answer: &Value) -> String {
     let mut out = String::new();
     match s(answer, "answer") {
         "tree" => {
-            for e in items(answer, "elements") {
+            let elements = items(answer, "elements");
+            for e in elements {
                 let bounds = e
                     .get("bounds")
                     .and_then(Value::as_array)
@@ -127,7 +128,8 @@ pub fn text(answer: &Value) -> String {
                     .unwrap_or_default();
                 let hidden =
                     if e.get("hidden").and_then(Value::as_bool) == Some(true) { " (hidden)" } else { "" };
-                let depth = usize::try_from(n(e, "depth")).unwrap_or(0);
+                // No element is deeper than there are elements, whatever the app says.
+                let depth = usize::try_from(n(e, "depth")).unwrap_or(0).min(elements.len());
                 out.push_str(&format!(
                     "{}{} #{}{bounds}{hidden}\n",
                     "  ".repeat(depth),
@@ -145,8 +147,9 @@ pub fn text(answer: &Value) -> String {
             }
         }
         "semantics" => {
-            for node in items(answer, "nodes") {
-                let depth = usize::try_from(n(node, "depth")).unwrap_or(0);
+            let nodes = items(answer, "nodes");
+            for node in nodes {
+                let depth = usize::try_from(n(node, "depth")).unwrap_or(0).min(nodes.len());
                 out.push_str(&format!(
                     "{}{} #{}\n",
                     "  ".repeat(depth),
@@ -335,6 +338,9 @@ mod tests {
         let t = text(&frames);
         assert!(t.contains("2 frames: p50 4.00 ms, p95 4.00 ms, worst 4.00 ms"), "{t}");
         assert!(t.contains("last frame 4.00 ms: layout 1.00 ms, other 0.10 ms"), "{t}");
+        let deep =
+            json!({"answer": "tree", "elements": [{"id": 1, "depth": 4_000_000_000_u32, "label": "x"}]});
+        assert_eq!(text(&deep), "  x #1\n", "a depth the tree cannot have is held to its size");
         let sem = json!({"answer": "semantics", "nodes": [{"id": 5, "depth": 0, "announcement": "button", "problems": ["Control with no accessible name"]}], "problems": [{"element": 5, "message": "Control with no accessible name"}]});
         assert!(
             text(&sem).contains("! Control with no accessible name") && text(&sem).contains("1 problem(s)")

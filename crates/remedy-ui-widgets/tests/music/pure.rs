@@ -23,6 +23,7 @@ fn pitches_have_midi_numbers_names_and_spoken_forms() {
     assert_eq!(Pitch::parse("C"), None);
     assert_eq!(Pitch::parse("C#x4"), None);
     assert_eq!(Pitch::parse(""), None);
+    assert_eq!(Pitch::parse(&format!("C{}4", "#".repeat(200))), None, "more signs than a note carries");
     assert_eq!(p("F#3").name(), "F#3");
     assert_eq!(p("Bb2").letter_name(), "Bb");
     assert_eq!(p("C#4").spoken(), "C sharp 4");

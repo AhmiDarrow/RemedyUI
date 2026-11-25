@@ -75,6 +75,8 @@ pub(crate) struct Win {
     pub(crate) minimized: Cell<bool>,
     pub(crate) maximized: Cell<bool>,
     restore: Cell<Option<[f64; 4]>>,
+    /// The user may size a floating window by its corner (CSS `resize`).
+    resizable: bool,
     pub(crate) on_top: Cell<bool>,
     pub(crate) drop_effect: Cell<DropEffect>,
     /// Where the last pointer press was, in client CSS pixels (moves and resizes start there).
@@ -279,6 +281,7 @@ impl Win {
                 minimized: Cell::new(false),
                 maximized: Cell::new(false),
                 restore: Cell::new(None),
+                resizable: options.resizable,
                 on_top: Cell::new(options.always_on_top),
                 drop_effect: Cell::new(DropEffect::None),
                 last_down: Cell::new(None),
@@ -701,7 +704,7 @@ impl Win {
             );
         } else if let Some(g) = self.restore.take() {
             self.set_geometry(g);
-            dom::style(&self.frame, &[("resize", "both")]);
+            dom::style(&self.frame, &[("resize", if self.resizable { "both" } else { "none" })]);
         }
         self.maximized.set(on);
     }
@@ -852,8 +855,6 @@ impl Win {
     }
 }
 
-/// A title bar for a decorated floating window: the title and a close button; dragging it
-/// moves the window.
 /// The icon as a PNG `data:` URL, drawn through a canvas (which takes straight RGBA).
 fn data_url(icon: &WindowIcon) -> Option<String> {
     let canvas: HtmlCanvasElement = dom::element("canvas")?;
@@ -867,6 +868,8 @@ fn data_url(icon: &WindowIcon) -> Option<String> {
     canvas.to_data_url().ok()
 }
 
+/// A title bar for a decorated floating window: the title and a close button; dragging it
+/// moves the window.
 fn title_bar(frame: &HtmlElement, title: &str) -> Option<HtmlElement> {
     let bar: HtmlElement = dom::element("div")?;
     let label: HtmlElement = dom::element("span")?;

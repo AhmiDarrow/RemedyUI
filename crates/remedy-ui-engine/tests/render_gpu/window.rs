@@ -36,6 +36,9 @@ struct Probe {
     compositor: Option<Compositor>,
     surface: Option<GpuSurface>,
     shown: usize,
+    /// When the last frame was shown: the deadline is time without one, so a slow machine
+    /// is not taken for a stuck window.
+    progress: Duration,
     errors: Vec<String>,
     resized: bool,
     lost: bool,
@@ -100,7 +103,10 @@ impl App for Probe {
                 let plan = c.frame(at);
                 self.errors.extend(gpu.renderer().context().take_errors());
                 match gpu.present_to_surface(&plan, s, Color::WHITE) {
-                    Ok(Presented::Shown) => self.shown += 1,
+                    Ok(Presented::Shown) => {
+                        self.shown += 1;
+                        self.progress = host.now();
+                    }
                     Ok(_) => {}
                     Err(e) => self.errors.push(e.to_string()),
                 }
@@ -129,8 +135,13 @@ impl App for Probe {
                 host.request_frame(window);
             }
             HostEvent::Timer(_) => {
-                self.deadline_hit = true;
-                host.exit();
+                let due = self.progress + Duration::from_secs(30);
+                if host.now() < due {
+                    host.set_timer(due);
+                } else {
+                    self.deadline_hit = true;
+                    host.exit();
+                }
             }
             HostEvent::Destroyed(_) => {
                 self.surface = None;

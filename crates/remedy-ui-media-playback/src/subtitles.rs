@@ -69,26 +69,28 @@ pub(crate) fn over_cue_budget(total: &mut u64, text: &str) -> bool {
     *total > max_subtitle_bytes()
 }
 
-/// Reads the subtitle file at `path` as text, refusing one over the subtitle limit.
+/// Reads the subtitle file at `path` as text, refusing one over the subtitle limit. A file
+/// that is not UTF-8 is read as Latin-1 (as many SRT files are), each byte a character.
 pub(crate) fn read_subtitle_file(path: &std::path::Path) -> Result<String, MediaError> {
     use std::io::Read;
     let failed = |e: std::io::Error| MediaError::NotFound(format!("{}: {e}", path.display()));
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     let limit = max_subtitle_bytes();
     // Read one byte past the limit, so a file growing while read is caught too.
     std::fs::File::open(path)
         .map_err(failed)?
         .take(limit.saturating_add(1))
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .map_err(failed)?;
-    if text.len() as u64 > limit {
+    if bytes.len() as u64 > limit {
         return Err(MediaError::Format(format!(
             "{} is over {}, too big for a subtitle file",
             path.display(),
             in_words(limit)
         )));
     }
-    Ok(text)
+    // shortcut: UTF-16 and other code pages read wrong, detect them when a file needs it.
+    Ok(String::from_utf8(bytes).unwrap_or_else(|e| e.as_bytes().iter().map(|&b| char::from(b)).collect()))
 }
 
 /// For each cue, the latest end of it and every cue before it: never falls, so
@@ -252,7 +254,11 @@ impl CueSettings {
             return CueSettings::default();
         }
         let (h, v) = ((an - 1) % 3, (an - 1) / 3);
-        let pc = |px: f32, of: f32| if of > 0.0 { (px / of * 100.0).clamp(0.0, 100.0) } else { 0.0 };
+        // A margin or size that is no number (a file may write `nan`) is no margin.
+        let pc = |px: f32, of: f32| {
+            let p = px / of * 100.0;
+            if of > 0.0 && p.is_finite() { p.clamp(0.0, 100.0) } else { 0.0 }
+        };
         let (l, r, mv) = (pc(margins.0, res.0), pc(margins.1, res.0), pc(margins.2, res.1));
         CueSettings {
             line: Some(CueLine::Percent(match v {
@@ -754,6 +760,11 @@ mod tests {
         assert_eq!(srt_settings("{\\an2}Bottom"), CueSettings::default());
         assert_eq!(srt_settings("{\\an0}x"), CueSettings::default());
         assert_eq!(srt_settings("plain"), CueSettings::default());
+        // Margins and sizes that are no numbers place nothing.
+        assert_eq!(
+            CueSettings::numpad(7, (f32::NAN, f32::INFINITY, f32::NAN), (f32::INFINITY, 100.0)),
+            CueSettings::numpad(7, (0.0, 0.0, 0.0), (100.0, 100.0))
+        );
         // Styles' alignment and margins (V4+), a dialogue's own margins and `\an` over them, and
         // SSA's old alignment numbers (6 is top centre).
         let ass = "[Script Info]\nPlayResX: 1000\nPlayResY: 500\n\n[V4+ Styles]\nFormat: Name, Fontname, Alignment, MarginL, MarginR, MarginV\nStyle: Sign,Arial,9,100,50,25\nStyle: Default,Arial,2,10,10,10\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,Top right\nDialogue: 0,0:00:03.00,0:00:04.00,Sign,,200,0,0,,{\\an4}Middle left\nDialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,Foot\n";
@@ -869,5 +880,14 @@ mod tests {
         let got = read_subtitle_file(&path);
         let _ = std::fs::remove_file(&path);
         assert!(matches!(&got, Err(MediaError::Format(m)) if m.contains("too big")), "{got:?}");
+    }
+
+    #[test]
+    fn a_latin_1_subtitle_file_is_read() {
+        let path = std::env::temp_dir().join(format!("remedy-latin1-{}.srt", std::process::id()));
+        std::fs::write(&path, [b'C', b'a', b'f', 0xe9]).unwrap_or_else(|e| unreachable!("{e}"));
+        let got = read_subtitle_file(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(got.ok().as_deref(), Some("Caf\u{e9}"));
     }
 }

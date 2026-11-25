@@ -69,6 +69,11 @@ fn golden_images_catch_changes_and_round_trip_through_png() {
     let png = shot.to_png().unwrap_or_default();
     let back = Snapshot::from_png(&png).unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(shot.diff(&back, 1), 0, "PNG keeps the pixels");
+    // Past a row's end is outside the image, not the next row's start; so is past the last row.
+    assert!(shot.pixel(shot.width - 1, 0).is_some());
+    assert_eq!(shot.pixel(shot.width, 0), None);
+    assert_eq!(shot.pixel(0, shot.height), None);
+    assert_eq!(shot.pixel(u32::MAX, u32::MAX), None);
     let dir = std::env::temp_dir().join(format!("remedy-golden-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     assert!(matches!(check_golden(&p, &dir), Err(GoldenError::Missing(_))), "first run writes a baseline");

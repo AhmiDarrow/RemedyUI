@@ -149,6 +149,19 @@ fn paths_fill_and_stroke() {
 }
 
 #[test]
+fn dash_patterns_that_never_advance_draw_solid() {
+    for dashes in [vec![-1.0, 0.5], vec![1.0, -1.0], vec![f32::NAN], vec![0.0, 0.0], vec![1e-30]] {
+        let mut list = DisplayList::new();
+        let mut line = Path::new();
+        line.move_to(Point::new(0.0, 5.0)).line_to(Point::new(20.0, 5.0));
+        let stroke = Stroke { dashes: dashes.clone(), ..Stroke::new(2.0) };
+        list.push(Item::StrokePath { path: line, stroke, brush: Brush::Solid(Color::BLACK) });
+        let f = render(&list, 20, 10, 1.0);
+        assert!((1..19).all(|x| px(&f, x, 5) == [0, 0, 0, 255]), "{dashes:?}");
+    }
+}
+
+#[test]
 fn shadows_blur_past_their_shape() {
     let mut list = DisplayList::new();
     list.push(Item::Shadow {

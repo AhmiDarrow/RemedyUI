@@ -162,6 +162,12 @@ fn options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
 }
 
+/// How many blocks may lie inside one another as elements of their own. A source can nest
+/// quotes and lists without end (a line of nothing but `>`), and a tree that deep is walked
+/// by everything that lays out, paints and reads the page: deeper blocks keep their words
+/// and lie in the last block that has an element.
+const MAX_NESTING: usize = 12;
+
 /// A block being built: where its children go and what kind it is.
 enum Open {
     /// A container of blocks (the document, a quote, a list item, a table cell's parent).
@@ -243,6 +249,21 @@ fn fill(ui: &Ui, root: &El, source: &str, open: &OpenLink) {
 }
 
 impl Builder<'_> {
+    /// Opens a quote, list or item past [`MAX_NESTING`] without an element of its own: what
+    /// is in it goes where its parent's blocks go. False when there is room for an element.
+    fn opens_flat(&mut self) -> bool {
+        if self.stack.len() < MAX_NESTING {
+            return false;
+        }
+        match self.container() {
+            Some(c) => {
+                self.stack.push(Open::Blocks(c));
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Where the next block goes.
     fn container(&self) -> Option<El> {
         self.stack.iter().rev().find_map(|o| match o {
@@ -388,6 +409,9 @@ impl Builder<'_> {
             }
             Tag::BlockQuote(_) => {
                 self.flush();
+                if self.opens_flat() {
+                    return;
+                }
                 let body = self.ui.el("md_quote_body").column().grow(1.0).gap(self.unit * 2.0);
                 let quote = self
                     .ui
@@ -414,6 +438,9 @@ impl Builder<'_> {
             }
             Tag::List(start) => {
                 self.flush();
+                if self.opens_flat() {
+                    return;
+                }
                 let list = self
                     .ui
                     .el("md_list")
@@ -426,6 +453,9 @@ impl Builder<'_> {
             }
             Tag::Item => {
                 self.flush();
+                if self.opens_flat() {
+                    return;
+                }
                 let marker = match self.stack.last_mut() {
                     Some(Open::List(_, Some(n))) => {
                         let m = format!("{n}.");
@@ -445,8 +475,12 @@ impl Builder<'_> {
                     .child(mark)
                     .child(body.clone())
                     .semantics(Semantics::new(Role::ListItem));
-                if let Some(Open::List(l, _)) = self.stack.last() {
-                    let _ = l.clone().child(item);
+                match self.stack.last() {
+                    Some(Open::List(l, _)) => {
+                        let _ = l.clone().child(item);
+                    }
+                    // An item of a list that has no element: it is a block like any other.
+                    _ => self.add(item),
                 }
                 self.stack.push(Open::Blocks(body));
             }

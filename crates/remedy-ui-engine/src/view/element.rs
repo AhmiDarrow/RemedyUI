@@ -265,10 +265,10 @@ impl PaintCx<'_> {
 
 pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
 
-/// A text element's content and its last layout.
-/// What a cached paragraph was laid out for: wrap width bits and right-to-left.
+/// What a cached paragraph was laid out for: wrap width bits, right-to-left and the line limit.
 type ParagraphKey = (Option<u32>, bool, u32);
 
+/// A text element's content and its last layout.
 pub(crate) struct TextSlot {
     pub(crate) text: RichText,
     pub(crate) style: TextStyle,
@@ -1676,6 +1676,9 @@ impl Ui {
         for id in relayout {
             i.tree.mark(id, Dirty::LAYOUT);
         }
+        drop(i);
+        // As every other change that restyles: the restyle needs a frame to show.
+        self.request(Request::Frame);
     }
 
     /// Adds every face in a font file (a theme's font, a person's own) to this window's fonts,
@@ -1773,9 +1776,7 @@ impl Ui {
     /// text"): one undoable edit, reported to the app like typing. False for an element that
     /// is gone or not a field, and for secret fields, whose contents are only ever typed.
     pub fn accessibility_set_value(&self, target: u64, text: &str) -> bool {
-        let Some(id) = self.0.borrow().els.keys().copied().find(|e| root_key(*e) == target) else {
-            return false;
-        };
+        let Some(id) = self.element_by_node_id(target).map(|e| e.id) else { return false };
         let Some(field) = self.field_of(id) else { return false };
         let now = self.0.borrow().now_ms;
         let done = crate::view::field::replace_all(&mut field.borrow_mut(), text, now);
@@ -1790,9 +1791,7 @@ impl Ui {
     /// element that is gone or an action it does not offer.
     pub fn accessibility_action(&self, target: u64, action: remedy_ui_core::a11y::Action) -> bool {
         use remedy_ui_core::a11y::Action as A;
-        let Some(id) = self.0.borrow().els.keys().copied().find(|e| root_key(*e) == target) else {
-            return false;
-        };
+        let Some(id) = self.element_by_node_id(target).map(|e| e.id) else { return false };
         let el = El { ui: self.clone(), id };
         let own = self.0.borrow().els.get(&id).and_then(|d| d.a11y_action.clone());
         if let Some(f) = own

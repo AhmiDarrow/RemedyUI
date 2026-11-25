@@ -2907,7 +2907,7 @@ impl Runner {
                 }
             }
             Cmd::Timer(delay, f) => {
-                let id = host.set_timer(host.now() + delay);
+                let id = host.set_timer(host.now().saturating_add(delay));
                 self.timers.insert(id, f);
             }
             Cmd::Copy(text, sensitive) => {
@@ -3172,7 +3172,7 @@ impl Runner {
                     }
                 }
                 Request::Timer { id, delay } => {
-                    let t = host.set_timer(host.now() + delay);
+                    let t = host.set_timer(host.now().saturating_add(delay));
                     self.view_timers.insert(t, (key, id));
                 }
                 Request::CancelTimer(id) => {
@@ -3295,7 +3295,6 @@ impl Runner {
         self.save_timer = Some(host.set_timer(host.now() + GEOMETRY_SAVE_DELAY));
     }
 
-    /// Reads whether the window is maximized from the host into its signal.
     /// Tells the app its language when it changed (its own, or the system's).
     fn publish_locale(&self) {
         let tag = self.locale.clone().unwrap_or_else(|| self.settings.locale.clone());
@@ -3823,6 +3822,23 @@ impl remedy_ui_core::host::App for Runner {
         for l in launches {
             self.launched(l.args, l.reply);
         }
+        self.dispatch(host, event);
+        // Input the app sent its windows: handled as the platform's, in order.
+        let injected = std::mem::take(&mut self.app.0.borrow_mut().injected);
+        for (key, make) in injected {
+            if let Some(window) = self.wins.get(&key).map(|w| w.host) {
+                self.event(host, make(window));
+            }
+        }
+        self.drain(host);
+        self.app.0.borrow_mut().in_event = false;
+    }
+}
+
+impl Runner {
+    /// Handles one host event. What follows every event (injected input, queued commands) is
+    /// its caller's, so returning early here skips none of it.
+    fn dispatch(&mut self, host: &mut dyn Host, event: HostEvent) {
         match event {
             HostEvent::Resumed => {
                 self.suspended = false;
@@ -4178,6 +4194,8 @@ impl remedy_ui_core::host::App for Runner {
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
                         s.fullscreen.remove(&key);
+                        s.zoom.remove(&key);
+                        s.protected.remove(&key);
                         // An agent's access ends with its window.
                         #[cfg(feature = "agents")]
                         s.agents.remove(&key);
@@ -4201,8 +4219,8 @@ impl remedy_ui_core::host::App for Runner {
                     (s.open.is_empty(), s.keep_running)
                 };
                 if none_left && !keep {
-                    self.leaving(Leaving::Quitting);
-                    let _ = self.geometry.save();
+                    // As a quit: persisted state still waiting for its debounce is written too.
+                    self.save_now(host, Leaving::Quitting);
                     host.exit();
                 }
             }
@@ -4316,15 +4334,6 @@ impl remedy_ui_core::host::App for Runner {
             }
             _ => {}
         }
-        // Input the app sent its windows: handled as the platform's, in order.
-        let injected = std::mem::take(&mut self.app.0.borrow_mut().injected);
-        for (key, make) in injected {
-            if let Some(window) = self.wins.get(&key).map(|w| w.host) {
-                self.event(host, make(window));
-            }
-        }
-        self.drain(host);
-        self.app.0.borrow_mut().in_event = false;
     }
 }
 

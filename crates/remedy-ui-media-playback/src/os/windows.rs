@@ -486,7 +486,8 @@ impl MfDecoder {
                 info,
                 video,
                 audio,
-                video_done: video_index.is_none(),
+                // A video stream that could not be set up is not read: it never ends.
+                video_done: video.is_none(),
                 audio_done: audio.is_none(),
                 _mf: mf,
             })

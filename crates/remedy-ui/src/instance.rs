@@ -179,6 +179,9 @@ mod unix {
         Ok(i32::from_le_bytes(code))
     }
 
+    /// How long the first instance waits for a launch's bytes once it connected.
+    const RECEIVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
     /// Reads one launch: its arguments and, when it waits for a reply, whether to hold the
     /// connection until this process exits.
     fn receive(s: &mut UnixStream) -> Option<(Vec<String>, Option<bool>)> {
@@ -196,8 +199,12 @@ mod unix {
         let mut head = [0u8; 5];
         s.read_exact(&mut head).ok()?;
         let [flags, len @ ..] = head;
-        let mut payload = vec![0u8; u32::from_le_bytes(len) as usize];
-        s.read_exact(&mut payload).ok()?;
+        // Read as it arrives: the length is the sender's word, and nothing is set aside for it.
+        let len = u64::from(u32::from_le_bytes(len));
+        let mut payload = Vec::new();
+        if std::io::Read::take(&mut *s, len).read_to_end(&mut payload).ok()? as u64 != len {
+            return None;
+        }
         Some((decode(&payload), Some(flags & FLAG_EXIT != 0)))
     }
 
@@ -225,6 +232,8 @@ mod unix {
             .spawn(move || {
                 for stream in listener.incoming().flatten() {
                     let mut s = stream;
+                    // A launch that connects and never sends must not keep the others out.
+                    let _ = s.set_read_timeout(Some(RECEIVE_WAIT));
                     match receive(&mut s) {
                         Some((launch, None)) => deliver(&inbox, launch, None),
                         Some((launch, Some(hold))) => {

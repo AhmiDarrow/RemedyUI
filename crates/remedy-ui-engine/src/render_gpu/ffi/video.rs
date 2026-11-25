@@ -546,6 +546,9 @@ mod windows_shared {
             if self.textures.len() >= crate::render_gpu::gpu_limits().video_imports {
                 self.textures.clear();
             }
+            if self.fences.len() >= crate::render_gpu::gpu_limits().video_imports {
+                self.fences.clear();
+            }
             // SAFETY: the handles are the picture's, open while it lives (it is borrowed here);
             // OpenSharedHandle takes its own reference to each object.
             let resource = match self.textures.get(&texture_key) {

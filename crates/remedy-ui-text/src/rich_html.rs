@@ -119,7 +119,10 @@ fn decode(s: &str) -> String {
     let mut rest = s;
     while let Some((before, after)) = rest.split_once('&') {
         out.push_str(before);
-        let named = after.split_once(';').filter(|(name, _)| name.len() <= 10);
+        // A name is at most 10 bytes: looking no further keeps a run of `&` from each
+        // searching the rest of the text.
+        let semi = after.bytes().take(11).position(|b| b == b';');
+        let named = semi.and_then(|i| Some((after.get(..i)?, after.get(i + 1..)?)));
         match named.and_then(|(name, tail)| decode_entity(name).map(|c| (c, tail))) {
             Some((c, tail)) => {
                 out.push(c);
@@ -340,6 +343,8 @@ pub fn from_html(html: &str) -> RichDoc {
         line_has_text: false,
     };
     let mut rest = html;
+    // No '>' is left in the text: every further '<' is text, without searching again.
+    let mut no_close = false;
     while !rest.is_empty() {
         let Some((text, tail)) = rest.split_once('<') else {
             r.push_text(&decode(rest));
@@ -357,8 +362,9 @@ pub fn from_html(html: &str) -> RichDoc {
             rest = rest.split_once('>').map_or("", |(_, t)| t);
             continue;
         }
-        let Some((inner, tail)) = rest.split_once('>') else {
+        let Some((inner, tail)) = (if no_close { None } else { rest.split_once('>') }) else {
             // A '<' that starts no tag is text.
+            no_close = true;
             r.push_text("<");
             continue;
         };
@@ -384,11 +390,13 @@ pub fn from_html(html: &str) -> RichDoc {
             continue;
         }
         if DROPPED.contains(&tag.as_str()) {
-            // Skip to the matching end tag (ASCII lowercasing keeps byte offsets).
+            // Skip to the matching end tag, whatever its case (compared in place: a copy of
+            // the rest per dropped tag would make many of them quadratic).
             let end = format!("</{tag}");
-            let lower = rest.to_ascii_lowercase();
-            rest = lower
-                .find(&end)
+            rest = rest
+                .as_bytes()
+                .windows(end.len())
+                .position(|w| w.eq_ignore_ascii_case(end.as_bytes()))
                 .and_then(|e| rest.get(e..))
                 .and_then(|t| t.split_once('>'))
                 .map_or("", |(_, t)| t);
@@ -556,7 +564,17 @@ pub fn to_html(doc: &RichDoc) -> String {
     let mut lists: Vec<(bool, u8)> = Vec::new();
     let mut in_code = false;
     let mut in_quote = false;
-    let lines: Vec<Range<usize>> = (0..doc.lines()).map(|i| doc.line_range(i)).collect();
+    // Every line's range in one pass (asking the document for each walks it from the start).
+    let mut start = 0;
+    let lines: Vec<Range<usize>> = doc
+        .text
+        .split('\n')
+        .map(|l| {
+            let r = start..start + l.len();
+            start = r.end + 1;
+            r
+        })
+        .collect();
     for (i, line) in lines.into_iter().enumerate() {
         let block = doc.blocks.get(i).copied().unwrap_or_default();
         if in_code && block != Block::Code {

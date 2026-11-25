@@ -282,14 +282,9 @@ fn toggle_btn(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
             format!("{} {label}", crate::base::tr(&ui, key))
         }
     };
-    crate::base::tooltip(&btn, tip);
-    let st_s = state;
-    let label_s = label.to_string();
-    btn.semantics(move || {
-        let name =
-            if st_s.get().collapsed { format!("Expand {label_s}") } else { format!("Collapse {label_s}") };
-        Semantics::new(Role::Button).label(name).action(Action::Click)
-    })
+    crate::base::tooltip(&btn, tip.clone());
+    // Named as its tooltip reads, in the window's language.
+    btn.semantics(move || Semantics::new(Role::Button).label(tip()).action(Action::Click))
 }
 
 fn header_grip(ui: &Ui, state: Signal<DockState>, label: &str) -> El {

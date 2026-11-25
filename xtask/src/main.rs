@@ -3,6 +3,8 @@
 //! - `cargo xtask check`: the layer graph, the unsafe-code boundary, publishing metadata, the
 //!   committed docs index, and `cargo vet --locked` (skipped, with a note, when cargo-vet is
 //!   not installed).
+//! - `cargo xtask docs-index`: writes the docs index the developer tools embed ([`DOCS_INDEX`]),
+//!   after a change to the guides, the design docs or any crate's rustdoc.
 //! - `cargo xtask semver --baseline <git revision or tag>`: every publishable crate's API
 //!   against the baseline, with `cargo-semver-checks` ([`SEMVER_CHECKS_VERSION`]).
 //! - `cargo xtask msrv`: the workspace builds with the Rust version it declares
@@ -545,6 +547,7 @@ fn msrv() -> Result<(), String> {
     let status = Command::new("rustup")
         .args(["run", version, "cargo", "check", "--workspace", "--all-targets", "--all-features"])
         .args(["--target-dir", "target/msrv"])
+        .current_dir(repo_root())
         .env_remove("RUSTUP_TOOLCHAIN")
         .env_remove("CARGO")
         .env_remove("RUSTC")

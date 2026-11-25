@@ -286,6 +286,12 @@ impl PixelFormat {
     }
 }
 
+/// The bytes in a row of `w` samples of `b` bytes each (in `usize`: a frame's size is the
+/// caller's, and `w * b` can pass `u32`).
+fn row_bytes(w: u32, b: u32) -> usize {
+    (w as usize).saturating_mul(b as usize)
+}
+
 impl VideoFrame {
     /// A tightly packed frame: planes one after another, rows without padding.
     pub fn packed(
@@ -300,9 +306,9 @@ impl VideoFrame {
         let mut at = 0;
         for (i, (w, h, b)) in format.plane_sizes(width, height).into_iter().enumerate() {
             if let Some(p) = planes.get_mut(i) {
-                *p = Plane { offset: at, stride: (w * b) as usize };
+                *p = Plane { offset: at, stride: row_bytes(w, b) };
             }
-            at += (w * b * h) as usize;
+            at = at.saturating_add(row_bytes(w, b).saturating_mul(h as usize));
         }
         VideoFrame {
             stream,
@@ -336,7 +342,7 @@ impl VideoFrame {
         }
         self.format.plane_sizes(self.width, self.height).iter().zip(self.planes.iter()).all(
             |(&(w, h, b), p)| {
-                let row = (w * b) as usize;
+                let row = row_bytes(w, b);
                 p.stride >= row
                     && p.offset
                         .checked_add(p.stride.saturating_mul(h.saturating_sub(1) as usize))
@@ -504,6 +510,10 @@ mod tests {
         f.data = vec![0u8; 5].into();
         assert!(!f.is_valid());
         assert_eq!(f.to_rgba(), None);
+        // A size whose bytes pass `u32` is refused, not wrapped into a small frame.
+        let huge = VideoFrame::packed(1, 4, u32::MAX, 2, PixelFormat::Rgba, vec![0u8; 16].into());
+        assert!(!huge.is_valid());
+        assert_eq!(huge.to_rgba(), None);
         // RGBA is premultiplied on the way.
         let rgba = VideoFrame::packed(1, 3, 1, 1, PixelFormat::Rgba, vec![200, 100, 0, 128].into());
         assert_eq!(rgba.to_rgba(), Some(vec![100, 50, 0, 128]));

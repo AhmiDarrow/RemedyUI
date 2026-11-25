@@ -546,6 +546,8 @@ fn dispatch(lua: &mut Lua, ctx: Ctx, render_fn: Option<Ref>, args: &[Value]) -> 
         Op::Load => {
             let chunk = args.first().copied().unwrap_or(Value::Nil);
             let r = lua.call(chunk, &[])?;
+            // A call's results are kept only until the next call, and the effects make calls.
+            let _kept: Vec<Root> = r.iter().map(|v| lua.root(*v)).collect();
             flush(lua, ctx)?;
             r
         }
@@ -573,14 +575,18 @@ fn dispatch(lua: &mut Lua, ctx: Ctx, render_fn: Option<Ref>, args: &[Value]) -> 
                     let r = lua.call(f, &[s, h]);
                     with(lua, ctx, |w| w.rendering = false)?;
                     let r = r?;
-                    flush(lua, ctx)?;
-                    match r.first().copied() {
+                    // Read before the effects run: their calls end the hold on this call's results.
+                    let shown = match r.first().copied() {
                         Some(v @ Value::UserData(_)) => match lua.userdata::<api::Handle>(v).copied() {
-                            Some(hd) if hd.kind == Kind::Element => Some(hd.id),
+                            Some(hd) if hd.kind == Kind::Element => hd.id,
                             _ => return Err(err("render must return an element made with ui.*")),
                         },
                         _ => return Err(err("render must return an element made with ui.*")),
-                    }
+                    };
+                    // Named now, so its handle being collected below does not release it.
+                    with(lua, ctx, |w| w.root_shown = Some(shown))?;
+                    flush(lua, ctx)?;
+                    Some(shown)
                 }
                 None => with(lua, ctx, |w| w.root)?,
             };
@@ -794,7 +800,7 @@ impl LuaWidget {
         self.lua.set_limits(lua_limits(&self.limits));
         // The time limit, by this thread's work clock, as the backstop to the fuel.
         let start = WorkClock::start();
-        let clock: remedy_lua::Clock = Arc::new(move || start.work());
+        let clock: remedy_lua::Clock = Arc::new(move || start.proven());
         self.lua.set_time_limit(Some((clock, self.limits.time)));
         match mailbox(&mut self.lua) {
             Ok(m) => m.op = Some(op),
@@ -850,7 +856,9 @@ impl LuaWidget {
             // An element: only a detached one that is not shown goes, with what is inside it
             // and not held by a script.
             let gone = with(&mut self.lua, ctx, |w| {
-                let detached = w.elements.get(id).is_some_and(|e| e.parent.is_none()) && w.root != Some(id);
+                let detached = w.elements.get(id).is_some_and(|e| e.parent.is_none())
+                    && w.root != Some(id)
+                    && w.root_shown != Some(id);
                 if !detached {
                     return Vec::new();
                 }

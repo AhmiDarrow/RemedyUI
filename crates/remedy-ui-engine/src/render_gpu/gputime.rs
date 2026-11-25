@@ -47,7 +47,9 @@ impl GpuTimer {
     /// Writes the frame's first timestamp into `encoder`, when a trace wants GPU slices and
     /// `device` can take timestamps.
     pub(crate) fn begin(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) -> Option<Timing> {
+        // Timestamps are written by empty compute passes.
         if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY)
+            || !compute_passes(device)
             || !remedy_ui_core::trace::gpu_slices_wanted()
         {
             return None;

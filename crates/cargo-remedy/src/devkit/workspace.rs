@@ -75,6 +75,12 @@ impl Workspace {
                 break;
             }
         }
+        // What does not exist cannot be resolved, so a `..` left in it would climb out unseen.
+        if !existing.exists() && existing.components().any(|c| matches!(c, Component::ParentDir)) {
+            return Err(ToolError::new(format!(
+                "{path}: `..` cannot be used past a folder that does not exist"
+            )));
+        }
         let mut full = plain(&std::fs::canonicalize(&existing).unwrap_or(existing));
         for part in rest.iter().rev() {
             let p = Path::new(part);
@@ -111,6 +117,7 @@ mod tests {
         assert!(ws.resolve("new/deeper/app").is_ok());
         assert!(ws.resolve("..").is_err(), "the parent is outside");
         assert!(ws.resolve("../inner2").is_err());
+        assert!(ws.resolve("missing/../../escape").is_err(), "no way out through a folder not there");
         assert!(ws.resolve(&base.display().to_string()).is_err());
         assert!(Workspace::anywhere().resolve(&base.display().to_string()).is_ok());
         assert!(Workspace::new(Vec::new()).is_err());

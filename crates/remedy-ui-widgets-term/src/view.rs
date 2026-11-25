@@ -2080,12 +2080,15 @@ fn paint_row(cx: &mut PaintCx<'_>, v: &RowView, look: &mut Look, cache: &mut Gly
             }
         }
     }
+    // Pictures no line shows any more are let go (only this cache still holds them), by
+    // whichever row paints next: after a clear, no row with a picture may paint again.
+    if !cache.pictures.is_empty() {
+        cache.pictures.retain(|_, img| std::sync::Arc::strong_count(&img.pixels) > 1);
+    }
     // Pictures programs drew (sixel): the band of each that this row shows.
     if let Some(l) = line
         && !l.pictures.is_empty()
     {
-        // Pictures no line shows any more are let go (only this cache still holds them).
-        cache.pictures.retain(|_, img| std::sync::Arc::strong_count(&img.pixels) > 1);
         cx.list.push_clip(Rect::new(0.0, 0.0, width, lh), CornerRadii::ZERO);
         for piece in &l.pictures {
             let pic = &piece.picture;

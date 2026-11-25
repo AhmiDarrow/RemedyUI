@@ -44,7 +44,8 @@ pub struct Options {
     pub example: Option<String>,
     /// A debug build (quicker to make, larger and slower) instead of a release.
     pub dev: bool,
-    /// Where the page goes, instead of `target/remedy/web/<name>`.
+    /// Where the page goes, instead of `target/remedy/web/<name>`: a new or empty folder, or
+    /// an earlier page, which is replaced whole.
     pub out: Option<PathBuf>,
 }
 
@@ -108,6 +109,15 @@ pub fn package(
     }
     let out = opts.out.clone().unwrap_or_else(|| p.target_dir.join("remedy").join("web").join(&name));
     if out.exists() {
+        // The folder is replaced whole: one the person named must be empty or an earlier page.
+        let page = out.join("app_bg.wasm").is_file();
+        let empty = std::fs::read_dir(&out).is_ok_and(|mut d| d.next().is_none());
+        if opts.out.is_some() && !page && !empty {
+            return Err(format!(
+                "{} holds other files: --out takes a new or empty folder, or an earlier page to replace",
+                out.display()
+            ));
+        }
         std::fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;

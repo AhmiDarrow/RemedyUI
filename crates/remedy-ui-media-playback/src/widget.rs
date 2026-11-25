@@ -436,7 +436,6 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text));
             return;
         }
-        let _ = msg.clone().semantics(Semantics::new(Role::Alert));
         let text = match (p.state(), p.skipping()) {
             (PlaybackState::Failed, _) if !p.is_remote() => {
                 let why = p.app_failure().unwrap_or_else(|| failure(&mu.locale(), p.error()));
@@ -481,7 +480,10 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             },
         };
         let _ = msg.clone().hidden(text.is_none());
-        let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text.unwrap_or_default()));
+        let text = text.unwrap_or_default();
+        // Named by its words: explicit semantics do not take the element's text.
+        let _ = msg.clone().semantics(Semantics::new(Role::Alert).label(text.clone()));
+        let _ = msg.clone().text(remedy_ui_engine::view::RichText::plain(text));
     });
     // A spinner centered over the picture while opening or waiting for data; clicks pass.
     let busy = ui
@@ -1962,6 +1964,7 @@ fn captions_control(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player, open:
             move || {
                 let s = Semantics::new(Role::Button)
                     .label(caption_words(&u, &p, false))
+                    .has_popup(remedy_ui_core::a11y::Popup::Menu)
                     .expanded(open.get())
                     .action(Action::Click);
                 match p.caption_delay() {

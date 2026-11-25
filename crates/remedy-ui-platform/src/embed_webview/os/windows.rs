@@ -245,12 +245,17 @@ impl Inner {
 
     /// Moves, cuts and shows (or hides) the container for the last placement.
     fn apply(&self) {
-        let phase = self.phase.borrow();
-        let Phase::Ready { controller, .. } = &*phase else { return };
-        let layout = self.layout.borrow();
+        // Copied out: the calls below send window messages, and what they set off must find
+        // neither cell borrowed.
+        let controller = {
+            let phase = self.phase.borrow();
+            let Phase::Ready { controller, .. } = &*phase else { return };
+            controller.clone()
+        };
+        let layout = self.layout.borrow().clone();
         // SAFETY: our own container window and a live controller.
         unsafe {
-            match &*layout {
+            match &layout {
                 None => {
                     let _ = controller.SetIsVisible(false);
                     let _ = ShowWindow(self.container, SW_HIDE);

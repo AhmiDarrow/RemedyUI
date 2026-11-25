@@ -311,8 +311,6 @@ fn record(
     (list, next_frame, failed, ask)
 }
 
-/// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
-/// `default` is the element's text color.
 /// What an element tells assistive technology: its own semantics, or what its text or field
 /// implies, plus disabled, click and focus from its state.
 pub(crate) fn composed_semantics(
@@ -360,6 +358,8 @@ thread_local! {
     static GLYPH_STYLE: std::cell::Cell<(Hinting, Antialias)> = const { std::cell::Cell::new((Hinting::Full, Antialias::Grayscale)) };
 }
 
+/// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
+/// `default` is the element's text color.
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
     draw_runs(list, p.glyph_runs(), origin, default);
 }
@@ -996,7 +996,7 @@ impl Ui {
                         t.cache = None;
                     }
                     if let Some(f) = &d.field {
-                        f.borrow_mut().invalidate();
+                        f.borrow_mut().set_scale(scale);
                     }
                 }
                 let ids: Vec<ElementId> = i.els.keys().copied().collect();
@@ -1468,7 +1468,7 @@ impl Ui {
             if next {
                 again.push(id);
             } else if let Some(w) = ask.wake_in {
-                i.ambient.wakes.insert(id, now + w);
+                i.ambient.wakes.insert(id, now.saturating_add(w));
             }
         }
         for id in &again {
@@ -1599,8 +1599,6 @@ fn chunk_key(boxes: &HashMap<ElementId, (Size, Rect)>, id: ElementId) -> (Size, 
     boxes.get(&id).copied().unwrap_or((Size::ZERO, Rect::ZERO))
 }
 
-/// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
-/// line widths: at least one device pixel, never a blurred fraction.
 /// Borders that differ by side: each side a stroke along its middle, from halfway round a
 /// round corner (where the next side takes over) or from a square corner, top and bottom
 /// across the corners and the sides between them.
@@ -1726,6 +1724,8 @@ fn broken_border(rect: Rect, radii: CornerRadii, width: f32, color: Color, style
     }
 }
 
+/// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
+/// line widths: at least one device pixel, never a blurred fraction.
 fn crisp_width(width: f32, scale: f32) -> f32 {
     match remedy_ui_core::units::Scale::new(scale) {
         Some(g) if width > 0.0 => g.crisp_line(width),

@@ -6,9 +6,9 @@
 //! - [`helper_main`]: call it first thing in `main`. The helper is the app's own executable
 //!   started again in helper mode, so an app ships one binary.
 //! - [`enable`]: routes the image loader (`remedy-ui-media::media_image`: [`image()`], `load`,
-//!   `probe`, `decode_for_box`) and, with the `anim` feature (on by default), animations
-//!   (`remedy-ui-media::media_anim`) through helpers from then on, and says how they are
-//!   sandboxed; [`disable`] decodes in the app again.
+//!   `probe`, `decode_for_box`) and, with the `media-isolated-anim` feature (which
+//!   `media-isolated` turns on), animations (`remedy-ui-media::media_anim`) through helpers
+//!   from then on, and says how they are sandboxed; [`disable`] decodes in the app again.
 //! - [`stats`]: how many helpers started, and how many were stopped and why.
 //!
 //! The sandboxes:

@@ -42,8 +42,8 @@ pub struct BigButtonOptions {
     /// Set true while the button is held down (by the pointer, or Space or Enter), false when
     /// let go: hold to talk.
     pub held: Option<Signal<bool>>,
-    /// Draw the label on a round button's cap or a plate (on by default for those looks).
-    /// A switch always shows its label beside it.
+    /// Keep the label off a round button's cap or a plate, where it is drawn unless this is
+    /// set (it stays the accessible name). A switch always shows its label beside it.
     pub hide_label: bool,
 }
 

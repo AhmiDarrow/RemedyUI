@@ -47,7 +47,7 @@ impl State {
     /// Where playback is now: the last position given, moved on while playing.
     fn position(&self) -> Duration {
         let moved = match (self.state, self.at) {
-            (MediaState::Playing, Some(at)) => self.position + at.elapsed(),
+            (MediaState::Playing, Some(at)) => self.position.saturating_add(at.elapsed()),
             _ => self.position,
         };
         self.length.map_or(moved, |l| moved.min(l))
@@ -359,7 +359,11 @@ impl Session {
                         std::process::id(),
                         s.track
                     ));
-                    if std::fs::write(&file, b).is_ok() {
+                    // Made anew, never written through a link someone left at that name in
+                    // the shared temporary folder.
+                    let _ = std::fs::remove_file(&file);
+                    let made = std::fs::OpenOptions::new().write(true).create_new(true).open(&file);
+                    if made.and_then(|mut f| std::io::Write::write_all(&mut f, b)).is_ok() {
                         s.art_url = Some(crate::services_desktop::file_uri(&file));
                         s.art_file = Some(file);
                     }

@@ -291,6 +291,29 @@ fn search_finds_every_page_off_the_ui_thread_and_steps_through_hits() {
 }
 
 #[test]
+fn a_search_started_mid_document_keeps_its_hit_as_earlier_pages_are_searched() {
+    let mut w = Win::new(doc(12), WINDOW);
+    w.view.go_to_page(5);
+    w.frame();
+    let from = w.view.current_page().get_untracked().unwrap_or(0);
+    assert!((1..11).contains(&from), "started mid-document: {from}");
+    w.view.find("LINE 7 THE");
+    let start = std::time::Instant::now();
+    while !w.view.search_status().get_untracked().is_ok_and(|s| s.done) {
+        assert!(start.elapsed() < LONG, "{:?}", w.view.search_status().get_untracked());
+        w.frame();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let s = w.view.search_status().get_untracked().unwrap_or_default();
+    assert_eq!(s.matches, 12);
+    let shown = s.current.and_then(|i| w.view.matches().get(i).copied());
+    assert_eq!(shown.map(|m| m.page()), Some(from), "the hit shown is still the current one");
+    w.view.find_next();
+    w.frame();
+    assert_eq!(w.view.current_page().get_untracked().ok(), Some(from + 1), "and the next follows it");
+}
+
+#[test]
 fn spreads_and_rotation_lay_pages_out() {
     let mut w = Win::new(doc(9), WINDOW);
     w.view.set_spread(Spread::Two);

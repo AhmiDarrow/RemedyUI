@@ -55,10 +55,12 @@ impl std::fmt::Display for DesktopError {
             DesktopError::NoAutostartFolder => {
                 f.write_str("This system has no place for apps that start with the session.")
             }
-            DesktopError::Io { path, reason } => write!(f, "Could not write {}: {reason}", path.display()),
+            DesktopError::Io { path, reason } => {
+                write!(f, "Could not read or write {}: {reason}", path.display())
+            }
             DesktopError::Platform { reason } => write!(f, "The system could not do it: {reason}"),
             DesktopError::Unsupported { what, reason } => {
-                write!(f, "{what} are not available here: {reason}")
+                write!(f, "Not available here: {what} ({reason})")
             }
             DesktopError::Invalid { value, reason } => write!(f, "\"{value}\" cannot be used: {reason}"),
         }

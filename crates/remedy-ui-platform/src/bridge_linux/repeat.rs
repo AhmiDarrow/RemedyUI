@@ -14,8 +14,11 @@ use x11rb::protocol::xkb::{self, ConnectionExt as _};
 /// A delay in milliseconds and a rate in repeats a second as a delay and an interval; a
 /// rate of 0 (repeat turned off) is no answer, so the next source is asked.
 pub(crate) fn from_rate(delay_ms: f64, rate: f64) -> Option<(Duration, Duration)> {
-    (delay_ms >= 0.0 && rate > 0.0 && delay_ms.is_finite() && rate.is_finite())
-        .then(|| (Duration::from_secs_f64(delay_ms / 1000.0), Duration::from_secs_f64(1.0 / rate)))
+    if !(delay_ms >= 0.0 && rate > 0.0) {
+        return None;
+    }
+    // A value too large for a Duration (a hand-edited settings file) is no answer either.
+    Duration::try_from_secs_f64(delay_ms / 1000.0).ok().zip(Duration::try_from_secs_f64(1.0 / rate).ok())
 }
 
 /// KDE's repeat from `kcminputrc`'s `[Keyboard]` group (`RepeatDelay` in milliseconds,
@@ -177,6 +180,8 @@ mod tests {
         assert_eq!(from_rate(500.0, 0.0), None);
         assert_eq!(from_rate(-1.0, 25.0), None);
         assert_eq!(from_rate(f64::NAN, 25.0), None);
+        assert_eq!(from_rate(1e300, 25.0), None, "too long for a Duration");
+        assert_eq!(from_rate(500.0, 1e-300), None);
     }
 
     #[test]

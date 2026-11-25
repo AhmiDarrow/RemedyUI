@@ -479,8 +479,13 @@ impl Agents {
     fn find(&self, id: u64) -> Option<El> {
         let mut stack = self.reachable();
         while let Some(e) = stack.pop() {
-            let info = e.info()?;
+            // One element that has gone must not end the search for the others.
+            let Some(info) = e.info() else { continue };
             if info.hidden || info.widget == "lock_screen" {
+                continue;
+            }
+            // What a snapshot leaves out cannot be operated by guessing its id.
+            if e.composed_semantics().is_some_and(|s| s.is_hidden()) {
                 continue;
             }
             if e.node_id() == id {

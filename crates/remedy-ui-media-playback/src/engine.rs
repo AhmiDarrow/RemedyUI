@@ -683,7 +683,8 @@ impl Presenter {
                         .as_ref()
                         .and_then(|v| v.frame_rate)
                         .filter(|r| *r > 0.0)
-                        .map(|r| Duration::from_secs_f64(1.0 / r));
+                        // A rate too small to be one (a damaged header) gives no frame time.
+                        .and_then(|r| Duration::try_from_secs_f64(1.0 / r).ok());
                 }
                 self.size_buffers();
                 let shared = self.feed.clone();

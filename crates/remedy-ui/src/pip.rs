@@ -14,6 +14,8 @@ use crate::runner::{App, WindowSpec};
 
 /// How wide the window opens, in logical pixels: a corner of the screen, as a browser's.
 const WIDTH: f32 = 480.0;
+/// The least height the window opens with or is resized to.
+const MIN_HEIGHT: f32 = 90.0;
 /// How near an edge a press resizes rather than moves.
 const GRIP: f32 = 8.0;
 
@@ -41,11 +43,13 @@ pub(crate) fn install(app: &App) {
         let height = player
             .info()
             .and_then(|i| i.video)
-            .map_or(WIDTH * 9.0 / 16.0, |v| WIDTH * v.height.max(1) as f32 / v.width.max(1) as f32);
+            .map_or(WIDTH * 9.0 / 16.0, |v| WIDTH * v.height.max(1) as f32 / v.width.max(1) as f32)
+            // The size is the file's word: a sliver of a video must not ask for a window miles tall.
+            .clamp(MIN_HEIGHT, WIDTH * 3.0);
         let title = player.title().unwrap_or_default();
         let spec = WindowSpec::new(title.clone())
             .size(WIDTH, height)
-            .min_size(160.0, 90.0)
+            .min_size(160.0, MIN_HEIGHT)
             .frameless()
             .always_on_top(true)
             .in_taskbar(false);

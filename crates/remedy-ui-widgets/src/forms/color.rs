@@ -235,7 +235,8 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
                 let sq = cx.size.height / 2.0;
                 let mut x = 0.0;
                 let mut i = 0u32;
-                while x < cx.size.width {
+                // A strip with no height has no squares (and `x` would never advance).
+                while sq > 0.0 && x < cx.size.width {
                     for row in 0..2u32 {
                         if (i + row).is_multiple_of(2) {
                             cx.list.fill_rect(

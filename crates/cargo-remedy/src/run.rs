@@ -8,9 +8,12 @@ use std::time::{Duration, SystemTime};
 use crate::project::{Project, cargo, status};
 
 pub fn run(args: &[String]) -> Result<(), String> {
-    let release = args.iter().any(|a| a == "--release");
-    let watch = args.iter().any(|a| a == "--watch");
-    let app_args: Vec<String> = args.iter().skip_while(|a| *a != "--").skip(1).cloned().collect();
+    // Everything after `--` is the app's, flags that look like ours included.
+    let split = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let own = args.get(..split).unwrap_or_default();
+    let release = own.iter().any(|a| a == "--release");
+    let watch = own.iter().any(|a| a == "--watch");
+    let app_args: Vec<String> = args.iter().skip(split + 1).cloned().collect();
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
     let project = Project::load(&root)?;
     if !watch {

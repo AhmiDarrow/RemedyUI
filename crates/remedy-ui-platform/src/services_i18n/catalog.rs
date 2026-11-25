@@ -51,6 +51,11 @@ struct Template {
 
 type Table = Rc<HashMap<String, String>>;
 
+/// How deep [`Catalog::translate_in`] follows placeholders inside placeholders: text from
+/// elsewhere can repeat a key's words without end ("Error: Error: Error: …"), and what lies
+/// deeper stays as it is.
+const TRANSLATE_DEPTH: u8 = 8;
+
 #[derive(Debug)]
 struct Inner {
     source: String,
@@ -434,6 +439,11 @@ impl Catalog {
     /// Text in the source language from elsewhere, in `locale`: an exact key, or a key with
     /// placeholders whose values are translated in turn. Unknown text stays as it is.
     pub fn translate_in(&self, locale: &str, text: &str) -> String {
+        self.translate_within(locale, text, TRANSLATE_DEPTH)
+    }
+
+    /// [`Catalog::translate_in`], following placeholders `depth` deep.
+    fn translate_within(&self, locale: &str, text: &str, depth: u8) -> String {
         if let Some(o) = self.override_in(locale, text) {
             return o;
         }
@@ -445,11 +455,14 @@ impl Catalog {
         {
             return t;
         }
+        let Some(deeper) = depth.checked_sub(1) else { return text.to_owned() };
         let templates = self.0.templates.borrow().clone();
         for t in &templates {
             if let Some(values) = t.matches(text) {
-                let args: Vec<(&str, String)> =
-                    values.iter().map(|(n, v)| (n.as_str(), self.translate_in(locale, v))).collect();
+                let args: Vec<(&str, String)> = values
+                    .iter()
+                    .map(|(n, v)| (n.as_str(), self.translate_within(locale, v, deeper)))
+                    .collect();
                 return fill(&self.text_in(locale, &t.key), &args);
             }
         }
@@ -515,6 +528,17 @@ mod tests {
         );
         assert_eq!(c.translate_in("fr", "Something else entirely"), "Something else entirely");
         assert_eq!(c.translate_in("de", "Share a folder"), "Share a folder");
+    }
+
+    #[test]
+    fn text_that_repeats_a_key_without_end_is_followed_only_so_deep() {
+        let c = catalog().embedded_json("fr", r#"{"Error: {text}": "Erreur : {text}", "{text}": "{text}"}"#);
+        let nested = format!("{}disk on fire", "Error: ".repeat(20_000));
+        let out = c.translate_in("fr", &nested);
+        assert!(out.starts_with("Erreur : Erreur : "), "the outer levels are translated");
+        assert!(out.ends_with("Error: disk on fire"), "the rest stays as it came");
+        // A key that is only a placeholder matches everything, itself included.
+        assert_eq!(c.translate_in("fr", "anything"), "anything");
     }
 
     #[test]

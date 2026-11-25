@@ -130,6 +130,21 @@ fn unchanged_frames_reuse_tiles_and_released_tiles_are_freed() {
     assert_eq!(cpu.tile_count(), 0, "every tile of the removed layers is freed");
 }
 
+#[test]
+fn a_frame_of_no_size_still_frees_released_tiles() {
+    let mut c = Compositor::new(340, 230, 1.0, ScrollPhysics::CLAMPED);
+    let mut cpu = CpuCompositor::new();
+    c.commit(tree(1.0));
+    let _ = composited(&mut c, &mut cpu, 0);
+    assert!(cpu.tile_count() > 0);
+    // The window is minimized, then its content goes: the plan lists the tiles once.
+    c.resize(0, 0, 1.0);
+    c.commit(LayerTree::default());
+    let plan = c.frame(Duration::from_millis(16));
+    assert!(cpu.present(&plan, 0, 0, Color::WHITE).is_err());
+    assert_eq!(cpu.tile_count(), 0);
+}
+
 /// A tree with a big patterned backdrop and a small square at `x`.
 fn moving(x: f32) -> LayerTree {
     let mut back = DisplayList::new();

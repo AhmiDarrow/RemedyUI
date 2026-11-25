@@ -56,7 +56,8 @@ extra = ["widgets", "viz", "remedy-ui-widgets/extra"]
 ## and anchors, pixel-art sprites, orbits, path layouts, knobs and tuners, faders, timelines,
 ## big physical buttons and display boards.
 stage = ["widgets", "viz", "remedy-ui-widgets/stage"]
-# Prism: .rfx effects (fire, water, glow, particles, 3D) as elements, on the GPU kernel or the CPU.
+## Prism (`remedy_ui::effects`): .rfx effects (fire, water, glow, particles, 3D) as elements, on
+## the GPU kernel or the CPU.
 effects = ["remedy-ui-engine/effects", "remedy-ui-engine/media-effects"]
 ## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
 ## thread at the size shown, color-managed and shared while in use.
@@ -75,7 +76,11 @@ webview = ["remedy-ui-platform/embed-webview"]
 gpu-embed = ["gpu", "remedy-ui-platform/embed-gpu"]
 ## Code (`remedy_ui::code`): code views with syntax colors from the theme, folding, diffs.
 code = ["widgets", "remedy-ui-widgets/doc-code"]
+## Agents (`remedy_ui::agents`): assistants read and operate a window through its semantics
+## and the app's commands, under the person's consent.
 agents = ["widgets", "nav", "remedy-ui-widgets/automation"]
+## Markup (`remedy_ui::markup`): `.rui` screens as data, compiled at build time or loaded for
+## layouts people change themselves.
 markup = ["widgets", "remedy-ui-widgets/rui"]
 ## Media playback (`remedy_ui::playback`): sound and video files and streams through the
 ## platform's decoders, kept in sync by the sound clock, with the `player` widget and
@@ -141,8 +146,9 @@ headless = ["remedy-ui-platform/bridge-headless"]
 ## `wasm32-unknown-unknown`, where `AppConfig::web` says where it mounts. On other targets,
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
-## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-lua", "script-wasm", "agents", "markup", "i18n", "net", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
+## Every optional part of the engine. `web-embed-fonts` is not one: it changes where a page's
+## fonts come from.
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "cjk-fonts", "language-names", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-lua", "script-wasm", "agents", "markup", "i18n", "net", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", features = ["reactive-persist"] }

@@ -260,7 +260,13 @@ impl<T: Clone + 'static, K: Eq + Hash + Clone + 'static> Keyed<T, K> {
     /// place), new keys are built, gone keys removed.
     fn reconcile(&mut self, list: &[T]) {
         let keys: Vec<K> = list.iter().map(|t| (self.key)(t)).collect();
-        let mut old: HashMap<K, Row> = std::mem::take(&mut self.rows).into_iter().collect();
+        let mut old: HashMap<K, Row> = HashMap::with_capacity(self.rows.len());
+        for (k, row) in std::mem::take(&mut self.rows) {
+            // Two rows with one key: only one can be matched again, the other goes now.
+            if let Some(twin) = old.insert(k, row) {
+                twin.remove();
+            }
+        }
         let mut rows = Vec::with_capacity(list.len());
         let mut fresh = Vec::new();
         for (i, (item, k)) in list.iter().zip(keys).enumerate() {

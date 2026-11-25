@@ -214,7 +214,7 @@ impl Preview {
         let mut comp = Compositor::new(pw, ph, scale, ScrollPhysics::CLAMPED);
         comp.set_reduced_motion(true);
         let mut cpu = CpuCompositor::new();
-        let mut pixels = vec![0u8; (pw * ph * 4) as usize];
+        let mut pixels = vec![0u8; pw as usize * ph as usize * 4];
         // A few frames: layout settles, bindings that react to bounds run.
         for n in 0..3u64 {
             let f = ui.frame(Size::new(lw, lh), scale);
@@ -293,10 +293,14 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// The pixel at `(x, y)`, premultiplied.
+    /// The pixel at `(x, y)`, premultiplied; `None` outside the image.
     pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
-        let i = ((y * self.width + x) * 4) as usize;
-        self.rgba.get(i..i + 4)?.try_into().ok()
+        // Past the row's end is outside, not the start of the next row.
+        if x >= self.width {
+            return None;
+        }
+        let i = (y as usize).checked_mul(self.width as usize)?.checked_add(x as usize)?.checked_mul(4)?;
+        self.rgba.get(i..i.checked_add(4)?)?.try_into().ok()
     }
 
     /// As an image element source.
@@ -363,7 +367,8 @@ impl Snapshot {
     /// sizes differ).
     pub fn diff(&self, other: &Snapshot, tolerance: u8) -> usize {
         if (self.width, self.height) != (other.width, other.height) {
-            return (self.width * self.height).max(other.width * other.height) as usize;
+            let area = |s: &Snapshot| (s.width as usize).saturating_mul(s.height as usize);
+            return area(self).max(area(other));
         }
         self.rgba
             .chunks(4)

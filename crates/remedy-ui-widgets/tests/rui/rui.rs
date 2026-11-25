@@ -200,6 +200,10 @@ fn errors_point_at_the_file_line_and_column_and_say_what_is_exposed() {
     let e = err("slider(label: \"A\", value: $input_gain, range: 10..0)");
     assert!(e.message.contains("end before it starts"));
 
+    // More digits than an f64 holds would be infinity: refused, not handed to a slider.
+    let e = err(&format!("slider(label: \"A\", value: $input_gain, range: 0..{})", "9".repeat(400)));
+    assert!(e.message.contains("too large"), "{e}");
+
     let deep = format!("{}{}", "column {".repeat(500), "}".repeat(500));
     let e = err(&deep);
     assert!(e.message.contains("nest more than"), "{e}");

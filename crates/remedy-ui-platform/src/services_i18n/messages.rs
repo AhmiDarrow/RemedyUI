@@ -282,8 +282,6 @@ impl Messages {
         }
     }
 
-    /// The bundles to try for a requested locale: the best matches among the available ones,
-    /// then the default.
     /// Every message as `locale` shows it, with its value and attributes as Fluent text: the
     /// best matching locales first, then the default, and within a locale later sources over
     /// earlier ones. Sources read from the folder `without` are left out (what the app's own
@@ -325,6 +323,8 @@ impl Messages {
         .collect()
     }
 
+    /// The bundles to try for a requested locale: the best matches among the available ones,
+    /// then the default.
     fn chain(&self, requested: &str) -> Rc<Vec<Bundle>> {
         if let Some(c) = self.0.bundles.borrow().get(requested) {
             return c.clone();
@@ -483,7 +483,12 @@ fn format_number(v: &FluentValue<'_>, memo: &IntlLangMemoizer) -> Option<String>
     let FluentValue::Number(FluentNumber { value, options }) = v else { return None };
     let max =
         options.maximum_fraction_digits.map_or(crate::services_i18n::decimal::MAX_SCALE, |m| m.min(28) as u8);
-    let d = Decimal::from_f64(*value, max)?;
+    let d = match options.maximum_fraction_digits {
+        Some(_) => Decimal::from_f64(*value, max)?,
+        // No limit asked for: the number as it reads (0.1), not the digits of its binary form
+        // (0.1000000000000000055…), which also run a large count out of exact digits.
+        None => Decimal::parse(&value.to_string()).ok().or_else(|| Decimal::from_f64(*value, max))?,
+    };
     let min = options.minimum_fraction_digits.unwrap_or(0).min(28) as u8;
     let places = d.scale().clamp(min, max.max(min));
     memo.with_try_get::<LocaleNumbers, _, _>((), |n| {

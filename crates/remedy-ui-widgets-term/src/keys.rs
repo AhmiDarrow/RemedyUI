@@ -357,13 +357,13 @@ pub fn encode_mouse(
         }
         MouseEncoding::Default => {
             // Positions past 223 cannot be said in one byte: the report is not sent.
-            let enc = |v: u32| u8::try_from(v + 32).ok().filter(|_| v + 32 <= 255);
+            let enc = |v: u32| v.checked_add(32).and_then(|v| u8::try_from(v).ok());
             Some(vec![0x1b, b'[', b'M', enc(b)?, enc(x)?, enc(y)?])
         }
         MouseEncoding::Utf8 => {
             let mut out = b"\x1b[M".to_vec();
             for v in [b, x, y] {
-                let c = char::from_u32(v + 32).filter(|_| v + 32 < 0x800)?;
+                let c = v.checked_add(32).filter(|v| *v < 0x800).and_then(char::from_u32)?;
                 let mut buf = [0u8; 4];
                 out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
             }
