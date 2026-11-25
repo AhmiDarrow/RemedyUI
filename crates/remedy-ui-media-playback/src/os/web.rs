@@ -162,7 +162,8 @@ fn has_global(name: &str) -> bool {
 
 /// Microseconds (WebCodecs' time unit) as a duration.
 fn micros(us: f64) -> Duration {
-    Duration::from_secs_f64(us.max(0.0) / 1_000_000.0)
+    // A time no duration can hold (an endless one) is zero, not a panic.
+    Duration::try_from_secs_f64(us.max(0.0) / 1_000_000.0).unwrap_or_default()
 }
 
 /// Where a decoded sample waits: decoded pictures are copied out asynchronously, so their
@@ -603,7 +604,7 @@ impl Open {
         let s = t.samples.get(i)?;
         let start = usize::try_from(s.offset).ok()?;
         let data = self.data.borrow();
-        let bytes = data.data.get(start..start + s.size as usize)?;
+        let bytes = data.data.get(start..start.checked_add(s.size as usize)?)?;
         let us = |d: Duration| JsValue::from_f64(d.as_secs_f64() * 1_000_000.0);
         Some(obj(&[
             ("type", JsValue::from_str(if s.sync { "key" } else { "delta" })),
@@ -830,7 +831,7 @@ impl Decoder for WebDecoder {
             op.next_audio = tr
                 .samples
                 .iter()
-                .position(|s| tr.time(s.pts + i64::from(s.duration)) > to)
+                .position(|s| tr.time(s.pts.saturating_add(i64::from(s.duration))) > to)
                 .unwrap_or(tr.samples.len());
             dec.reset().map_err(|e| MediaError::Decode(js_error("seeking", &e)))?;
             dec.configure(config).map_err(|e| MediaError::Decode(js_error("seeking", &e)))?;
@@ -875,9 +876,6 @@ fn body_length(resp: &web_sys::Response) -> Option<u64> {
     header("content-length").and_then(|l| l.trim().parse().ok())
 }
 
-/// Fetches `url` without blocking, a chunk at a time into `bytes`, and opens it as soon as
-/// its movie box is in (at once for a file made for streaming, its movie box first; at the
-/// end otherwise). Samples still to come wait in the feed; each chunk wakes the reader.
 /// All of `source`'s sound, mono, at `rate` frames a second: the browser decodes it
 /// (whatever it can play: mp3, wav, ogg, flac, m4a) and brings it to the rate asked for.
 pub(crate) async fn decode_audio(source: &MediaSource, rate: u32) -> Result<Vec<f32>, MediaError> {
@@ -920,6 +918,9 @@ pub(crate) async fn decode_audio(source: &MediaSource, rate: u32) -> Result<Vec<
     Ok(if got == rate { mono } else { crate::pcm::resample(&mono, 1, got, rate) })
 }
 
+/// Fetches `url` without blocking, a chunk at a time into `bytes`, and opens it as soon as
+/// its movie box is in (at once for a file made for streaming, its movie box first; at the
+/// end otherwise). Samples still to come wait in the feed; each chunk wakes the reader.
 fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>, bytes: SharedBytes) {
     wasm_bindgen_futures::spawn_local(async move {
         let not_found = |e: &JsValue| MediaError::NotFound(js_error(&url, e));
@@ -986,6 +987,10 @@ fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>, byt
             Ok(())
         }
         .await;
+        // The decoder is gone: decoders opened now would have nothing to close them.
+        if bytes.borrow().dropped {
+            return;
+        }
         bytes.borrow_mut().complete = true;
         match fetched {
             // Opened once the movie box came in; the last samples are in now.

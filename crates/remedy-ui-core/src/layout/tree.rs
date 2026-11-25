@@ -72,7 +72,6 @@ pub struct LayoutTree {
     /// One viewport per computed root: the window's box, like CSS's initial containing block.
     /// An auto-width root fills it the way a page body fills the window.
     viewports: std::collections::HashMap<NodeId, NodeId>,
-    /// Each node's RemedyUI style and the direction it was last translated with.
     /// Each node's style, its resolved direction, and its parent's (which its insets follow).
     styles: std::collections::HashMap<NodeId, (LayoutStyle, bool, bool)>,
 }

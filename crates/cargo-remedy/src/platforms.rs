@@ -423,11 +423,12 @@ fn bridge_dex_in(metadata: &serde_json::Value) -> Result<PathBuf, String> {
     if dex.is_file() { Ok(dex) } else { Err(format!("{} is missing", dex.display())) }
 }
 
-/// An Android version code from a semantic version: 1.2.3 is 10203.
+/// An Android version code from a semantic version: 1.2.3 is 10203. Android takes codes up
+/// to 2,100,000,000, where a major version too large for that (a date) stops.
 pub fn version_code(version: &str) -> u32 {
     let mut parts = version.split(['.', '-', '+']).map(|n| n.parse::<u32>().unwrap_or(0));
     let (a, b, c) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    (a * 10_000 + b.min(99) * 100 + c.min(99)).max(1)
+    a.saturating_mul(10_000).saturating_add(b.min(99) * 100 + c.min(99)).clamp(1, 2_100_000_000)
 }
 
 fn newest(dir: &Path) -> Option<PathBuf> {
@@ -550,8 +551,10 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
     // The app's own release key when remedy.toml names one, else a debug key of this build's.
     let (keystore, pass, alias) = match &p.android_keystore {
         Some(ks) => {
-            let pass = std::env::var("REMEDY_ANDROID_KEYSTORE_PASSWORD")
+            std::env::var("REMEDY_ANDROID_KEYSTORE_PASSWORD")
                 .map_err(|_| "set REMEDY_ANDROID_KEYSTORE_PASSWORD for [android] keystore")?;
+            // apksigner reads the variable itself: a command line is open to every process.
+            let pass = "env:REMEDY_ANDROID_KEYSTORE_PASSWORD".to_owned();
             (ks.clone(), pass, p.android_key_alias.clone().unwrap_or_else(|| "release".into()))
         }
         None => {
@@ -577,7 +580,7 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
             notes.push(
                 "signed with a debug key (set [android] keystore in remedy.toml to sign for release)".into(),
             );
-            (ks, "android".to_owned(), "debug".to_owned())
+            (ks, "pass:android".to_owned(), "debug".to_owned())
         }
     };
     let apk = dist.join(format!("{}_{}_{abi}.apk", p.bin, p.version));
@@ -588,7 +591,7 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
             .arg("--ks-key-alias")
             .arg(&alias)
             .arg("--ks-pass")
-            .arg(format!("pass:{pass}"))
+            .arg(&pass)
             .arg("--out")
             .arg(&apk)
             .arg(&aligned),
@@ -837,6 +840,7 @@ mod tests {
         assert_eq!(m.matches("uses-permission").count(), 1);
         assert!(!m.contains("dev.remedyui.android.Foreground"), "no foreground service unless asked for");
         assert_eq!(version_code("0.1.0"), 100);
+        assert_eq!(version_code("20261125.0.0"), 2_100_000_000, "the largest code Android takes");
         let plist = info_plist(&p);
         assert!(plist.contains("<string>My Notes</string>") && plist.contains("<string>my-notes</string>"));
         assert!(!plist.contains("CFBundleURLTypes"), "no schemes unless asked for");

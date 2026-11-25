@@ -100,7 +100,7 @@ impl CpuCompositor {
         background: Color,
     ) -> Result<&Frame, RenderError> {
         let _raster = remedy_ui_core::phase!("raster").entered();
-        let (w, h) = size16(width, height)?;
+        // Tiles are freed and rastered whatever the frame's size: the plan lists each once.
         for key in &plan.released {
             self.tiles.remove(key);
         }
@@ -118,6 +118,7 @@ impl CpuCompositor {
             self.tiles.insert((req.layer, req.key), Arc::new(pix));
         }
         self.last_raster = (pixels, started.elapsed());
+        let (w, h) = size16(width, height)?;
 
         // Only what changed is composited again; the rest of the last frame is kept. The
         // composite is recorded once for the whole window and only the damaged rectangles are

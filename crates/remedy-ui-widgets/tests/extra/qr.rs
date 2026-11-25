@@ -584,6 +584,9 @@ fn data_too_long_is_an_error_not_a_crash() {
         }),
         Err(QrError::TooLong)
     );
+    // More characters than the largest code holds are turned down before any work on them.
+    assert!(QrCode::encode_text(&"1".repeat(7089), Ecc::Low).is_ok());
+    assert_eq!(QrCode::encode_text(&"1".repeat(7090), Ecc::Low), Err(QrError::TooLong));
 }
 
 #[test]

@@ -603,7 +603,7 @@ pub fn tuner(
                 return false;
             }
             let cur = selected.get_untracked().unwrap_or(0);
-            pick(if d > 0.0 { cur + 1 } else { cur.saturating_sub(1) });
+            pick(if d > 0.0 { cur.saturating_add(1) } else { cur.saturating_sub(1) });
             true
         })
         .on_key(move |e| {
@@ -612,7 +612,7 @@ pub fn tuner(
             }
             let cur = selected.get_untracked().unwrap_or(0);
             let next = match e.key {
-                Key::ArrowRight | Key::ArrowUp => cur + 1,
+                Key::ArrowRight | Key::ArrowUp => cur.saturating_add(1),
                 Key::ArrowLeft | Key::ArrowDown => cur.saturating_sub(1),
                 Key::Home => 0,
                 Key::End => n - 1,

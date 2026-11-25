@@ -486,9 +486,11 @@ unsafe extern "C" fn on_download(_context: Ptr, download: Ptr, data: Ptr) {
 fn pump(ui: WeakUi, inner: Weak<Inner>) {
     let Some(live) = inner.upgrade().filter(|i| !i.closed.get()) else { return };
     let api = live.api;
+    // A busy page keeps the context busy: one interval's worth, then the app's own turn.
+    let started = std::time::Instant::now();
     // SAFETY: GLib's default context, on the thread GTK runs on; never blocks.
     unsafe {
-        while (api.g_main_context_pending)(std::ptr::null_mut()) != 0 {
+        while (api.g_main_context_pending)(std::ptr::null_mut()) != 0 && started.elapsed() < PUMP_INTERVAL {
             (api.g_main_context_iteration)(std::ptr::null_mut(), 0);
         }
     }
@@ -551,6 +553,8 @@ impl Native {
                 std::ptr::null::<c_char>(),
             );
             if view.is_null() {
+                (api.g_object_unref)(manager);
+                (api.g_object_unref)(context);
                 return Err("WebKitGTK could not make a web view".into());
             }
             let settings = (api.webkit_web_view_get_settings)(view);
@@ -581,6 +585,8 @@ impl Native {
             let gdk = (api.gtk_widget_get_window)(window);
             if gdk.is_null() {
                 (api.gtk_widget_destroy)(window);
+                (api.g_object_unref)(manager);
+                (api.g_object_unref)(context);
                 return Err("GTK could not make the web view's window".into());
             }
             (api.gdk_window_reparent)(gdk, parent, 0, 0);

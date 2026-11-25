@@ -401,13 +401,20 @@ pub(crate) struct Parser {
     pos: usize,
     depth: u32,
     max_depth: u32,
+    /// Binary operators in the statement (or item, or default) being read.
+    operators: u32,
 }
+
+/// Binary operators one statement may hold. A chain (`a + b + c + …`) is read in a loop, yet
+/// nests its tree one level an operator, and the tree is dropped and cloned by recursion: its
+/// depth needs a bound the nesting limit does not give.
+const MAX_OPERATORS: u32 = 1024;
 
 type P<T> = Result<T, Diagnostic>;
 
 impl Parser {
     pub(crate) fn new(toks: Vec<Token>, max_depth: u32) -> Self {
-        Parser { toks, pos: 0, depth: 0, max_depth }
+        Parser { toks, pos: 0, depth: 0, max_depth, operators: 0 }
     }
 
     fn peek(&self) -> &Tok {
@@ -504,6 +511,7 @@ impl Parser {
                 let at = self.at();
                 let ty = self.ident()?;
                 let pname = self.ident()?;
+                self.operators = 0;
                 let default = if self.eat("=") { Some(self.expr()?) } else { None };
                 let range = if self.is_word("in") {
                     self.pos += 1;
@@ -538,6 +546,7 @@ impl Parser {
 
     fn item(&mut self) -> P<Item> {
         let at = self.at();
+        self.operators = 0;
         let word = self.ident()?;
         match word.as_str() {
             "fps" | "scale" | "blend" | "still" => {
@@ -643,6 +652,7 @@ impl Parser {
 
     fn stmt(&mut self) -> P<Stmt> {
         let at = self.at();
+        self.operators = 0;
         if self.is_word("let") || self.is_word("var") {
             let mutable = self.is_word("var");
             self.pos += 1;
@@ -674,7 +684,15 @@ impl Parser {
             let then = self.block()?;
             let otherwise = if self.is_word("else") {
                 self.pos += 1;
-                if self.is_word("if") { vec![self.stmt()?] } else { self.block()? }
+                if self.is_word("if") {
+                    // A chain of `else if` nests one statement in the next: bounded like blocks.
+                    self.enter()?;
+                    let next = self.stmt()?;
+                    self.depth -= 1;
+                    vec![next]
+                } else {
+                    self.block()?
+                }
             } else {
                 Vec::new()
             };
@@ -754,6 +772,13 @@ impl Parser {
         while let Some(op) = self.binop(level) {
             let at = self.at();
             self.pos += 1;
+            self.operators += 1;
+            if self.operators > MAX_OPERATORS {
+                return Err(Diagnostic::new(
+                    at,
+                    format!("more than {MAX_OPERATORS} operators in one statement; split it with `let`"),
+                ));
+            }
             self.enter()?;
             let rhs = self.binary(level + 1);
             self.depth -= 1;
@@ -777,12 +802,17 @@ impl Parser {
 
     fn postfix(&mut self) -> P<Expr> {
         let mut e = self.primary()?;
+        let mut fields = 0;
         while self.is(".") {
             let at = self.at();
             self.pos += 1;
+            // Each field nests the value one level, like a bracket: counted as one.
+            self.enter()?;
+            fields += 1;
             let f = self.ident()?;
             e = Expr::Field(Box::new(e), f, at);
         }
+        self.depth -= fields;
         Ok(e)
     }
 
@@ -885,5 +915,14 @@ mod tests {
         assert!(e.is_some_and(|d| d.message.contains("nested")));
         let neg = format!("effect x {{ pass p {{ out = {}1; }} }}", "-".repeat(5000));
         assert!(parse(&neg).is_err());
+        let chain = format!("effect x {{ pass p {{ if 1 {{ }}{} }} }}", " else if 1 { }".repeat(5000));
+        assert!(parse(&chain).err().is_some_and(|d| d.message.contains("nested")));
+        let short = format!("effect x {{ pass p {{ if 1 {{ }}{} }} }}", " else if 1 { }".repeat(8));
+        assert!(parse(&short).is_ok());
+        let fields = format!("effect x {{ pass p {{ out = uv{}; }} }}", ".xy".repeat(5000));
+        assert!(parse(&fields).err().is_some_and(|d| d.message.contains("nested")));
+        let sum = |n: usize| format!("effect x {{ pass p {{ out = 1{}; }} }}", " + 1".repeat(n));
+        assert!(parse(&sum(1000)).is_ok(), "a long sum is fine");
+        assert!(parse(&sum(5000)).err().is_some_and(|d| d.message.contains("operators")));
     }
 }

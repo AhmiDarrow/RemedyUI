@@ -194,7 +194,7 @@ impl GamepadKeys {
             }
             out.push(KeyEvent::press(key).with_pressed(is));
             if is && bit.0 & ARROWS != 0 {
-                p.repeat = Some((bit, now + delay));
+                p.repeat = Some((bit, now.saturating_add(delay)));
             } else if !is && p.repeat.is_some_and(|(r, _)| r == bit) {
                 p.repeat = None;
             }
@@ -217,8 +217,8 @@ impl GamepadKeys {
                 out.push(KeyEvent::press(key.clone()).with_repeat(true));
             }
             // Late readings (a busy machine) resume the rhythm from now, not in a burst.
-            let next = due + interval;
-            p.repeat = Some((bit, if next > now { next } else { now + interval }));
+            let next = due.saturating_add(interval);
+            p.repeat = Some((bit, if next > now { next } else { now.saturating_add(interval) }));
         }
         out
     }
@@ -287,6 +287,14 @@ mod tests {
         assert_eq!(k.next_due(), Some(ms(100)));
         k.tick(ms(100));
         assert_eq!(k.next_due(), Some(ms(110)));
+    }
+
+    #[test]
+    fn a_delay_without_end_never_repeats() {
+        let mut k = GamepadKeys::new();
+        k.set_tuning(GamepadTuning::default().with_repeat_delay(Duration::MAX));
+        k.update(0, Some(&pressed(PadButtons::DOWN)), ms(10));
+        assert!(k.tick(ms(1_000_000)).is_empty());
     }
 
     #[test]

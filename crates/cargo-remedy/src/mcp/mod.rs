@@ -2,9 +2,10 @@
 //! and operate running RemedyUI apps.
 //!
 //! The tools' logic lives in [`crate::devkit`] (shared with `cargo remedy`'s commands); this
-//! crate adapts it to MCP. Each tool group is a [`ToolGroup`], one per `cargo-remedy::devkit`
-//! feature, and a [`Server`] serves the groups a [`ServerBuilder`] composed, so a build can
-//! hold a few groups (cargo features) and a run can offer fewer still (`--tools docs,live`).
+//! module adapts it to MCP. Each tool group is a [`ToolGroup`], one per `mcp-*` feature (which
+//! brings its `devkit-*` feature), and a [`Server`] serves the groups a [`ServerBuilder`]
+//! composed, so a build can hold a few groups (cargo features) and a run can offer fewer
+//! still (`--tools docs,live`).
 //!
 //! ```no_run
 //! # async fn serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -560,7 +561,7 @@ impl ServerHandler for Server {
     }
 }
 
-/// The groups for a `--tools` value, or every built group for `None`.
+/// The groups for a `--tools` value, or every group the server was built with for `None`.
 pub fn select_groups(list: Option<&str>) -> Result<Vec<Group>, ToolError> {
     match list {
         Some(l) => {
@@ -568,9 +569,16 @@ pub fn select_groups(list: Option<&str>) -> Result<Vec<Group>, ToolError> {
             if gs.is_empty() {
                 return Err(ToolError::new("--tools names no groups"));
             }
+            // The tools' logic can be built (for `cargo remedy`) without the server's group.
+            if let Some(g) = gs.iter().find(|g| group(**g).is_none()) {
+                return Err(ToolError::new(format!(
+                    "the `{0}` tools are not in this build (build with the `mcp-{0}` feature)",
+                    g.name()
+                )));
+            }
             Ok(gs)
         }
-        None => Ok(Group::built_groups()),
+        None => Ok(Group::built_groups().into_iter().filter(|g| group(*g).is_some()).collect()),
     }
 }
 
@@ -598,7 +606,7 @@ mod tests {
     fn groups_compose_at_run_time() {
         let config = Config::new(Workspace::anywhere());
         let all = Server::builder(config.clone()).all_groups().build();
-        assert_eq!(all.groups(), Group::built_groups());
+        assert_eq!(Some(all.groups()), select_groups(None).ok());
         if Group::Docs.built() && Group::Live.built() {
             let some = Server::builder(config).groups(&[Group::Live, Group::Docs]).build();
             assert_eq!(some.groups(), vec![Group::Docs, Group::Live]);

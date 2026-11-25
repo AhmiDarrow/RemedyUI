@@ -694,7 +694,7 @@ pub fn build_node_with(
             TextStyle::Body => w::text(ui, text.clone()),
             TextStyle::Muted => w::text(ui, text.clone()).variant("muted"),
             TextStyle::Strong => w::text(ui, text.clone()).variant("strong"),
-            TextStyle::Heading(l) => w::heading(ui, *l + 1, text.clone()),
+            TextStyle::Heading(l) => w::heading(ui, l.saturating_add(1), text.clone()),
         },
         Node::Button { label, action } => {
             let (wd, a, stopped) = (widget.clone(), *action, stopped.clone());

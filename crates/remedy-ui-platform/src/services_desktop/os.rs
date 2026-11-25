@@ -11,8 +11,7 @@ pub(crate) fn shortcut(file: &Path, program: &Path, args: &[String]) -> Result<(
     };
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
     use windows::core::{HSTRING, Interface};
-    let quoted: Vec<String> =
-        args.iter().map(|a| if a.contains(' ') { format!("\"{a}\"") } else { a.clone() }).collect();
+    let quoted: Vec<String> = args.iter().map(|a| quote_arg(a)).collect();
     let dir = program.parent().map(Path::to_path_buf).unwrap_or_default();
     // SAFETY: COM on this thread (a second initialization only adds a reference); every string
     // is an HSTRING that outlives its call.

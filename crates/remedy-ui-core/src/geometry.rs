@@ -267,30 +267,35 @@ impl CornerRadii {
     }
 
     /// These radii scaled down, all by the same factor, so that no two adjacent corners
-    /// overlap on a box of `size` (the CSS rule). Negative radii become zero.
+    /// overlap on a box of `size` (the CSS rule). Negative radii become zero, and an infinite
+    /// one counts as the largest finite radius.
     pub fn fit(self, size: Size) -> CornerRadii {
+        let clean = |v: f32| non_negative(v).min(f32::MAX);
         let r = CornerRadii {
-            top_start: non_negative(self.top_start),
-            top_end: non_negative(self.top_end),
-            bottom_end: non_negative(self.bottom_end),
-            bottom_start: non_negative(self.bottom_start),
+            top_start: clean(self.top_start),
+            top_end: clean(self.top_end),
+            bottom_end: clean(self.bottom_end),
+            bottom_start: clean(self.bottom_start),
         };
-        let mut f: f32 = 1.0;
-        for (sum, side) in [
-            (r.top_start + r.top_end, size.width),
-            (r.bottom_start + r.bottom_end, size.width),
-            (r.top_start + r.bottom_start, size.height),
-            (r.top_end + r.bottom_end, size.height),
+        // Summed in f64: two huge radii (a pill written as `f32::MAX`) do not overflow.
+        let mut f: f64 = 1.0;
+        for (a, b, side) in [
+            (r.top_start, r.top_end, size.width),
+            (r.bottom_start, r.bottom_end, size.width),
+            (r.top_start, r.bottom_start, size.height),
+            (r.top_end, r.bottom_end, size.height),
         ] {
+            let (sum, side) = (f64::from(a) + f64::from(b), f64::from(side));
             if sum > side && sum > 0.0 {
                 f = f.min(side / sum);
             }
         }
+        let fitted = |v: f32| (f64::from(v) * f) as f32;
         CornerRadii {
-            top_start: r.top_start * f,
-            top_end: r.top_end * f,
-            bottom_end: r.bottom_end * f,
-            bottom_start: r.bottom_start * f,
+            top_start: fitted(r.top_start),
+            top_end: fitted(r.top_end),
+            bottom_end: fitted(r.bottom_end),
+            bottom_start: fitted(r.bottom_start),
         }
     }
 
@@ -416,6 +421,10 @@ mod tests {
         let r = CornerRadii::all(30.0).fit(Size::new(40.0, 100.0));
         assert_eq!(r, CornerRadii::all(20.0));
         assert_eq!(CornerRadii::all(-1.0).fit(Size::new(10.0, 10.0)), CornerRadii::ZERO);
+        // A pill written with the largest radius there is, or an infinite one, is still a pill.
+        for huge in [f32::MAX, f32::INFINITY] {
+            assert_eq!(CornerRadii::all(huge).fit(Size::new(40.0, 100.0)), CornerRadii::all(20.0));
+        }
     }
 
     #[test]

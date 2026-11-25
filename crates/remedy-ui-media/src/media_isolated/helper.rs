@@ -177,7 +177,9 @@ fn restart(sessions: &mut HashMap<u32, Session>, session: u32) -> Result<Reply, 
 
 #[cfg(not(feature = "media-isolated-anim"))]
 fn without_anim() -> DecodeError {
-    DecodeError::Io("this app's helper decodes no animations (the `anim` feature is off)".into())
+    DecodeError::Io(
+        "this app's helper decodes no animations (the `media-isolated-anim` feature is off)".into(),
+    )
 }
 
 #[cfg(not(feature = "media-isolated-anim"))]

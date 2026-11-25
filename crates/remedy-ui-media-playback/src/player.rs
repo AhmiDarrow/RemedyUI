@@ -404,17 +404,20 @@ const SEEK_LANDED: Duration = Duration::from_secs(4);
 const REMOTE_STALE: Duration = Duration::from_secs(15);
 /// How often a playing device's shown position moves on between reports.
 const REMOTE_TICK: Duration = Duration::from_millis(250);
-/// How far from the end of what a stream can play a seek in place may land (the next
-/// segment may not exist yet), as in Portal's `seekInPlace`.
 /// How long the volume rests before it goes to the device, as Portal's page waits: a dragged
 /// slider sends where it stops.
 const REMOTE_VOLUME_REST: Duration = Duration::from_millis(300);
+/// How far from the end of what a stream can play a seek in place may land (the next
+/// segment may not exist yet), as in Portal's `seekInPlace`.
 const STREAM_EDGE: Duration = Duration::from_secs(2);
+
+/// The most cues shown at once ([`Player::caption_cues`]): the first in start order.
+const MAX_CUES_SHOWN: usize = 128;
 
 /// A device's report `at`, `elapsed` ago, moved on while it plays: at most [`REMOTE_STALE`]
 /// and never past `end`.
 fn moved_on(at: Duration, elapsed: Duration, end: Option<Duration>) -> Duration {
-    let to = at + elapsed.min(REMOTE_STALE);
+    let to = at.saturating_add(elapsed.min(REMOTE_STALE));
     end.map_or(to, |e| to.min(e))
 }
 
@@ -1022,8 +1025,6 @@ impl Inner {
             || self.state.get_untracked().ok() == Some(PlaybackState::Failed)
     }
 
-    /// Moves a playing device's shown position on in a while, and again after, until news
-    /// comes or its last report is [stale](REMOTE_STALE).
     /// Sends `v` to the device once the volume has rested ([`REMOTE_VOLUME_REST`]), unless
     /// it is no longer in control.
     fn send_remote_volume_soon(&self, v: f32) {
@@ -1045,6 +1046,8 @@ impl Inner {
         self.remote_volume_timer.set(Some(timer));
     }
 
+    /// Moves a playing device's shown position on in a while, and again after, until news
+    /// comes or its last report is [stale](REMOTE_STALE).
     fn schedule_remote_tick(&self) {
         let Some(ui) = self.ui.upgrade() else { return };
         if let Some(t) = self.remote_timer.take() {
@@ -1817,6 +1820,10 @@ impl Player {
     /// Moves `seconds` forward (or back, when negative) from the current position.
     /// While [skipping](Self::skipping), the press is kept, to run from where the skip lands.
     pub fn seek_by(&self, seconds: f64) {
+        // Not a distance: it would land at the start, or spoil the presses kept.
+        if !seconds.is_finite() {
+            return;
+        }
         if self.0.skipping.get_untracked().ok().flatten().is_some() && !self.is_remote_untracked() {
             self.0.queued_skip.set(Some(self.0.queued_skip.get().unwrap_or(0.0) + seconds));
             return;
@@ -2150,7 +2157,11 @@ impl Player {
         // The memo first: computing it reads the tracks.
         self.0.cue_reach.with(|r| {
             let r = r.get(sel)?;
-            self.0.tracks.with(|t| t.get(sel).map(|tr| tr.cues_at_with(r, at).into_iter().cloned().collect()))
+            // A hostile file's cues can all cover one moment: no picture holds more than these.
+            self.0.tracks.with(|t| {
+                let tr = t.get(sel)?;
+                Some(tr.cues_at_with(r, at).into_iter().take(MAX_CUES_SHOWN).cloned().collect())
+            })
         })
     }
 
@@ -3103,6 +3114,7 @@ mod tests {
         assert_eq!(moved_on(s(100), s(3), None), s(103));
         assert_eq!(moved_on(s(100), s(60), None), s(115), "15 s at most");
         assert_eq!(moved_on(s(100), s(3), Some(s(102))), s(102), "not past the end");
+        assert_eq!(moved_on(Duration::MAX, s(3), None), Duration::MAX, "no overflow");
     }
 
     #[test]

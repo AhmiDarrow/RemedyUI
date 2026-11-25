@@ -42,7 +42,7 @@ impl Weekday {
 
     /// The day `n` days later.
     pub fn plus(self, n: usize) -> Weekday {
-        Self::ALL.get((self.index_from_monday() + n) % 7).copied().unwrap_or(self)
+        Self::ALL.get((self.index_from_monday() + n % 7) % 7).copied().unwrap_or(self)
     }
 
     pub(crate) fn from_icu(d: icu_calendar::types::Weekday) -> Weekday {
@@ -107,9 +107,9 @@ impl Date {
         era * 146_097 + doe - 719_468
     }
 
-    /// The date `days` after 1970-01-01.
+    /// The date `days` after 1970-01-01 (the last year an `i32` holds, for days beyond it).
     pub fn from_days_since_epoch(days: i64) -> Date {
-        let z = days + 719_468;
+        let z = days.saturating_add(719_468);
         let era = z.div_euclid(146_097);
         let doe = z - era * 146_097;
         let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
@@ -117,8 +117,8 @@ impl Date {
         let mp = (5 * doy + 2) / 153;
         let day = (doy - (153 * mp + 2) / 5 + 1) as u8;
         let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u8;
-        let year = (yoe + era * 400 + i64::from(month <= 2)) as i32;
-        Date { year, month, day }
+        let year = (yoe + era * 400 + i64::from(month <= 2)).clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+        Date { year: year as i32, month, day }
     }
 
     /// The day of the week.
@@ -129,14 +129,14 @@ impl Date {
 
     /// `n` days later (earlier for negative `n`).
     pub fn add_days(self, n: i64) -> Date {
-        Date::from_days_since_epoch(self.days_since_epoch() + n)
+        Date::from_days_since_epoch(self.days_since_epoch().saturating_add(n))
     }
 
     /// `n` months later, keeping the day where the month allows (Jan 31 + 1 month is the
     /// last day of February).
     pub fn add_months(self, n: i32) -> Date {
-        let total = self.year * 12 + i32::from(self.month) - 1 + n;
-        let year = total.div_euclid(12);
+        let total = i64::from(self.year) * 12 + i64::from(self.month) - 1 + i64::from(n);
+        let year = total.div_euclid(12).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
         let month = (total.rem_euclid(12) + 1) as u8;
         Date { year, month, day: self.day.min(days_in_month(year, month)) }
     }
@@ -199,7 +199,7 @@ impl Time {
 
     /// `n` minutes later, wrapping around midnight.
     pub fn add_minutes(self, n: i32) -> Time {
-        let m = (i32::from(self.minutes()) + n).rem_euclid(24 * 60);
+        let m = (i64::from(self.minutes()) + i64::from(n)).rem_euclid(24 * 60);
         Time { hour: (m / 60) as u8, minute: (m % 60) as u8 }
     }
 

@@ -33,7 +33,7 @@ use crate::rui::spec::{self, Kind, Param, Spec};
 use crate::rui::syntax::{Markup, Node, RuiError, Value};
 
 /// One of the app's own elements, for the compiler: what it takes and the Rust function
-/// that builds it (`fn(&Ui, crate::rui::Call) -> El`, by path).
+/// that builds it (`fn(&Ui, Call) -> El` with this module's `Call`, by path).
 #[derive(Clone, Debug)]
 pub struct Custom {
     /// Its name in markup.
@@ -42,7 +42,7 @@ pub struct Custom {
     pub params: Vec<Param>,
     /// It holds children.
     pub children: bool,
-    /// The path of its builder, such as `crate::rui::ui::fretboard`.
+    /// The path of its builder in the app, such as `crate::ui::fretboard`.
     pub path: String,
 }
 

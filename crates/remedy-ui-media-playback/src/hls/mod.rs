@@ -217,6 +217,12 @@ pub(crate) fn quiet() -> Duration {
 /// The playlist of a growing stream is asked again once the reader is this many segments
 /// from its end.
 const NEAR_END: usize = 2;
+/// The soonest a growing playlist is asked again: half the shortest target duration a playlist
+/// can state, so one that states none (or zero) is not fetched without pause.
+const MIN_RELOAD: Duration = Duration::from_millis(500);
+/// The most master playlists followed one into the next before a media playlist: one is
+/// usual, and a server whose playlists point at each other must not be fetched for ever.
+const MAX_MASTERS: u32 = 4;
 /// The longest a driver waits at once for a fetch that is not due yet, before asking again
 /// what is wanted (a seek may have come).
 pub(crate) const WAIT_SLICE: Duration = Duration::from_millis(100);
@@ -280,6 +286,25 @@ pub(crate) fn file_path(url: &str) -> Option<String> {
     Some(unescape(path.unwrap_or(rest)))
 }
 
+/// The file at `path` ([`file_path`]) whole, for a [`Fetch`]: one over [`max_fetch`] is refused
+/// as an answer from a server is, so a playlist on disk cannot have a whole disk image read.
+pub(crate) fn read_file(path: &str) -> Result<Vec<u8>, MediaError> {
+    use std::io::Read;
+    let failed = |e: std::io::Error| MediaError::NotFound(format!("{path}: {e}"));
+    let limit = max_fetch();
+    let mut out = Vec::new();
+    // One byte past the limit, so a file over it is told from one that just fits.
+    std::fs::File::open(path)
+        .map_err(failed)?
+        .take(u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_end(&mut out)
+        .map_err(failed)?;
+    if out.len() > limit {
+        return Err(MediaError::Format(format!("{path}: over {limit} bytes")));
+    }
+    Ok(out)
+}
+
 fn unescape(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -326,6 +351,8 @@ pub(crate) struct Hls {
     url: String,
     /// Whether the media playlist has been read once.
     loaded: bool,
+    /// Master playlists followed so far.
+    masters: u32,
     segments: Vec<Segment>,
     target: Duration,
     /// The playlist is complete.
@@ -368,6 +395,7 @@ impl Hls {
         Hls {
             url: url.to_string(),
             loaded: false,
+            masters: 0,
             segments: Vec::new(),
             target: Duration::ZERO,
             complete: false,
@@ -416,9 +444,9 @@ impl Hls {
         let after = if self.failures > 0 || self.recoveries > 0 {
             self.retry_pause()
         } else if reading + NEAR_END >= self.segments.len() {
-            self.target / 2
+            (self.target / 2).max(MIN_RELOAD)
         } else {
-            self.target
+            self.target.max(MIN_RELOAD)
         };
         Some(Want { url: self.url.clone(), kind: WantKind::Playlist, after })
     }
@@ -497,6 +525,12 @@ impl Hls {
             Playlist::Master(variant) => {
                 if self.loaded {
                     return Err(MediaError::Format("an HLS media playlist became a master playlist".into()));
+                }
+                self.masters += 1;
+                if self.masters > MAX_MASTERS {
+                    return Err(MediaError::Format(
+                        "HLS master playlists lead only to more master playlists".into(),
+                    ));
                 }
                 self.url = variant;
             }

@@ -223,6 +223,18 @@ impl Drop for Pool {
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn native_worker(inner: &PoolInner) {
+    // A step that panics takes its thread with it: the pool stops counting the worker, so the
+    // next notification starts another.
+    struct Leaving<'a>(&'a PoolInner);
+    impl Drop for Leaving<'_> {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                let mut s = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
+                s.workers = s.workers.saturating_sub(1);
+            }
+        }
+    }
+    let _leaving = Leaving(inner);
     loop {
         {
             let mut s = inner.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -398,8 +410,9 @@ impl Worker {
                     let mut next = Next::Now;
                     loop {
                         if next != Next::Now {
+                            // A wait too long for the clock to hold is a wait until rung.
                             let deadline = match next {
-                                Next::After(d) => Some(std::time::Instant::now() + d),
+                                Next::After(d) => std::time::Instant::now().checked_add(d),
                                 Next::Now | Next::Idle => None,
                             };
                             let mut f = sig.flags.lock().unwrap_or_else(PoisonError::into_inner);
@@ -614,7 +627,8 @@ mod web {
 
     /// Rings `bell` after `d` (the one timer a worker has: a newer one replaces it).
     pub(super) fn ring_after(bell: &Bell, d: Duration) {
-        let due = crate::time::Instant::now() + d;
+        // A wait too long for the clock to hold is a wait until rung.
+        let Some(due) = crate::time::Instant::now().checked_add(d) else { return };
         TIMED.with_borrow_mut(|t| {
             t.retain(|x| x.bell.id != bell.id);
             t.push(Timed { due, bell: bell.clone() });
@@ -782,6 +796,31 @@ mod tests {
         drop(pool);
         assert!(!has_pending(), "nothing is queued cooperatively on native platforms");
         assert!(!run_pending(Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn a_pool_goes_on_after_a_step_panics() {
+        let queue: Arc<Mutex<VecDeque<u32>>> = Arc::default();
+        let (tx, rx) = channel();
+        let tx = Mutex::new(tx);
+        let q = queue.clone();
+        let pool = Pool::new("remedy-test-pool", 1, move || {
+            let Some(n) = q.lock().unwrap_or_else(PoisonError::into_inner).pop_front() else { return false };
+            assert!(n != 0, "job 0 fails, taking the only worker with it");
+            let _ = tx.lock().unwrap_or_else(PoisonError::into_inner).send(n);
+            true
+        });
+        queue.lock().unwrap_or_else(PoisonError::into_inner).extend([0, 7]);
+        let start = crate::time::Instant::now();
+        // Notified until a new worker has started: the first may still be on its way out.
+        let got = loop {
+            pool.notify();
+            if let Ok(n) = recv_timeout(&rx, Duration::from_millis(20)) {
+                break n;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "no worker took the next job");
+        };
+        assert_eq!(got, 7);
     }
 
     #[test]

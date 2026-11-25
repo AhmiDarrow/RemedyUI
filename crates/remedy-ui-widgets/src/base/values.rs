@@ -13,6 +13,13 @@ fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
     if step > 0.0 { (min + ((v - min) / step).round() * step).clamp(min, max) } else { v }
 }
 
+/// `v` as a stepper shows it: with the fraction digits `step` is written with, so a step of
+/// 0.1 reads "0.3", not the nearest binary fraction's "0.30000000000000004".
+fn stepped_text(v: f64, step: f64) -> String {
+    let digits = format!("{step}").split_once('.').map_or(0, |(_, f)| f.len()).min(12);
+    format!("{v:.digits$}")
+}
+
 /// A horizontal slider over `min..=max` in steps of `step` (0 for continuous). Drag it, or
 /// use arrows (one step), Page Up/Down (a tenth) and Home/End. Right to left, the minimum is
 /// at the right and the Left arrow increases the value, as it moves the thumb that way.
@@ -177,7 +184,7 @@ pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, 
     let r2 = row.clone();
     row.bind(move || {
         let v = value.get();
-        let text = if step.fract() == 0.0 { format!("{v:.0}") } else { format!("{v}") };
+        let text = stepped_text(v, step);
         let _ = shown.clone().text(remedy_ui_engine::view::RichText::plain(text.clone()));
         let _ = minus.clone().disabled(v <= min);
         let _ = plus.clone().disabled(v >= max);
@@ -185,4 +192,16 @@ pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, 
             .clone()
             .semantics(Semantics::new(Role::Slider).label(label.clone()).numeric(v, min, max).value(text));
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{snap, stepped_text};
+
+    #[test]
+    fn a_stepper_shows_as_many_digits_as_its_step() {
+        assert_eq!(stepped_text(3.0, 1.0), "3");
+        assert_eq!(stepped_text(snap(0.2 + 0.1, 0.0, 1.0, 0.1), 0.1), "0.3");
+        assert_eq!(stepped_text(0.75, 0.25), "0.75");
+    }
 }

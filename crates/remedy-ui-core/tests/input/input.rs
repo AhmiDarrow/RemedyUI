@@ -196,6 +196,11 @@ fn chords_have_a_portable_text_form_that_reads_back() {
         assert_eq!(chord.to_string(), text);
         assert_eq!(text.parse::<Chord>(), Ok(chord.clone()), "{text}");
     }
+    // Letters whose capital would read back as another key are written as they are.
+    for letter in ['ß', 'ı', 'é', 'я'] {
+        let chord = Chord::new(Modifiers::CTRL, Key::char(letter));
+        assert_eq!(chord.to_string().parse::<Chord>(), Ok(chord.clone()), "{chord}");
+    }
     // Other spellings people write.
     let ctrl_plus = Chord::new(Modifiers::primary(Platform::Standard), Key::Character("+".into()));
     assert_eq!("ctrl++".parse::<Chord>(), Ok(ctrl_plus));

@@ -85,6 +85,9 @@ pub(crate) struct Shown {
     pub(crate) id: TextureId,
     pub(crate) new_view: Option<wgpu::TextureView>,
     pub(crate) replaced: Option<TextureId>,
+    /// The texture holds this frame. False when the frame could not be put on the GPU: the
+    /// bindings above still apply, and the painter converts the frame itself.
+    pub(crate) drawn: bool,
 }
 
 /// The conversion pipeline and each stream's textures.
@@ -301,119 +304,14 @@ impl GpuVideos {
             );
         }
         let s = self.streams.get_mut(&frame.stream)?;
+        let mut drawn = true;
         if s.frame != frame.id {
-            s.frame = frame.id;
-            // A browser's frame goes into the texture where it is, submitted at once (it is
-            // good only until the decoder closes it; work already submitted is not affected).
-            if let Some(g) = &frame.gpu
-                && self.web.draw(device, &s.target, g)
-            {
-                return Some(Shown { id: s.id, new_view, replaced });
-            }
-            // Android: a picture on the GPU is drawn into the target by a pass of the platform's.
-            #[cfg(target_os = "android")]
-            if frame.gpu.as_ref().is_some_and(|g| {
-                s.shared.convert(device, queue, g, frame.matrix, frame.full_range, &s.target)
-            }) {
-                return Some(Shown { id: s.id, new_view, replaced });
-            }
-            // A picture on the GPU is sampled where it is when this device can open it.
-            let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
-            let in_place = opened.is_some();
-            // What the views hold: the picture's own format, or a read-back's (RGBA).
-            let (views, format): (Vec<wgpu::TextureView>, PixelFormat) = match opened {
-                Some(views) => (views, frame.format),
-                None => {
-                    // Otherwise its bytes are uploaded, read back first when it is on the GPU.
-                    let cpu = frame.in_cpu_memory()?;
-                    if s.planes.is_empty() {
-                        s.planes = cpu
-                            .format
-                            .plane_sizes(cpu.width, cpu.height)
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, (w, h, _))| {
-                                mk_texture(
-                                    device,
-                                    w,
-                                    h,
-                                    plane_format(cpu.format, i),
-                                    wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                                    "RemedyUI video plane",
-                                )
-                            })
-                            .collect();
-                    }
-                    upload(queue, &cpu, &s.planes)?;
-
-                    (
-                        s.planes
-                            .iter()
-                            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
-                            .collect(),
-                        cpu.format,
-                    )
-                }
-            };
-            let k = Coefficients::new(frame.matrix, frame.full_range);
-            let kind: u32 = match format {
-                PixelFormat::Rgba => 0,
-                PixelFormat::Nv12 => 1,
-                PixelFormat::I420 => 2,
-            };
-            let mut params = Vec::with_capacity(32);
-            params.extend(kind.to_le_bytes());
-            for v in [k.y_offset, k.y_scale, k.c_scale, k.rv, k.gu, k.gv, k.bu] {
-                params.extend(v.to_le_bytes());
-            }
-            queue.write_buffer(&s.params, 0, &params);
-            // Unused bindings take the first plane (the shader never reads them).
-            let view = |i: usize| views.get(i).or(views.first());
-            let (v0, v1, v2) = (view(0)?, view(1)?, view(2)?);
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("RemedyUI video"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(v0) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(v1) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(v2) },
-                    wgpu::BindGroupEntry { binding: 3, resource: s.params.as_entire_binding() },
-                ],
-            });
-            let target = s.target.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut enc = device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI video") });
-            {
-                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("RemedyUI video"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &target,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &group, &[]);
-                pass.draw(0..3, 0..1);
-            }
-            // Submitted now: the queue runs it before the frame that samples the result. A
-            // shared picture's submission also waits for the decoder and hands it back after.
-            match &frame.gpu {
-                Some(g) if in_place => s.shared.submit(queue, enc.finish(), g),
-                _ => {
-                    queue.submit([enc.finish()]);
-                }
-            }
+            drawn = convert(device, queue, frame, s, &self.web, &self.layout, &self.pipeline).is_some();
+            // A frame that could not be drawn is tried again next time, never taken for drawn
+            // (the texture still holds the frame before it).
+            s.frame = if drawn { frame.id } else { u64::MAX };
         }
-        Some(Shown { id: s.id, new_view, replaced })
+        Some(Shown { id: s.id, new_view, replaced, drawn })
     }
 
     /// Frees streams whose frames are all gone; returns their texture ids to unbind.
@@ -445,4 +343,125 @@ impl GpuVideos {
             })
             .sum()
     }
+}
+
+/// Puts `frame` into stream `s`'s converted picture; `None` when it cannot be put there.
+fn convert(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    frame: &VideoFrame,
+    s: &mut Stream,
+    web: &crate::render_gpu::ffi::video::Web,
+    layout: &wgpu::BindGroupLayout,
+    pipeline: &wgpu::RenderPipeline,
+) -> Option<()> {
+    // A browser's frame goes into the texture where it is, submitted at once (it is
+    // good only until the decoder closes it; work already submitted is not affected).
+    if let Some(g) = &frame.gpu
+        && web.draw(device, &s.target, g)
+    {
+        return Some(());
+    }
+    // Android: a picture on the GPU is drawn into the target by a pass of the platform's.
+    #[cfg(target_os = "android")]
+    if frame
+        .gpu
+        .as_ref()
+        .is_some_and(|g| s.shared.convert(device, queue, g, frame.matrix, frame.full_range, &s.target))
+    {
+        return Some(());
+    }
+    // A picture on the GPU is sampled where it is when this device can open it.
+    let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
+    let in_place = opened.is_some();
+    // What the views hold: the picture's own format, or a read-back's (RGBA).
+    let (views, format): (Vec<wgpu::TextureView>, PixelFormat) = match opened {
+        Some(views) => (views, frame.format),
+        None => {
+            // Otherwise its bytes are uploaded, read back first when it is on the GPU.
+            let cpu = frame.in_cpu_memory()?;
+            if s.planes.is_empty() {
+                s.planes = cpu
+                    .format
+                    .plane_sizes(cpu.width, cpu.height)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (w, h, _))| {
+                        mk_texture(
+                            device,
+                            w,
+                            h,
+                            plane_format(cpu.format, i),
+                            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                            "RemedyUI video plane",
+                        )
+                    })
+                    .collect();
+            }
+            upload(queue, &cpu, &s.planes)?;
+
+            (
+                s.planes.iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect(),
+                cpu.format,
+            )
+        }
+    };
+    let k = Coefficients::new(frame.matrix, frame.full_range);
+    let kind: u32 = match format {
+        PixelFormat::Rgba => 0,
+        PixelFormat::Nv12 => 1,
+        PixelFormat::I420 => 2,
+    };
+    let mut params = Vec::with_capacity(32);
+    params.extend(kind.to_le_bytes());
+    for v in [k.y_offset, k.y_scale, k.c_scale, k.rv, k.gu, k.gv, k.bu] {
+        params.extend(v.to_le_bytes());
+    }
+    queue.write_buffer(&s.params, 0, &params);
+    // Unused bindings take the first plane (the shader never reads them).
+    let view = |i: usize| views.get(i).or(views.first());
+    let (v0, v1, v2) = (view(0)?, view(1)?, view(2)?);
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("RemedyUI video"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(v0) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(v1) },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(v2) },
+            wgpu::BindGroupEntry { binding: 3, resource: s.params.as_entire_binding() },
+        ],
+    });
+    let target = s.target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut enc =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI video") });
+    {
+        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("RemedyUI video"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    // Submitted now: the queue runs it before the frame that samples the result. A
+    // shared picture's submission also waits for the decoder and hands it back after.
+    match &frame.gpu {
+        Some(g) if in_place => s.shared.submit(queue, enc.finish(), g),
+        _ => {
+            queue.submit([enc.finish()]);
+        }
+    }
+    Some(())
 }

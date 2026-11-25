@@ -275,10 +275,16 @@ enum Ctx {
     Particle,
 }
 
+/// Compile steps one effect may take for every value it may hold ([`Limits::max_values`]).
+/// Values are shared, so code that works the same thing out again and again (a function
+/// inlined at every call, an `if` copying its scope) makes no new ones: the time it takes
+/// needs a bound of its own.
+const WORK_PER_VALUE: u64 = 32;
+
 pub(crate) struct Compiler<'a> {
     g: Graph,
     limits: &'a Limits,
-    fns: HashMap<String, FnDecl>,
+    fns: HashMap<&'a str, &'a FnDecl>,
     params: Vec<Param>,
     textures: Vec<String>,
     consts: HashMap<String, Val>,
@@ -286,6 +292,8 @@ pub(crate) struct Compiler<'a> {
     buffers: HashMap<String, u8>,
     inline_depth: u32,
     unrolled: u64,
+    /// Compile steps taken so far (see [`WORK_PER_VALUE`]).
+    work: u64,
     feedback: bool,
 }
 
@@ -301,10 +309,11 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         buffers: HashMap::new(),
         inline_depth: 0,
         unrolled: 0,
+        work: 0,
         feedback: false,
     };
     for f in prelude {
-        c.fns.insert(f.name.clone(), f.clone());
+        c.fns.insert(f.name.as_str(), f);
     }
     // Parameters.
     for p in &file.params {
@@ -432,7 +441,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 if BUILTINS.contains(&f.name.as_str()) {
                     return Err(Diagnostic::new(f.at, format!("`{}` is a built-in function", f.name)));
                 }
-                c.fns.insert(f.name.clone(), f.clone());
+                c.fns.insert(f.name.as_str(), f);
             }
             Item::Pass { name, scale: s, body, at } => {
                 c.check_new_name(name, *at)?;
@@ -738,6 +747,16 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 BLUR_COST * f64::from(s * s),
             ),
             PendingStage::Particles { name, src, count, life, splat, blend, .. } => {
+                if prog.code.len() > limits.max_instructions {
+                    return Err(Diagnostic::new(
+                        at,
+                        format!(
+                            "particles `{name}` are {} instructions; the most is {}",
+                            prog.code.len(),
+                            limits.max_instructions
+                        ),
+                    ));
+                }
                 let work = u64::from(count) * u64::from(prog.cost() + 40);
                 if work > limits.max_particle_work {
                     return Err(Diagnostic::new(
@@ -937,6 +956,22 @@ impl Compiler<'_> {
             .filter(|i| *i < 32)
             .ok_or_else(|| Diagnostic::new(at, "too many passes"))?;
         self.buffers.insert(name.to_owned(), i);
+        Ok(())
+    }
+
+    /// Counts `steps` of compile work, refusing an effect that takes too many.
+    fn spend(&mut self, steps: u64, at: Span) -> R<()> {
+        self.work = self.work.saturating_add(steps);
+        let most = (self.limits.max_values as u64).saturating_mul(WORK_PER_VALUE);
+        if self.work > most {
+            return Err(Diagnostic::new(
+                at,
+                format!(
+                    "the effect is too large: more than {most} steps to compile after inlining and \
+                     unrolling"
+                ),
+            ));
+        }
         Ok(())
     }
 
@@ -1177,6 +1212,8 @@ impl Compiler<'_> {
                         r?;
                         continue;
                     }
+                    // Both branches start from a copy of every name in reach: counted.
+                    self.spend(scope.iter().map(|s| s.len() as u64).sum(), *at)?;
                     let before: Vec<HashMap<String, Binding>> = scope.clone();
                     scope.push(HashMap::new());
                     self.stmts(then, scope, ctx, None)?;
@@ -1250,6 +1287,7 @@ impl Compiler<'_> {
     }
 
     fn expr(&mut self, e: &Expr, scope: &mut Vec<HashMap<String, Binding>>, ctx: Ctx) -> R<Val> {
+        self.spend(1, e.span())?;
         match e {
             Expr::Num(n, at) => Ok(Val::V(self.g.konst([*n; 4], *at)?, Ty::F)),
             Expr::Color(c, at) => Ok(Val::V(self.g.konst(*c, *at)?, Ty::V4)),
@@ -1271,10 +1309,21 @@ impl Compiler<'_> {
                     }
                 }
             }
-            Expr::Binary(op, a, b, at) => {
-                let a = self.expr(a, scope, ctx)?;
-                let b = self.expr(b, scope, ctx)?;
-                self.binary(*op, a, b, *at)
+            Expr::Binary(..) => {
+                // A chain (`a + b + c + …`) nests to the left, one level an operator: walked
+                // down and back up here, so its length does not become stack depth.
+                let mut chain = Vec::new();
+                let mut left = e;
+                while let Expr::Binary(op, a, b, at) = left {
+                    chain.push((*op, &**b, *at));
+                    left = &**a;
+                }
+                let mut acc = self.expr(left, scope, ctx)?;
+                for (op, b, at) in chain.into_iter().rev() {
+                    let b = self.expr(b, scope, ctx)?;
+                    acc = self.binary(op, acc, b, at)?;
+                }
+                Ok(acc)
             }
             Expr::Ternary(c, a, b, at) => {
                 let cv = self.expr(c, scope, ctx)?;
@@ -1547,11 +1596,11 @@ impl Compiler<'_> {
             return Ok(Val::M(cols, if n == 3 { Ty::M3 } else { Ty::M4 }));
         }
         // User and prelude functions, inlined.
-        if let Some(f) = self.fns.get(name).cloned() {
-            return self.inline(&f, args, at, scope, ctx);
+        if let Some(f) = self.fns.get(name).copied() {
+            return self.inline(f, args, at, scope, ctx);
         }
         if !BUILTINS.contains(&name) {
-            let known = self.fns.keys().map(String::as_str).chain(BUILTINS.iter().copied());
+            let known = self.fns.keys().copied().chain(BUILTINS.iter().copied());
             return Err(Diagnostic::new(
                 at,
                 with_suggestion(format!("`{name}` is not a function"), name, known),

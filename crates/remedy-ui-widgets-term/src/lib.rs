@@ -10,7 +10,8 @@
 //!   send, as xterm encodes them.
 //! - [`ansi`], [`background`], [`foreground`]: the colors, from the theme's `term-*` tokens.
 //!
-//! Layer 5: built only from public engine APIs and `widgets-core`.
+//! Layer 5: built only from the public APIs of `remedy-ui-core`, `remedy-ui-engine` and
+//! `remedy-ui-text`.
 
 /// The terminal's own words (its default screen reader name, keyboard hints) in every
 /// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with

@@ -12,7 +12,7 @@ and types into them. Add the features for tests only:
 
 ```toml
 [dev-dependencies]
-remedy-ui = { version = "0.1", features = ["headless", "devtools"] }
+remedy-ui = { version = "1", features = ["headless", "devtools"] }
 ```
 
 `cargo remedy new` sets this up, with a first test and a preview.

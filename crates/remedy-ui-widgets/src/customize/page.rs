@@ -510,7 +510,7 @@ impl Customizations {
 }
 
 /// The settings page: the notices, a tab for each kind the app turned on (theme, shortcuts,
-/// toolbars and menus, text) with its editor, and a reset for everything. Its words are in
+/// toolbars and menus, text, screen layouts) with its editor, and a reset for everything. Its words are in
 /// the window's language and follow it when it changes (the open editor is built again).
 #[track_caller]
 pub fn settings_page(ui: &Ui, c: &Customizations) -> El {

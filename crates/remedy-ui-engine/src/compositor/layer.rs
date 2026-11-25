@@ -20,9 +20,6 @@ pub struct Backdrop {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LayerId(pub u64);
 
-/// One layer: a display list in its own coordinate space, with the properties the
-/// compositor can change on its own (transform, opacity, scroll offset).
-///
 /// A scroll container following another's offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScrollFollow {
@@ -140,6 +137,9 @@ fn stick(lo: f32, hi: f32, v0: f32, v1: f32, c0: f32, c1: f32, start: Option<f32
     d
 }
 
+/// One layer: a display list in its own coordinate space, with the properties the
+/// compositor can change on its own (transform, opacity, scroll offset).
+///
 /// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
 /// has the origin at `bounds.min`. Its content (the display list and the child layers) is in
 /// content space, which is local space moved by the scroll offset. A clip applies in local

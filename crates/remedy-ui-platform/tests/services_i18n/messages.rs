@@ -67,6 +67,18 @@ fn messages_follow_the_locale_with_fallback_plurals_and_local_numbers() {
 }
 
 #[test]
+fn fractions_and_large_counts_read_as_given() {
+    let ui = ui();
+    let m =
+        Messages::new("en-US").embedded("en-US", "size = { $n } GB\n").embedded("de", "size = { $n } GB\n");
+    ui.set_locale("en-US");
+    assert_eq!(plain(m.format(&ui, "size", &[("n", Arg::from(0.1))])), "0.1 GB");
+    assert_eq!(plain(m.format(&ui, "size", &[("n", Arg::from(20_000_000_000u64))])), "20,000,000,000 GB");
+    ui.set_locale("de");
+    assert_eq!(plain(m.format(&ui, "size", &[("n", Arg::from(2.5))])), "2,5 GB");
+}
+
+#[test]
 fn missing_messages_and_broken_files_are_visible_not_silent() {
     let ui = ui();
     let m = Messages::new("en-US").embedded("en-US", "good = Fine\nbroken = { $\nalso-good = Also fine\n");

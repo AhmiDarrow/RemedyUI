@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::devkit::{Result, ToolError};
@@ -53,8 +54,10 @@ pub(crate) fn run(mut cmd: Command, dir: &Path, timeout: Option<Duration>) -> Re
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let stdout = out.and_then(|h| h.join().ok()).unwrap_or_default();
-    let stderr = err.and_then(|h| h.join().ok()).unwrap_or_default();
+    // What a stopped program started (Cargo's compiler, a hung test) may live on and hold the
+    // pipes open, so only a program that ended by itself is read to the end.
+    let stdout = out.map(|p| p.text(!timed_out)).unwrap_or_default();
+    let stderr = err.map(|p| p.text(!timed_out)).unwrap_or_default();
     Ok(Ran {
         ok: !timed_out && status.is_some_and(|s| s.success()),
         code: status.and_then(|s| s.code()),
@@ -65,12 +68,40 @@ pub(crate) fn run(mut cmd: Command, dir: &Path, timeout: Option<Duration>) -> Re
     })
 }
 
-fn drain(mut r: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = r.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
-    })
+/// A pipe being read on a thread of its own.
+struct Pipe {
+    bytes: Arc<Mutex<Vec<u8>>>,
+    reader: std::thread::JoinHandle<()>,
+}
+
+impl Pipe {
+    /// What the pipe gave: all of it, waiting for it to close (`to_end`), or what came so far.
+    fn text(self, to_end: bool) -> String {
+        if to_end {
+            let _ = self.reader.join();
+        }
+        String::from_utf8_lossy(&self.bytes.lock().unwrap_or_else(PoisonError::into_inner)).into_owned()
+    }
+}
+
+fn drain(mut r: impl std::io::Read + Send + 'static) -> Pipe {
+    let bytes: Arc<Mutex<Vec<u8>>> = Arc::default();
+    let to = bytes.clone();
+    let reader = std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match r.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => to
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend_from_slice(chunk.get(..n).unwrap_or_default()),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    });
+    Pipe { bytes, reader }
 }
 
 /// Compiler errors in Cargo's output, each with its location line (`--> file:line:col`).

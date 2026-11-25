@@ -222,6 +222,15 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
 
     // The link box: the address of the link at the caret, to change, remove or add.
     let link_open: Rc<RefCell<Option<El>>> = Rc::default();
+    {
+        // The box lies in the overlay layer, not in the editor: it goes when the editor does.
+        let gone = link_open.clone();
+        let _ = root.clone().on_removed(move || {
+            if let Some(l) = gone.borrow_mut().take() {
+                l.remove();
+            }
+        });
+    }
     let open_link_box: Rc<dyn Fn(&El)> = {
         let (f, ui, link_open) = (field.clone(), ui.clone(), link_open.clone());
         Rc::new(move |anchor: &El| {
@@ -357,6 +366,15 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     // ---------- mentions ----------
     if let Some(source) = options.mentions {
         let open: Rc<RefCell<Option<Suggestions>>> = Rc::default();
+        {
+            // The list lies in the overlay layer: it goes when the editor does.
+            let gone = open.clone();
+            let _ = root.clone().on_removed(move || {
+                if let Some(s) = gone.borrow_mut().take() {
+                    s.list.remove();
+                }
+            });
+        }
         // An "@" whose list was closed with Escape stays closed until the caret leaves it.
         let dismissed: Rc<Cell<Option<usize>>> = Rc::default();
         let insert: Rc<dyn Fn(usize)> = {

@@ -86,7 +86,8 @@ pub struct Limits {
     pub max_source: usize,
     /// Tokens in the source.
     pub max_tokens: usize,
-    /// How deep expressions and blocks nest.
+    /// How deep expressions and blocks nest (a chain of `else if` or of `.field`s counts a
+    /// level each; one statement also holds at most 1024 binary operators).
     pub max_depth: u32,
     /// How deep functions call functions (all calls are inlined; there is no recursion).
     pub max_inline_depth: u32,
@@ -94,7 +95,9 @@ pub struct Limits {
     pub max_loop: u32,
     /// Loop iterations in all, after nesting.
     pub max_unrolled: u64,
-    /// Distinct values in the effect after unrolling (compile memory).
+    /// Distinct values in the effect after unrolling (compile memory). Compile time is
+    /// bounded with it: 32 steps a value, counting every expression worked out after inlining
+    /// and unrolling, so work repeated without making new values ends too.
     pub max_values: usize,
     /// Instructions in one program.
     pub max_instructions: usize,

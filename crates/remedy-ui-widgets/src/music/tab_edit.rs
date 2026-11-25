@@ -138,7 +138,7 @@ pub fn set_value(ms: &mut [TabMeasure], c: TabCursor, value: NoteValue) -> bool 
 /// Cycles the cursor's event through no dot, one dot and two dots.
 pub fn toggle_dot(ms: &mut [TabMeasure], c: TabCursor) -> bool {
     let Some(e) = event_mut(ms, c) else { return false };
-    e.dots = (e.dots + 1) % 3;
+    e.dots = (e.dots % 3 + 1) % 3;
     true
 }
 

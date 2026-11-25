@@ -154,6 +154,10 @@ type ScriptCallback = Box<dyn FnOnce(Result<String, String>)>;
 /// Why a script or DevTools call will not run.
 const VIEW_MISSING: &str = "the web view is missing";
 
+/// How many stopped attempts [`WebView::blocked`] keeps: a page can try without end, and the
+/// list must not grow with it.
+const BLOCKED_KEPT: usize = 1024;
+
 /// How to make a web view.
 #[derive(Clone)]
 pub struct WebViewOptions {
@@ -332,7 +336,13 @@ impl Hub {
 
     pub(crate) fn block(&self, url: String, reason: BlockReason) {
         let b = Blocked { url, reason };
-        self.blocked.borrow_mut().push(b.clone());
+        {
+            let mut kept = self.blocked.borrow_mut();
+            if kept.len() >= BLOCKED_KEPT {
+                kept.remove(0);
+            }
+            kept.push(b.clone());
+        }
         let listeners = self.on_blocked.borrow().clone();
         for f in listeners {
             f(&b);
@@ -424,7 +434,7 @@ impl Hub {
 /// Wraps `script` so WebKitGTK's string result matches WebView2's `ExecuteScript`: one JSON
 /// value, with `undefined` encoded as `null`. Windows does not use this; WebView2 already
 /// JSON-encodes the completion value.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))), test))]
 pub(crate) fn json_eval(script: &str) -> String {
     let src = serde_json::to_string(script).unwrap_or_else(|_| "\"\"".into());
     format!("(function(){{const __v=eval({src});return JSON.stringify(__v===undefined?null:__v);}})()")
@@ -575,7 +585,8 @@ impl WebView {
         self.0.hub.on_blocked.borrow_mut().push(Rc::new(f));
     }
 
-    /// Everything stopped so far, oldest first.
+    /// What was stopped so far, oldest first: the latest 1024 (a page can try without end;
+    /// [`WebView::on_blocked`] hears every one).
     pub fn blocked(&self) -> Vec<Blocked> {
         self.0.hub.blocked.borrow().clone()
     }
@@ -687,7 +698,10 @@ pub fn web_view(ui: &Ui, options: WebViewOptions) -> (El, WebView) {
         })
         .on_removed(move || {
             closing.hub.closed.set(true);
-            if let Some(n) = closing.native.borrow_mut().take() {
+            // Taken out first: closing reports the scripts still waiting, and their callbacks
+            // may ask the handle for the view.
+            let native = closing.native.borrow_mut().take();
+            if let Some(n) = native {
                 n.close();
             }
         });
@@ -797,6 +811,17 @@ mod tests {
         assert!(h.download("https://x.example/manual.pdf".into(), None));
         assert!(!h.download("https://x.example/tool.exe".into(), None));
         assert_eq!(h.blocked.borrow().len(), 1);
+    }
+
+    #[test]
+    fn a_page_cannot_grow_the_blocked_list_without_end() {
+        let h = hub(WebViewOptions::new("Help"));
+        for n in 0..BLOCKED_KEPT + 3 {
+            h.block(format!("https://x.example/{n}"), BlockReason::NewWindow);
+        }
+        let kept = h.blocked.borrow();
+        assert_eq!(kept.len(), BLOCKED_KEPT);
+        assert_eq!(kept.first().map(|b| b.url.as_str()), Some("https://x.example/3"), "the oldest went");
     }
 
     #[test]

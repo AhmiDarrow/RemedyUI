@@ -335,8 +335,16 @@ impl Drop for Request {
 ///
 /// Keep the returned request while the image is wanted.
 pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Signal<ImageState>) -> Request {
+    /// What follows once the cache is let go.
+    enum Then {
+        /// Shown from the cache: a file is looked at again, by the stamp it was decoded at.
+        Revalidate(Option<Stamp>),
+        /// Another request is already decoding it.
+        Wait,
+        Start(Arc<AtomicBool>),
+    }
     let key = Key { source: source.key(), box_px: box_px.unwrap_or((0, 0)), cover };
-    CACHE.with(|c| {
+    let (request, now, then) = CACHE.with(|c| {
         let mut c = c.borrow_mut();
         c.next_waiter += 1;
         let waiter = c.next_waiter;
@@ -345,33 +353,35 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
             c.done.get(&key).filter(|d| !gone(&d.bytes)).and_then(|d| d.pixels.upgrade().map(|px| (d, px)));
         if let Some((d, pixels)) = cached {
             let image = Image { id: d.id, width: d.size.0, height: d.size.1, pixels };
-            let _ = state.try_set(ImageState::Ready(image, d.source_size));
-            // A file may have changed since: look, off the UI thread, and reload if it did.
-            if let (Source::File(p), Some(old)) = (source, d.stamp) {
-                revalidate(p.clone(), old, key, source.clone(), state);
-            }
-            return request;
+            return (request, ImageState::Ready(image, d.source_size), Then::Revalidate(d.stamp));
         }
         c.done.remove(&key);
         // A file's size may be stale here; the decode below brings the current one.
-        if let Some((size, _)) = c.known(&key.source) {
-            let _ = state.try_set(ImageState::Sized(size));
-        } else {
-            let _ = state.try_set(ImageState::Loading);
-        }
+        let now = c.known(&key.source).map_or(ImageState::Loading, |(size, _)| ImageState::Sized(size));
         if let Some(p) = c.pending.get_mut(&key) {
             p.waiters.push((waiter, state));
-            return request;
+            return (request, now, Then::Wait);
         }
         let cancelled = Arc::new(AtomicBool::new(false));
         c.pending.insert(
             key.clone(),
             Pending { waiters: vec![(waiter, state)], cancelled: cancelled.clone(), fetching: None },
         );
-        drop(c);
-        start(source.clone(), key, cancelled);
-        request
-    })
+        (request, now, Then::Start(cancelled))
+    });
+    // Told outside the cache's borrow: what hears it may load or let go of images itself.
+    let _ = state.try_set(now);
+    match then {
+        // A file may have changed since: look, off the UI thread, and reload if it did.
+        Then::Revalidate(Some(old)) => {
+            if let Source::File(p) = source {
+                revalidate(p.clone(), old, key, source.clone(), state);
+            }
+        }
+        Then::Revalidate(None) | Then::Wait => {}
+        Then::Start(cancelled) => start(source.clone(), key, cancelled),
+    }
+    request
 }
 
 fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {

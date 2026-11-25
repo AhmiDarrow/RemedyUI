@@ -1012,7 +1012,12 @@ impl PageView {
                     let size = self.0.sizes.borrow().get(id.page).copied().unwrap_or(Size::ZERO);
                     let tile = st.tile_edge();
                     st.tiles.adopt(id, epoch, result, tile, size);
-                    st.thumb_flight.remove(&id.page);
+                    // Only the page's preview is what its thumbnail waits for: forgetting the
+                    // request on any other tile would ask for the preview again each time.
+                    let preview = level_of(raster::PREVIEW_PIXELS / size.width.max(size.height));
+                    if (id.level, id.col, id.row) == (preview, 0, 0) {
+                        st.thumb_flight.remove(&id.page);
+                    }
                 }
                 // A moving picture is redrawn when it settles, with what arrived meanwhile.
                 if self.0.st.borrow().frozen.is_none() {
@@ -1633,9 +1638,13 @@ impl PageView {
             s.done = query.is_empty();
             s.generation
         };
+        // A document without pages has nothing to read (and no page 0 to ask its source for).
+        if self.page_count() == 0 {
+            self.0.st.borrow_mut().text.search.done = true;
+        }
         self.publish_search();
         self.repaint();
-        if query.is_empty() {
+        if query.is_empty() || self.page_count() == 0 {
             return;
         }
         let cancel = Cancel::new();
@@ -1662,8 +1671,14 @@ impl PageView {
             if let Some(t) = &t {
                 let hits = text::find_on_page(page, t, &st.text.search.query);
                 let s = &mut st.text.search;
+                // Pages before the one the search started on are searched last and sort first:
+                // the hit shown stays the hit shown.
+                let shown = s.current.and_then(|i| s.matches.get(i)).copied();
                 s.matches.extend(hits);
                 s.matches.sort();
+                if let Some(m) = shown {
+                    s.current = s.matches.iter().position(|x| *x == m);
+                }
             }
             st.text.pages.entry(page).or_insert(t);
             st.text.pending.remove(&page);

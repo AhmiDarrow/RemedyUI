@@ -301,6 +301,9 @@ fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
     }
 }
 
+/// The shortest dash pattern (the sum of its lengths, in the stroke's units) drawn dashed.
+const MIN_DASH_PERIOD: f64 = 1e-3;
+
 fn kstroke(s: &Stroke) -> kurbo::Stroke {
     let mut k = kurbo::Stroke::new(f64::from(s.width))
         .with_caps(match s.cap {
@@ -313,7 +316,11 @@ fn kstroke(s: &Stroke) -> kurbo::Stroke {
             StrokeJoin::Round => kurbo::Join::Round,
             StrokeJoin::Bevel => kurbo::Join::Bevel,
         });
-    if !s.dashes.is_empty() {
+    // kurbo walks a path dash by dash: a negative or NaN length, or a pattern with no length
+    // to speak of, never reaches the path's end. Such a stroke is drawn solid.
+    let dashable = s.dashes.iter().all(|d| d.is_finite() && *d >= 0.0)
+        && s.dashes.iter().map(|d| f64::from(*d)).sum::<f64>() >= MIN_DASH_PERIOD;
+    if dashable {
         k = k.with_dashes(0.0, s.dashes.iter().map(|d| f64::from(*d)));
     }
     k
@@ -1074,11 +1081,12 @@ impl Painter {
                 self.glyphs.insert(key, cached);
             }
             let Some(Some(gl)) = self.glyphs.get(&key) else { continue };
-            let x = (dev.x.floor() as i32 + gl.left) as f64;
+            // Saturating: an origin far outside any target must not overflow.
+            let x = (dev.x.floor() as i32).saturating_add(gl.left) as f64;
             // A turned glyph's image already holds the origin's vertical fraction.
             let base_y =
                 if turn.is_some() || (color_glyph && !upright) { dev.y.floor() } else { dev.y.round() };
-            let y = (base_y as i32 - gl.top) as f64;
+            let y = (base_y as i32).saturating_sub(gl.top) as f64;
             let rect =
                 kurbo::Rect::new(x, y, x + f64::from(gl.image.width()), y + f64::from(gl.image.height()));
             let sampler = ImageSampler { quality: ImageQuality::Low, ..Default::default() };

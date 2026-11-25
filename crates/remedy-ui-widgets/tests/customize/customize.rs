@@ -302,6 +302,26 @@ fn shared_themes_are_untrusted_data() {
     let file = dir.read("theme.json").must("written");
     assert!(!file.contains("shader") && !file.contains("https"), "{file}");
 
+    // What is refused goes wherever it sits: under a key with a dot in it, and each of
+    // several in one list (the plain entries between them stay).
+    let tricky = r##"{
+        "$name": "Tricky",
+        "fx.pack": { "glow": { "$type": "wgsl", "$value": "fn main() {}" } },
+        "wallpapers": ["https://a.example/1.png", "plain-one", "https://b.example/2.png", "plain-two"]
+    }"##;
+    let report = c
+        .import_theme(&ui, tricky, {
+            let mut v_ = ImportPolicy::default();
+            v_.drop_refused = true;
+            v_
+        })
+        .must("import the rest");
+    assert_eq!(report.dropped.len(), 3);
+    let file = dir.read("theme.json").must("written");
+    assert!(!file.contains("wgsl") && !file.contains("https"), "{file}");
+    assert!(file.contains("plain-one") && file.contains("plain-two"), "{file}");
+    assert!(ui.undo_change());
+
     // The person allows links: the link is kept in the file, the shader still left out.
     let policy = {
         let mut v_ = ImportPolicy::default();

@@ -627,9 +627,11 @@ impl Writer {
         loop {
             match self.rx.try_recv() {
                 Ok(Msg::Changed) => {
-                    // The first change starts the wait; later ones join the same write.
-                    let debounce = self.debounce;
-                    self.deadline.get_or_insert_with(|| Instant::now() + debounce);
+                    // The first change starts the wait; later ones join the same write. A
+                    // debounce too long for the clock to hold waits for a flush.
+                    if self.deadline.is_none() {
+                        self.deadline = Instant::now().checked_add(self.debounce);
+                    }
                 }
                 Ok(Msg::Flush(reply)) => {
                     let _ = reply.send(self.write_all());

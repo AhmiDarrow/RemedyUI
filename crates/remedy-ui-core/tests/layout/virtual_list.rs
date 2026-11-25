@@ -108,6 +108,20 @@ fn a_width_change_forgets_heights_but_holds_the_view() {
 }
 
 #[test]
+fn values_that_are_not_numbers_do_not_poison_the_list() {
+    let mut v = VirtualList::new(10, 20.0, false);
+    v.set_viewport(50.0);
+    v.scroll_to(40.0);
+    v.scroll_to(f32::NAN);
+    assert_eq!(v.scroll_offset(), 40.0, "the view stays where it was");
+    v.set_height(0, f32::INFINITY);
+    v.set_height(1, f32::NAN);
+    assert_eq!((v.total_height(), v.scroll_offset()), (200.0, 40.0), "neither was a measurement");
+    v.set_height(0, 30.0);
+    assert_eq!(v.total_height(), 300.0);
+}
+
+#[test]
 fn a_hundred_thousand_messages_arrive_quickly() {
     let mut v = VirtualList::new(0, 40.0, true);
     v.set_viewport(800.0);

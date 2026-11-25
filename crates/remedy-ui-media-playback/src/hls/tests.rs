@@ -519,6 +519,25 @@ fn a_master_playlist_leads_to_its_variant() {
 }
 
 #[test]
+fn master_playlists_that_point_at_each_other_fail_and_no_target_still_pauses() {
+    let mut hls = Hls::new("https://test.example/master.m3u8");
+    let master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmaster.m3u8\n";
+    let results: Vec<Result<(), MediaError>> = (0..=MAX_MASTERS)
+        .map(|_| {
+            let Some(w) = hls.wanted() else { unreachable!("a playlist is wanted") };
+            hls.deliver(&w, Ok(master.as_bytes().to_vec()))
+        })
+        .collect();
+    assert!(matches!(results.last(), Some(Err(MediaError::Format(_)))), "{results:?}");
+    assert!(results.iter().rev().skip(1).all(Result::is_ok), "{results:?}");
+    // A growing playlist that states no target duration is still asked again with a pause.
+    let mut hls = Hls::new("https://test.example/index.m3u8");
+    let Some(w) = hls.wanted() else { unreachable!("the playlist is wanted") };
+    assert!(hls.deliver(&w, Ok(b"#EXTM3U\n".to_vec())).is_ok());
+    assert_eq!(hls.wanted().map(|w| (w.kind, w.after)), Some((WantKind::Playlist, MIN_RELOAD)));
+}
+
+#[test]
 fn only_a_few_segments_are_fetched_ahead() {
     let text = format!(
         "#EXTM3U\n#EXT-X-TARGETDURATION:1\n{}#EXT-X-ENDLIST\n",
@@ -647,6 +666,15 @@ fn file_urls_name_paths() {
         assert_eq!(p("file:///tmp/a%20b/seg ü 1.ts?x"), "/tmp/a b/seg ü 1.ts");
         assert_eq!(p("file://localhost/tmp/a.ts"), "/tmp/a.ts");
     }
+}
+
+#[test]
+fn a_file_is_read_whole_and_a_missing_one_is_not_found() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/aac");
+    let path = dir.join("index.m3u8").to_string_lossy().into_owned();
+    assert_eq!(read_file(&path).ok(), Some(fixture("aac/index.m3u8")));
+    let gone = dir.join("no-such.ts").to_string_lossy().into_owned();
+    assert!(matches!(read_file(&gone), Err(MediaError::NotFound(_))));
 }
 
 /// How long reading a real segment takes: `REMEDY_HLS_BENCH=<a .ts file> cargo test --release

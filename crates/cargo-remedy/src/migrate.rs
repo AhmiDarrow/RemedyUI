@@ -362,10 +362,7 @@ impl<'ast> Visit<'ast> for Migrator<'_> {
                         .unwrap_or_default()
                 };
                 if let (Some(args), Some((start, end))) = (args, self.lines.range(c.span())) {
-                    let mut text = rule.template.replace("{fn}", &prefix);
-                    for (i, a) in args.iter().enumerate() {
-                        text = text.replace(&format!("{{{i}}}"), a);
-                    }
+                    let text = expand(&rule.template, &prefix, &args);
                     self.edits.push(Edit { start, end, text });
                     // The arguments are carried over as written; nothing inside is rewritten
                     // twice.
@@ -375,6 +372,28 @@ impl<'ast> Visit<'ast> for Migrator<'_> {
         }
         syn::visit::visit_expr_call(self, c);
     }
+}
+
+/// `template` with `{fn}` and `{0}`, `{1}`, ... filled in, in one pass: braces inside an
+/// argument (a format string's `{1}`) are the app's text, never a placeholder.
+fn expand(template: &str, prefix: &str, args: &[&str]) -> String {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let (before, from) = rest.split_at(open);
+        out.push_str(before);
+        rest = from;
+        let Some(close) = from.find('}') else { break };
+        let key = from.get(1..close).unwrap_or_default();
+        match (key, key.parse::<usize>().ok().and_then(|i| args.get(i))) {
+            ("fn", _) => out.push_str(prefix),
+            (_, Some(arg)) => out.push_str(arg),
+            _ => out.push_str(from.get(..=close).unwrap_or_default()),
+        }
+        rest = from.get(close + 1..).unwrap_or_default();
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The migrated text of one source file, or `None` when nothing changes.
@@ -450,13 +469,24 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(p) => PathBuf::from(p),
         None => std::env::current_dir().map_err(|e| e.to_string())?,
     };
+    if !root.is_dir() {
+        return Err(format!("{} is not a folder", root.display()));
+    }
     let table = Table::parse(TABLE)?;
     let mut files = Vec::new();
     rust_files(&root, &mut files);
     files.sort();
     let mut changed = 0;
     for f in files {
-        let src = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        // A file that cannot be read as text is left alone, like one that does not parse; the
+        // files before it are already migrated, so the run goes on.
+        let src = match std::fs::read_to_string(&f) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("skipped {}: {e}", f.display());
+                continue;
+            }
+        };
         let new = match migrate_source(&table, &src) {
             Ok(Some(n)) => n,
             Ok(None) => continue,
@@ -537,6 +567,11 @@ mod tests {
         let out = migrate(src);
         assert!(out.contains("w::text(ui, format!(\"{}, {}\", 1, 2)).variant(\"muted\")"), "{out}");
         assert!(out.contains("p.is_muted()"), "{out}");
+        // Braces in an argument are not placeholders.
+        let braces = "use remedy_ui::widgets as w;\nfn f(ui: &Ui) { let _ = w::label(ui, format!(\"{2}{0}\", 1, 2, 3), \"muted\"); }\n";
+        let out = migrate(braces);
+        assert!(out.contains("w::text(ui, format!(\"{2}{0}\", 1, 2, 3)).variant(\"muted\")"), "{out}");
+        assert_eq!(expand("{fn}f({0}, {9}, {x}", "a::", &["1"]), "a::f(1, {9}, {x}");
         let own =
             "struct S;\nimpl S { fn muted(&self) -> bool { true } }\nfn f(s: S) -> bool { s.muted() }\n";
         assert_eq!(migrate(own), own, "the app's own muted() stays");

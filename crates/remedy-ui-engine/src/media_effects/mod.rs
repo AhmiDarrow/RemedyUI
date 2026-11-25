@@ -350,7 +350,7 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
         push(cx, item);
         return;
     }
-    let item = match draw(&mut s, &input, rect, gpu_path) {
+    let item = match draw(&mut s, &input, rect, gpu_path, live.is_some()) {
         Some(i) => i,
         None => return,
     };
@@ -362,16 +362,20 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     push(cx, item);
 }
 
-/// Renders one frame on the chosen side, falling back to the CPU when the GPU cannot.
-fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool) -> Option<Item> {
+/// Renders one frame on the chosen side, falling back to the CPU when the GPU cannot. Only a
+/// `live` frame is measured for the quality ladder: a still frame is drawn once and kept, so
+/// its cost says nothing about a frame rate and must not lower its own resolution.
+fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool, live: bool) -> Option<Item> {
     #[cfg(feature = "media-effects-gpu")]
     if gpu_path && let Some(item) = draw_gpu(s, input, rect) {
         s.stats.backend = Backend::Gpu;
         s.stats.last = Duration::ZERO;
         if let Some(t) = s.gpu.as_mut().and_then(|g| g.fx.take_gpu_time()) {
             s.stats.gpu_time = Some(t);
-            let budget = s.gpu_budget.as_secs_f64();
-            ladder(s, t.as_secs_f64(), budget, GPU_LADDER.len() - 1);
+            if live {
+                let budget = s.gpu_budget.as_secs_f64();
+                ladder(s, t.as_secs_f64(), budget, GPU_LADDER.len() - 1);
+            }
         }
         return Some(item);
     }
@@ -382,8 +386,10 @@ fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool) -> Option
     s.stats.backend = Backend::Cpu;
     s.stats.last = took;
     s.stats.pixels = (pic.width, pic.height);
-    let budget = s.budget.as_secs_f64();
-    ladder(s, took.as_secs_f64(), budget, LADDER.len());
+    if live {
+        let budget = s.budget.as_secs_f64();
+        ladder(s, took.as_secs_f64(), budget, LADDER.len());
+    }
     let image = Image::new(pic.width, pic.height, pic.pixels.into());
     Some(Item::Image { image, rect, radii: CornerRadii::ZERO, sampling: Sampling::Linear })
 }
@@ -429,7 +435,8 @@ fn draw_gpu(s: &mut State, input: &FrameInput, rect: Rect) -> Option<Item> {
     }
     let g = s.gpu.as_mut()?;
     let (w, h) = GpuEffect::output_size(s.instance.effect(), input);
-    if g.buffers.first().is_none_or(|(t, _)| (t.width(), t.height()) != (w, h)) {
+    // Fewer than two: an earlier registration failed part way, so both are made again.
+    if g.buffers.len() < 2 || g.buffers.iter().any(|(t, _)| (t.width(), t.height()) != (w, h)) {
         g.release();
         for _ in 0..2 {
             let t = g.ctx.device.create_texture(&wgpu::TextureDescriptor {

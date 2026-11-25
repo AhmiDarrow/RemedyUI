@@ -768,3 +768,54 @@ fn what_scripts_let_go_of_is_released() {
     let n = render(&mut w).must("renders");
     assert_eq!(children(&n).first().map(text_of).as_deref(), Some("kept"));
 }
+
+/// A computed value whose function failed worked nothing out: the next read runs it again
+/// instead of handing back what it held before.
+#[test]
+fn a_computed_value_that_failed_is_worked_out_again() {
+    let src = r#"
+        local fail, runs = true, 0
+        local c = ui.computed(function() runs = runs + 1 if fail then error("not yet") end return "ready" end)
+        local out = ui.signal("")
+        ui.mount(ui.column{ ui.text(out),
+          ui.button("Read", function() out:set(tostring(pcall(c.get, c)) .. " " .. runs) end),
+          ui.button("Fix", function() fail = false end) })
+        return { name = "Retry" }"#;
+    let mut w = load(src).must("loads");
+    let n = render(&mut w).must("renders");
+    let (read, fix) = (button(&n, "Read").must("read"), button(&n, "Fix").must("fix"));
+    let mut shown = Vec::new();
+    for b in [read, read, fix, read] {
+        w.act(b).must("acts");
+        shown.push(children(&render(&mut w).must("renders")).first().map(text_of).must("text"));
+    }
+    assert_eq!(shown, ["false 1", "false 2", "false 2", "true 3"]);
+}
+
+/// What a call returned (the manifest, the element a render made) outlives the effects and
+/// hooks that run after it, however much they allocate.
+#[test]
+fn what_a_call_returned_survives_the_effects_and_hooks_after_it() {
+    let src = r#"
+        local function churn() local t = {} for i = 1, 20000 do t[i % 64] = { i } end end
+        local s = ui.signal(0)
+        ui.effect(function() local _ = s:get() churn() end)
+        s:set(1)
+        ui.on_mount(churn)
+        return { name = "Kept", render = function() return ui.text("shown") end }"#;
+    let mut w = LuaEngine::new().load_source(src, limits().memory(1 << 20)).must("loads");
+    assert_eq!(w.name(), "Kept");
+    assert_eq!(text_of(&render(&mut w).must("renders")), "shown");
+    assert_eq!(text_of(&render(&mut w).must("renders again")), "shown");
+}
+
+#[test]
+fn animated_values_take_only_finite_numbers() {
+    let src = r#"
+        local a = ui.animated(1)
+        ui.mount(ui.text(tostring(pcall(a.set, a, 0/0)) .. " " .. tostring(pcall(a.to, a, 1e300))
+          .. " " .. tostring(pcall(ui.animated, 1e300)) .. " " .. math.floor(a:get())))
+        return { name = "Finite" }"#;
+    let mut w = load(src).must("loads");
+    assert_eq!(text_of(&render(&mut w).must("renders")), "false false false 1");
+}

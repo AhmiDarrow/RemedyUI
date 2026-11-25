@@ -173,7 +173,6 @@ fn text_in(el: &El) -> Option<String> {
     None
 }
 
-/// False when the element or an ancestor is hidden.
 /// How far `b` reaches past `w` on its farthest side (0 inside).
 fn past(w: remedy_ui_core::Rect, b: remedy_ui_core::Rect) -> f32 {
     (w.min.x - b.min.x).max(w.min.y - b.min.y).max(b.max.x - w.max.x).max(b.max.y - w.max.y).max(0.0)
@@ -191,6 +190,7 @@ fn clipped(el: &El) -> bool {
     false
 }
 
+/// False when an ancestor of the element is hidden.
 fn shown_chain(el: &El) -> bool {
     let mut cur = el.parent();
     while let Some(e) = cur {
@@ -530,7 +530,7 @@ pub(crate) struct Inner {
     pub(crate) picking: Signal<bool>,
     pub(crate) revision: Signal<u64>,
     pub(crate) highlight: RefCell<Option<El>>,
-    /// The panel page shown: inspect, signals, accessibility, performance, remote.
+    /// The panel page shown: an index into the panel's `TABS`.
     pub(crate) tab: Signal<usize>,
     /// Why elements of the target updated.
     pub(crate) log: crate::devtools::signals::UpdateLog,

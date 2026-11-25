@@ -1,8 +1,8 @@
 //! RemedyUI's desktop Linux bridge, for Wayland and X11 alike (winit picks the session's
 //! display server at run time).
 //!
-//! The shared winit core (`remedy-ui-platform::bridge_winit`) provides windows, input, frames, input
-//! methods, CPU presents and GPU surface handles. This crate adds:
+//! The shared winit core (`bridge_winit`) provides windows, input, frames, input
+//! methods, CPU presents and GPU surface handles. This module adds:
 //! - the clipboard (Wayland data-control or X11 selections), with sensitive copies marked
 //!   with the password-manager hint so clipboard managers keep them out of history;
 //! - system settings from the XDG desktop portal (color scheme, accent, contrast, reduced
@@ -18,7 +18,7 @@
 //!
 //! Capture protection is not available: no Linux display server lets a window exclude itself
 //! from capture, so it reports `Unsupported` rather than pretending. On other platforms this
-//! crate is empty.
+//! module is empty.
 
 #[cfg(any(test, all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))))]
 mod env_locale;

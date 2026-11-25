@@ -232,7 +232,8 @@ fn first_track(asset: &AVAsset, kind: Option<&'static NSString>) -> Option<Retai
 fn seconds(t: CMTime) -> Option<Duration> {
     // SAFETY: a pure conversion of a time value.
     let s = unsafe { t.seconds() };
-    (s.is_finite() && s >= 0.0).then(|| Duration::from_secs_f64(s))
+    // Finite is not enough: a time past what a duration holds is no time either.
+    Duration::try_from_secs_f64(s).ok()
 }
 
 impl AvDecoder {
@@ -516,8 +517,15 @@ impl Decoder for AvDecoder {
         // An asset reader reads one range once: a new one starts at the target.
         // SAFETY: cancelling the reader in use.
         unsafe { self.reader.cancelReading() };
-        let video = self.video.take().map(|b| b.track);
-        let audio = self.audio.take().map(|b| b.track);
+        // The tracks stay with the decoder until the new reader runs: a seek that fails
+        // leaves them for the next one (what was read before it is let go).
+        let track = |b: &mut Option<Branch>| {
+            b.as_mut().map(|b| {
+                b.head = None;
+                b.track.clone()
+            })
+        };
+        let (video, audio) = (track(&mut self.video), track(&mut self.audio));
         self.start(Some(to), video, audio)
     }
 }

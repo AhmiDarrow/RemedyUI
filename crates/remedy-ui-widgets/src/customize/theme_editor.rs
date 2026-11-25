@@ -318,7 +318,10 @@ fn number_row(
         let n = v.to_f64();
         let tv = match t2.kind() {
             crate::customize::TokenKind::Duration => {
-                TokenValue::Duration(Duration::from_secs_f64(n.max(0.0) / 1000.0))
+                // A number too large for a duration is the longest one (the token check
+                // then says so), not a panic.
+                let secs = n.max(0.0) / 1000.0;
+                TokenValue::Duration(Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX))
             }
             _ => TokenValue::Px(n as f32),
         };

@@ -64,11 +64,12 @@ impl Waker {
     /// Queues `f` to run on the UI thread in the next frame, and wakes the UI thread if it
     /// was idle. Posts from one thread run in the order they were posted.
     pub fn post(&self, f: impl FnOnce() + Send + 'static) -> Result<(), Closed> {
-        if self.is_closed() {
-            return Err(Closed);
-        }
         let was_empty = {
             let mut q = lock(&self.queue.queue);
+            // Looked at under the lock: a post never lands after the runtime emptied the queue.
+            if self.is_closed() {
+                return Err(Closed);
+            }
             let was_empty = q.is_empty();
             q.push_back(Box::new(f));
             was_empty
