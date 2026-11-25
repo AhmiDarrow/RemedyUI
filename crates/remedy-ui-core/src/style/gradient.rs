@@ -543,7 +543,12 @@ fn parse_color_within(s: &str, depth: u32) -> Result<(ColorRef, f32), ParseGradi
     match name {
         "var" => {
             let var = inner.strip_prefix("--").ok_or_else(bad)?;
-            Ok((ColorRef::Role(role_named(var)), 1.0))
+            Ok((
+                ColorRef::Role(
+                    role_named(var).ok_or_else(|| err(&format!("too many custom colors to name `{var}`")))?,
+                ),
+                1.0,
+            ))
         }
         "rgb" | "rgba" => {
             let parts: Vec<&str> = inner
@@ -605,8 +610,8 @@ fn parse_color_within(s: &str, depth: u32) -> Result<(ColorRef, f32), ParseGradi
 }
 
 /// The theme role a CSS variable names; names that are no role are the theme's custom colors.
-fn role_named(name: &str) -> ColorRole {
-    match name {
+fn role_named(name: &str) -> Option<ColorRole> {
+    Some(match name {
         "bg" => ColorRole::Bg,
         "panel" => ColorRole::Panel,
         "card" => ColorRole::Card,
@@ -620,21 +625,30 @@ fn role_named(name: &str) -> ColorRole {
         "line" => ColorRole::Line,
         "focus" => ColorRole::Focus,
         "selected" => ColorRole::Selected,
-        other => ColorRole::Custom(intern(other)),
-    }
+        other => ColorRole::Custom(intern(other)?),
+    })
 }
 
-/// Custom roles hold `&'static str`; each distinct name is kept once for the process.
-fn intern(name: &str) -> &'static str {
+/// The most distinct custom color names kept, and the longest one: more than any theme has.
+const MAX_CUSTOM_NAMES: usize = 4096;
+const MAX_CUSTOM_NAME: usize = 128;
+
+/// Custom roles hold `&'static str`; each distinct name is kept once for the process. CSS
+/// comes from theme files, so what is kept is bounded: past [`MAX_CUSTOM_NAMES`] names, or
+/// for a name longer than [`MAX_CUSTOM_NAME`] bytes, there is no role.
+fn intern(name: &str) -> Option<&'static str> {
     static NAMES: Mutex<Option<HashSet<&'static str>>> = Mutex::new(None);
     let mut guard = NAMES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let set = guard.get_or_insert_with(HashSet::new);
     if let Some(n) = set.get(name) {
-        return n;
+        return Some(n);
+    }
+    if set.len() >= MAX_CUSTOM_NAMES || name.len() > MAX_CUSTOM_NAME {
+        return None;
     }
     let leaked: &'static str = Box::leak(name.to_owned().into_boxed_str());
     set.insert(leaked);
-    leaked
+    Some(leaked)
 }
 
 #[cfg(test)]
@@ -825,6 +839,14 @@ mod tests {
         assert!(twice.0 == ColorRef::Role(ColorRole::Bg) && (twice.1 - 0.25).abs() < 1e-6);
         assert!(nested(10_000).is_err());
         // The same custom name is the same &'static str.
-        assert!(std::ptr::eq(intern("glow"), intern("glow")));
+        let (a, b) = (intern("glow"), intern("glow"));
+        assert!(a.zip(b).is_some_and(|(a, b)| std::ptr::eq(a, b)));
+    }
+
+    #[test]
+    fn a_custom_color_name_no_theme_would_have_is_no_role() {
+        let long = "x".repeat(MAX_CUSTOM_NAME + 1);
+        assert!(Gradient::parse(&format!("linear-gradient(var(--{long}), #000)")).is_err());
+        assert!(Gradient::parse("linear-gradient(var(--gold), #000)").is_ok());
     }
 }

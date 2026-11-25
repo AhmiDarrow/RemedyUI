@@ -79,9 +79,11 @@ pub struct NavigationRequest {
     pub user_initiated: bool,
     /// A server redirect of an earlier navigation.
     pub redirect: bool,
-    /// The navigation of a frame inside the page, not the page itself. WebKitGTK does not
-    /// say which frame navigates, so there this is always false and a frame's navigation is
-    /// decided as the page's own.
+    /// The navigation of a frame inside the page, not the page itself. WebKitGTK says which
+    /// frame a load is in only with its response (2.40 and later), so on Linux a load the
+    /// page started by itself (no click, link, form or history move) is asked about then,
+    /// after its request went out; a frame's link or form is decided as the page's own, and
+    /// so is everything on an older WebKitGTK.
     pub frame: bool,
 }
 
@@ -301,6 +303,17 @@ impl Hub {
             visited.pop_front();
         }
         visited.push_back(url);
+    }
+
+    /// Whether a navigation to `url` is one the app started and is waiting for (nothing is
+    /// taken as done by asking).
+    #[cfg_attr(
+        not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))),
+        allow(dead_code)
+    )]
+    pub(crate) fn expects(&self, url: &str, history: Option<bool>) -> bool {
+        let visited = self.visited.borrow();
+        self.expected.borrow().iter().any(|(_, e)| e.matches(url, history, &visited))
     }
 
     /// Who started a top-level navigation to `url`: the app when it matches one the app
@@ -829,6 +842,19 @@ mod tests {
         assert_eq!(seen.get(1).map(|r| r.source), Some(NavigationSource::Page), "a forgotten call");
         assert_eq!(seen.get(2).map(|r| r.source), Some(NavigationSource::Page));
         assert!(seen.get(3).is_some_and(|r| r.frame));
+    }
+
+    #[test]
+    fn asking_whether_the_app_waits_for_an_address_takes_nothing_as_done() {
+        let h = hub(WebViewOptions::new("Help"));
+        h.app_navigates(Expected::Url("https://help.example/c".into()));
+        assert!(h.expects("https://help.example/c", Some(false)));
+        assert!(!h.expects("https://elsewhere.example/", Some(false)));
+        assert!(
+            h.decide("https://help.example/c".into(), false, false, false, Some(false)),
+            "still the app's"
+        );
+        assert!(!h.expects("https://help.example/c", Some(false)), "and done once decided");
     }
 
     #[test]

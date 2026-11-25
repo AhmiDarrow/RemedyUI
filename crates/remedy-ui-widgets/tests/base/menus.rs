@@ -549,7 +549,7 @@ fn the_pointer_opens_menus_and_slides_between_them() {
 }
 
 #[test]
-fn a_disabled_menu_of_the_bar_does_not_open_and_is_stepped_past() {
+fn a_disabled_menu_of_the_bar_takes_focus_and_does_not_open() {
     let mut t = T::new();
     let off = Signal::new(true);
     let bar = w::menu_bar(
@@ -569,14 +569,28 @@ fn a_disabled_menu_of_the_bar_does_not_open_and_is_stepped_past() {
     t.key(Key::F(10));
     assert_eq!(t.focused().as_deref(), Some("File"));
     t.key(Key::ArrowRight);
-    assert_eq!(t.focused().as_deref(), Some("Help"), "Right steps past the disabled title");
-    t.key(Key::ArrowLeft);
-    assert_eq!(t.focused().as_deref(), Some("File"), "and so does Left");
+    assert_eq!(
+        t.focused().as_deref(),
+        Some("Edit"),
+        "a disabled title takes focus, as a disabled entry does"
+    );
     t.key(Key::ArrowDown);
+    t.key(Key::Enter);
+    assert!(t.menus().is_empty(), "and stays shut");
     t.key(Key::ArrowRight);
-    assert_eq!(t.focused().as_deref(), Some("About"), "with a menu open too");
-    assert!(t.node(Role::MenuItem, "Find…").is_none());
-    t.key(Key::Escape);
+    assert_eq!(t.focused().as_deref(), Some("Help"));
+    t.key(Key::ArrowLeft);
+    t.key(Key::ArrowLeft);
+    assert_eq!(t.focused().as_deref(), Some("File"));
+    t.key(Key::ArrowDown);
+    assert_eq!(t.focused().as_deref(), Some("Open…"));
+    t.key(Key::ArrowRight);
+    assert_eq!(
+        t.focused().as_deref(),
+        Some("Edit"),
+        "from an open menu too: File's closes, Edit's does not open"
+    );
+    assert!(t.menus().is_empty());
     t.key(Key::Escape);
     off.set(false);
     t.frame();

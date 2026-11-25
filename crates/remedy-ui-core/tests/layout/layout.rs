@@ -354,3 +354,64 @@ fn auto_fit_collapses_empty_tracks_and_count_repeats() -> R {
     );
     Ok(())
 }
+
+#[test]
+fn rows_of_growing_columns_measure_their_text_as_often_at_any_depth() -> R {
+    // A quote in a quote in a quote: a bar and a growing column, forty deep around one text.
+    let measures = |depth: usize| -> Result<(usize, f32), LayoutError> {
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let c = calls.clone();
+        let mut t = LayoutTree::new();
+        let text = t.measured(&LayoutStyle::default(), move |i| {
+            c.set(c.get() + 1);
+            let w = match i.available_width {
+                Available::Px(v) => v.min(400.0),
+                Available::MinContent => 40.0,
+                Available::MaxContent => 400.0,
+            };
+            remedy_ui_core::Size::new(i.known_width.unwrap_or(w), i.known_height.unwrap_or(20.0))
+        })?;
+        let mut inner = text;
+        for _ in 0..depth {
+            let body = t.node(&{
+                let mut s = LayoutStyle::column();
+                s.grow = 1.0;
+                s
+            })?;
+            t.set_children(body, &[inner])?;
+            let bar = t.node(&{
+                let mut s = LayoutStyle::default();
+                s.width = Length::Px(3.0);
+                s
+            })?;
+            let quote = t.node(&{
+                let mut s = LayoutStyle::row();
+                s.width = Length::Percent(1.0);
+                s
+            })?;
+            t.set_children(quote, &[bar, body])?;
+            inner = quote;
+        }
+        t.compute(inner, Some(600.0), None)?;
+        Ok((calls.get(), t.rect(inner).map_or(0.0, |r| r.width())))
+    };
+    let (shallow, _) = measures(2)?;
+    let (deep, width) = measures(40)?;
+    assert_eq!(deep, shallow, "the text is measured no more often however deep it lies");
+    assert_eq!(width, 600.0);
+    // A growing column narrower than its content stays in its row: the row is not pushed wider.
+    let mut t = LayoutTree::new();
+    let wide = t.node(&LayoutStyle::fixed(500.0, 10.0))?;
+    let body = t.node(&{
+        let mut s = LayoutStyle::column();
+        s.grow = 1.0;
+        s
+    })?;
+    t.set_children(body, &[wide])?;
+    let side = t.node(&LayoutStyle::fixed(100.0, 10.0))?;
+    let row = t.node(&LayoutStyle::row())?;
+    t.set_children(row, &[side, body])?;
+    t.compute(row, Some(300.0), None)?;
+    assert_eq!(t.rect(body).map(|r| (r.min.x, r.width())), Some((100.0, 200.0)));
+    Ok(())
+}
