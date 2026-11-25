@@ -307,7 +307,8 @@ fn columns(lay: &TabLayout, measures: &[TabMeasure], o: &TabOptions) -> Vec<TabC
     }
     let mut out = Vec::new();
     for sys in &lay.systems {
-        let (top, bottom) = (sys.top_line - lay.gap * 0.5, sys.top_line + (strings - 1) as f32 * lay.gap + lay.gap * 0.5);
+        let (top, bottom) =
+            (sys.top_line - lay.gap * 0.5, sys.top_line + (strings - 1) as f32 * lay.gap + lay.gap * 0.5);
         for mb in &sys.measures {
             let Some(m) = measures.get(mb.index) else { continue };
             let mut start = starts.get(mb.index).copied().unwrap_or(0.0);
@@ -723,7 +724,8 @@ fn paint(cx: &mut PaintCx<'_>, lay: &TabLayout, measures: &[TabMeasure], o: &Tab
                     );
                 }
                 for n in &e.notes {
-                    let mark = marks.decor.notes.get(&TabCursor { measure: mb.index, event: ei, string: n.string });
+                    let mark =
+                        marks.decor.notes.get(&TabCursor { measure: mb.index, event: ei, string: n.string });
                     let mut style = num;
                     if let Some(color) = mark.and_then(|m| m.color) {
                         style.color = color;
@@ -1144,7 +1146,12 @@ fn tab_staff_with(
         if lit.replace(Some((col.measure, col.event))) != Some((col.measure, col.event)) {
             // A little of what comes next shows too.
             let r = col.rect;
-            fel.scroll_rect_into_view(Rect::new(r.min.x - gap, r.min.y - gap * 2.4, r.max.x + gap * 6.0, r.max.y + gap * 3.4));
+            fel.scroll_rect_into_view(Rect::new(
+                r.min.x - gap,
+                r.min.y - gap * 2.4,
+                r.max.x + gap * 6.0,
+                r.max.y + gap * 3.4,
+            ));
         }
     });
     // A note's tooltip, where the app gave it one.
@@ -1191,17 +1198,33 @@ fn tab_staff_with(
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
             if let Some((decor, tip)) = &tips {
-                let part = hit(e.position).filter(|_| e.phase == PointerPhase::Move && !down.get()).and_then(|c| {
-                    let text = decor.get_untracked().ok()?.notes.get(&c)?.tip.clone();
-                    let (b, w) = (tip_el.bounds()?, tip_width.get());
-                    let ms = measures.get_untracked().ok()?;
-                    let lay = build(&ms, &tip_options, w.max(b.width()), gap);
-                    let col = columns(&lay, &ms, &tip_options).into_iter().find(|k| (k.measure, k.event) == (c.measure, c.event))?;
-                    let sys = lay.systems.iter().find(|s| s.measures.iter().any(|m| m.index == c.measure))?;
-                    let y = b.min.y + string_y(sys, gap, strings, c.string);
-                    let near = (e.position.y - y).abs() <= gap * 0.6 && (e.position.x - b.min.x - (col.rect.min.x + col.rect.max.x) / 2.0).abs() <= gap;
-                    near.then(|| (Rect::new(b.min.x + col.rect.min.x, y - gap * 0.5, b.min.x + col.rect.max.x, y + gap * 0.5), text))
-                });
+                let part =
+                    hit(e.position).filter(|_| e.phase == PointerPhase::Move && !down.get()).and_then(|c| {
+                        let text = decor.get_untracked().ok()?.notes.get(&c)?.tip.clone();
+                        let (b, w) = (tip_el.bounds()?, tip_width.get());
+                        let ms = measures.get_untracked().ok()?;
+                        let lay = build(&ms, &tip_options, w.max(b.width()), gap);
+                        let col = columns(&lay, &ms, &tip_options)
+                            .into_iter()
+                            .find(|k| (k.measure, k.event) == (c.measure, c.event))?;
+                        let sys =
+                            lay.systems.iter().find(|s| s.measures.iter().any(|m| m.index == c.measure))?;
+                        let y = b.min.y + string_y(sys, gap, strings, c.string);
+                        let near = (e.position.y - y).abs() <= gap * 0.6
+                            && (e.position.x - b.min.x - (col.rect.min.x + col.rect.max.x) / 2.0).abs()
+                                <= gap;
+                        near.then(|| {
+                            (
+                                Rect::new(
+                                    b.min.x + col.rect.min.x,
+                                    y - gap * 0.5,
+                                    b.min.x + col.rect.max.x,
+                                    y + gap * 0.5,
+                                ),
+                                text,
+                            )
+                        })
+                    });
                 tip.point(part);
             }
             match e.phase {

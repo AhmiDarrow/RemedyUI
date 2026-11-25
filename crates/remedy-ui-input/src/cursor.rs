@@ -78,7 +78,42 @@ pub enum Cursor {
 
 impl Cursor {
     /// Every shape.
-    pub const ALL: [Cursor; 34] = [Cursor::Default, Cursor::Pointer, Cursor::Text, Cursor::VerticalText, Cursor::Crosshair, Cursor::Move, Cursor::Grab, Cursor::Grabbing, Cursor::NotAllowed, Cursor::NoDrop, Cursor::Wait, Cursor::Progress, Cursor::Help, Cursor::ContextMenu, Cursor::Cell, Cursor::Alias, Cursor::Copy, Cursor::AllScroll, Cursor::ZoomIn, Cursor::ZoomOut, Cursor::ColResize, Cursor::RowResize, Cursor::EwResize, Cursor::NsResize, Cursor::NeswResize, Cursor::NwseResize, Cursor::NResize, Cursor::EResize, Cursor::SResize, Cursor::WResize, Cursor::NeResize, Cursor::NwResize, Cursor::SeResize, Cursor::SwResize];
+    pub const ALL: [Cursor; 34] = [
+        Cursor::Default,
+        Cursor::Pointer,
+        Cursor::Text,
+        Cursor::VerticalText,
+        Cursor::Crosshair,
+        Cursor::Move,
+        Cursor::Grab,
+        Cursor::Grabbing,
+        Cursor::NotAllowed,
+        Cursor::NoDrop,
+        Cursor::Wait,
+        Cursor::Progress,
+        Cursor::Help,
+        Cursor::ContextMenu,
+        Cursor::Cell,
+        Cursor::Alias,
+        Cursor::Copy,
+        Cursor::AllScroll,
+        Cursor::ZoomIn,
+        Cursor::ZoomOut,
+        Cursor::ColResize,
+        Cursor::RowResize,
+        Cursor::EwResize,
+        Cursor::NsResize,
+        Cursor::NeswResize,
+        Cursor::NwseResize,
+        Cursor::NResize,
+        Cursor::EResize,
+        Cursor::SResize,
+        Cursor::WResize,
+        Cursor::NeResize,
+        Cursor::NwResize,
+        Cursor::SeResize,
+        Cursor::SwResize,
+    ];
 
     /// Its CSS name (`not-allowed`, `ew-resize`).
     pub fn css_name(self) -> &'static str {

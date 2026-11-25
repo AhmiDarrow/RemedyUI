@@ -2318,6 +2318,9 @@ struct TouchPan {
     last: Point,
     scrolling: bool,
     layer: Option<LayerId>,
+    /// The view scrolls under the finger itself (an element that takes the wheel: a page
+    /// view, a text area), so the drag reaches it as wheel movement.
+    by_view: bool,
     velocity: VelocityTracker,
     /// Fires when the finger has rested long enough to be a long press.
     hold: Option<TimerId>,
@@ -2364,10 +2367,20 @@ impl Win {
                     down: e,
                     scrolling: false,
                     layer: None,
+                    by_view: false,
                     velocity,
                     hold: None,
                 });
                 return Vec::new();
+            }
+            // A second finger: the view has both from here on (a pinch, a two-finger pan),
+            // the first from where it is now. Held back, it would leave the view one finger.
+            if e.phase == PointerPhase::Down
+                && let Some(first) = self.pan.take()
+            {
+                let mut down = first.down;
+                down.position = first.last;
+                return vec![down, e];
             }
             return vec![e];
         };
@@ -2379,16 +2392,24 @@ impl Win {
                     return Vec::new();
                 }
                 p.scrolling = true;
-                let d = Vec2::new((p.last.x - e.position.x) * s, (p.last.y - e.position.y) * s);
+                let moved = Vec2::new(p.last.x - e.position.x, p.last.y - e.position.y);
+                let d = Vec2::new(moved.x * s, moved.y * s);
                 p.last = e.position;
                 let at = Point::new(e.position.x * s, e.position.y * s);
                 match self.comp.as_mut().and_then(|c| c.scroll_at(at, d)) {
                     Some(l) => p.layer = Some(l),
-                    // Nothing under the finger scrolls sideways: a sideways drag is the view's
-                    // (a slider, a drag and drop).
-                    None if p.layer.is_none() && dx.abs() > dy.abs() => {
-                        let down = self.pan.take().map(|p| p.down);
-                        return down.into_iter().chain([e]).collect();
+                    None if p.layer.is_none() => {
+                        // No scroll container under the finger. An element that scrolls
+                        // itself takes the drag as it takes the wheel.
+                        let wheel = remedy_ui_input::WheelEvent::new(e.position, moved).with_precise(true);
+                        if self.ui.wheel(&wheel) {
+                            p.by_view = true;
+                        } else if !p.by_view && dx.abs() > dy.abs() {
+                            // Nothing scrolls sideways here: a sideways drag is the view's
+                            // (a slider, a drag and drop).
+                            let down = self.pan.take().map(|p| p.down);
+                            return down.into_iter().chain([e]).collect();
+                        }
                     }
                     None => {}
                 }

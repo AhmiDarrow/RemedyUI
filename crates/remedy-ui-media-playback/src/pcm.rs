@@ -172,7 +172,8 @@ mod tests {
         let up = resample(&tone(1_000.0, 16_000, 0.5), 1, 16_000, 48_000);
         assert!((level(&up) - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.01);
         let want = tone(1_000.0, 48_000, 0.5);
-        let worst = up.iter().zip(&want).skip(2_000).take(8_000).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        let worst =
+            up.iter().zip(&want).skip(2_000).take(8_000).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
         assert!(worst < 0.01, "{worst}");
     }
 

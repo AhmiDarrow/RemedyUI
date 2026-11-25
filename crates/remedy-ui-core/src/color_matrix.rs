@@ -403,5 +403,4 @@ mod tests {
         assert!(w[0] == 1.0 && w[2] < w[1] && w[1] < 1.0);
         assert!(ColorMatrix::cool(0.0).is_identity());
     }
-
 }

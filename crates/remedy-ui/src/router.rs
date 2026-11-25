@@ -261,7 +261,11 @@ impl Router {
                     Some((at, list)) => {
                         i.entries = list
                             .into_iter()
-                            .map(|(r, x, y, state)| Entry { route: Route::parse(&r), scroll: Vec2::new(x, y), state })
+                            .map(|(r, x, y, state)| Entry {
+                                route: Route::parse(&r),
+                                scroll: Vec2::new(x, y),
+                                state,
+                            })
                             .collect();
                         i.index = at as usize;
                     }
@@ -782,11 +786,13 @@ mod tests {
         r.push("/other");
         assert_eq!(r.state(), "");
         assert!(r.back());
-        assert_eq!((r.route().path().to_owned(), r.state()), ("/item/7".to_owned(), "from=3;draft=hello".to_owned()));
+        assert_eq!(
+            (r.route().path().to_owned(), r.state()),
+            ("/item/7".to_owned(), "from=3;draft=hello".to_owned())
+        );
         // The same route again is a new entry when it carries a state.
         r.push_with("/item/7", "again");
         assert_eq!(r.position(), (3, 2));
         assert_eq!(r.href("/item/7"), "#/item/7");
     }
-
 }

@@ -1,8 +1,8 @@
 //! Bars: a small group of bars, such as a spectrum.
 
-use std::time::Duration;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
@@ -152,7 +152,12 @@ pub fn bars<S: Samples + 'static>(
         Some(w) => el.width(w),
         None => el.fill_width(),
     };
-    let state = Rc::new(RefCell::new(State { shown: Vec::new(), target: Vec::new(), from: Vec::new(), since: Duration::ZERO }));
+    let state = Rc::new(RefCell::new(State {
+        shown: Vec::new(),
+        target: Vec::new(),
+        from: Vec::new(),
+        since: Duration::ZERO,
+    }));
     let paint_state = state.clone();
     let min_bar = if options.min_bar.is_finite() { options.min_bar.max(0.0) } else { 0.0 };
     let el = el.semantics(Semantics::new(Role::Image).label(label.clone())).paint(move |cx| {

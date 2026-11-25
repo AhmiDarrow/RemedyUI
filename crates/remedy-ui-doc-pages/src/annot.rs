@@ -338,7 +338,8 @@ pub(crate) fn corner_at(a: &Annotation, p: Point, reach: f32) -> Option<usize> {
 pub(crate) fn drag_corner(rect: Rect, corner: usize, to: Point) -> Rect {
     let (w, h) = (rect.width().max(f32::MIN_POSITIVE), rect.height().max(f32::MIN_POSITIVE));
     let (left, top) = (corner == 0 || corner == 3, corner == 0 || corner == 1);
-    let fixed = Point::new(if left { rect.max.x } else { rect.min.x }, if top { rect.max.y } else { rect.min.y });
+    let fixed =
+        Point::new(if left { rect.max.x } else { rect.min.x }, if top { rect.max.y } else { rect.min.y });
     let pull_x = if left { fixed.x - to.x } else { to.x - fixed.x };
     let pull_y = if top { fixed.y - to.y } else { to.y - fixed.y };
     let scale = (pull_x / w).max(pull_y / h).max(SMALLEST / w.min(h));

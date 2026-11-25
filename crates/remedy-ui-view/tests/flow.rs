@@ -688,10 +688,8 @@ fn keyframes_loop_until_stopped_and_shadow_spread_animates() {
     let _ = ui.root().child(card.clone());
     frame(&ui);
     let step = Motion::Tween { duration: Duration::from_millis(100), easing: Easing::Linear };
-    let pulse = card.animate_keyframes(
-        vec![(Target::Opacity(0.2), step), (Target::Opacity(1.0), step)],
-        Repeat::Forever,
-    );
+    let pulse = card
+        .animate_keyframes(vec![(Target::Opacity(0.2), step), (Target::Opacity(1.0), step)], Repeat::Forever);
     let opacity = |e: &El| e.info().map_or(0.0, |i| i.style.opacity);
     // Down by 100 ms, back up by 200 ms, down again by 300 ms: it loops.
     let mut seen = Vec::new();
@@ -737,6 +735,9 @@ fn the_pointer_takes_the_shape_of_the_innermost_element_that_sets_one() {
     assert_eq!(ui.cursor(), Cursor::Grab, "inherited from the parent");
     let _ = inner.clone().cursor(Cursor::NotAllowed);
     assert_eq!(ui.cursor(), Cursor::NotAllowed);
-    ui.pointer(&PointerEvent::new(PointerPhase::Move, remedy_ui_core::Point::new(over_inner.x + 60.0, over_inner.y)));
+    ui.pointer(&PointerEvent::new(
+        PointerPhase::Move,
+        remedy_ui_core::Point::new(over_inner.x + 60.0, over_inner.y),
+    ));
     assert_eq!(ui.cursor(), Cursor::Grab, "outside the child, still inside the parent");
 }

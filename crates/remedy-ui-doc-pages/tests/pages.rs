@@ -509,7 +509,10 @@ fn the_app_sets_wheel_zoom_and_shortcuts_and_hears_taps() {
     w.view.set_input(PageInput { wheel_zoom: None, ..PageInput::default() });
     assert!(!w.wheel(at, -48.0, ctrl()));
     // Shortcuts move, and a command runs from code.
-    w.view.rebind(PageCommand::NextPage, vec![remedy_ui_input::Chord::new(Modifiers::NONE, Key::Character("n".into()))]);
+    w.view.rebind(
+        PageCommand::NextPage,
+        vec![remedy_ui_input::Chord::new(Modifiers::NONE, Key::Character("n".into()))],
+    );
     w.view.rebind(PageCommand::LastPage, Vec::new());
     assert!(w.key(Key::Character("n".into()), Modifiers::NONE));
     assert_eq!(w.view.current_page().get_untracked().ok(), Some(1));
@@ -562,7 +565,10 @@ fn a_page_filter_recolours_the_pages_and_nothing_around_them() {
     assert_eq!(inverted.pixel(4, 300), panel, "the panel keeps its colour");
     let now = inverted.pixel(300, 100).unwrap_or([0; 4]);
     let d = |a: u8, b: u8| (i32::from(a) - (255 - i32::from(b))).abs();
-    assert!(d(now[0], header[0]) <= 3 && d(now[1], header[1]) <= 3 && d(now[2], header[2]) <= 3, "{header:?} → {now:?}");
+    assert!(
+        d(now[0], header[0]) <= 3 && d(now[1], header[1]) <= 3 && d(now[2], header[2]) <= 3,
+        "{header:?} → {now:?}"
+    );
     // A matrix that changes nothing is no filter.
     w.view.set_page_filter(Some(remedy_ui_core::ColorMatrix::IDENTITY));
     assert_eq!(w.view.page_filter(), None);

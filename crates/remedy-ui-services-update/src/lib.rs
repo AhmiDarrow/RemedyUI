@@ -358,7 +358,11 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
                 url: url.to_owned(),
                 signature: signature.to_owned(),
                 sha256,
-                page: entry.get("page").and_then(|x| x.as_str()).map(str::to_owned).or_else(|| json_str(v, "page")),
+                page: entry
+                    .get("page")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_owned)
+                    .or_else(|| json_str(v, "page")),
             });
         }
         return Err(UpdateError::Feed(format!("no platform in the feed for {os}-{arch}")));
@@ -924,5 +928,4 @@ mod json_feed_tests {
         let page = json_release(&feed).ok().and_then(|r| r.page);
         assert_eq!(page.as_deref(), Some("https://example.invalid/releases/1.1.0"));
     }
-
 }

@@ -12,7 +12,8 @@ use remedy_ui_core::time::Instant;
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_input::{
-    Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
+    Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase,
+    WheelEvent,
 };
 use remedy_ui_paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_reactive::Signal;
@@ -120,12 +121,34 @@ enum After {
 /// An annotation being made or moved by a drag, in its page's points.
 #[derive(Clone, Debug)]
 enum Drawing {
-    Ink { page: usize, points: Vec<Point> },
-    Shape { page: usize, shape: Shape, from: Point, to: Point },
-    Text { page: usize, from: Point, to: Point },
-    Move { id: u64, last: Point, before: Vec<Annotation>, moved: bool },
+    Ink {
+        page: usize,
+        points: Vec<Point>,
+    },
+    Shape {
+        page: usize,
+        shape: Shape,
+        from: Point,
+        to: Point,
+    },
+    Text {
+        page: usize,
+        from: Point,
+        to: Point,
+    },
+    Move {
+        id: u64,
+        last: Point,
+        before: Vec<Annotation>,
+        moved: bool,
+    },
     /// An image pulled by a corner (0 to 3, clockwise from the top left).
-    Resize { id: u64, corner: usize, before: Vec<Annotation>, moved: bool },
+    Resize {
+        id: u64,
+        corner: usize,
+        before: Vec<Annotation>,
+        moved: bool,
+    },
 }
 
 /// While a scroll or zoom moves, the view keeps its last picture and the compositor moves
@@ -768,7 +791,9 @@ impl PageView {
         *self.0.on_double_tap.borrow_mut() = Some(Rc::new(f));
     }
 
-    /// Hears a finger held still on the view for 450 ms (within 12 pixels).
+    /// Hears a long press: a finger held still on the view (450 ms, within 12 pixels; on a
+    /// touch screen the window's own long press, which arrives as the secondary button), and
+    /// the mouse's right button.
     pub fn on_long_press(&self, f: impl Fn(PageHit) + 'static) {
         *self.0.on_long_press.borrow_mut() = Some(Rc::new(f));
     }
@@ -1361,7 +1386,8 @@ impl PageView {
                 });
                 if let Some((id, corner)) = corner {
                     let before = self.0.st.borrow().annots.clone();
-                    self.0.st.borrow_mut().drawing = Some(Drawing::Resize { id, corner, before, moved: false });
+                    self.0.st.borrow_mut().drawing =
+                        Some(Drawing::Resize { id, corner, before, moved: false });
                     return true;
                 }
                 let Some(id) = self.annotation_at(p) else {
@@ -1742,7 +1768,11 @@ impl PageView {
         let zoom_key = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         if zoom_key {
             let input = self.0.input.get();
-            let step = if e.modifiers.shift { input.wheel_zoom_shift.or(input.wheel_zoom) } else { input.wheel_zoom };
+            let step = if e.modifiers.shift {
+                input.wheel_zoom_shift.or(input.wheel_zoom)
+            } else {
+                input.wheel_zoom
+            };
             let Some(step) = step else { return false };
             // Some platforms turn a wheel with Shift held sideways.
             let dy = if e.delta.y != 0.0 { e.delta.y } else { e.delta.x };
@@ -1792,7 +1822,14 @@ impl PageView {
             PointerPhase::Down => {
                 let middle = e.buttons.contains(Buttons::MIDDLE);
                 if !middle && !e.buttons.contains(Buttons::PRIMARY) {
-                    return false;
+                    // The secondary button: the mouse's right click, and what a long press
+                    // on a touch screen arrives as.
+                    let heard =
+                        e.buttons.contains(Buttons::SECONDARY) && self.0.on_long_press.borrow().is_some();
+                    if heard {
+                        self.tell(&self.0.on_long_press, p);
+                    }
+                    return heard;
                 }
                 let bar = self.0.st.borrow().bar_at(p);
                 let tool = self.0.st.borrow().tool;
@@ -2143,15 +2180,8 @@ impl PageView {
         let sizes = self.0.sizes.borrow().clone();
         let source = self.0.source.borrow().clone();
         let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
-        let fcx = FrameCx {
-            viewer: self.0.viewer,
-            source: &source,
-            sizes: &size_of,
-            level,
-            tile,
-            settled,
-            budget,
-        };
+        let fcx =
+            FrameCx { viewer: self.0.viewer, source: &source, sizes: &size_of, level, tile, settled, budget };
         let draws = st.tiles.frame(&fcx, &visible);
         let mut by_page: HashMap<usize, Vec<Draw>> = HashMap::new();
         for d in draws {
@@ -2327,7 +2357,7 @@ impl PageView {
                 let cancel = Cancel::new();
                 st.thumb_flight.insert(page, cancel.clone());
                 let sizes = self.0.sizes.borrow().clone();
-        let source = self.0.source.borrow().clone();
+                let source = self.0.source.borrow().clone();
                 let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
                 let fcx = FrameCx {
                     viewer: self.0.viewer,
@@ -2436,7 +2466,11 @@ impl PageView {
                     for p in pages {
                         st.text.pages.remove(p);
                     }
-                    if st.text.selection.is_some_and(|(a, b)| pages.contains(&a.page) || pages.contains(&b.page)) {
+                    if st
+                        .text
+                        .selection
+                        .is_some_and(|(a, b)| pages.contains(&a.page) || pages.contains(&b.page))
+                    {
                         st.text.selection = None;
                     }
                 }

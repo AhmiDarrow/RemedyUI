@@ -432,7 +432,10 @@ fn an_image_is_placed_moved_resized_by_a_corner_and_undone() {
     drag(&mut w, corner, to);
     let r = w.view.annotation(id).and_then(|a| a.rect()).unwrap_or(Rect::ZERO);
     assert_eq!(r.min, rect.min, "the opposite corner stays");
-    assert!((r.width() - 200.0).abs() < 2.0 && (r.height() - 100.0).abs() < 1.0, "twice the size, same shape: {r:?}");
+    assert!(
+        (r.width() - 200.0).abs() < 2.0 && (r.height() - 100.0).abs() < 1.0,
+        "twice the size, same shape: {r:?}"
+    );
     assert_eq!(w.ui.next_undo().map(|h| h.label).as_deref(), Some("Change image"));
     assert!(w.ui.undo_change());
     assert_eq!(w.view.annotation(id).and_then(|a| a.rect()), Some(rect));

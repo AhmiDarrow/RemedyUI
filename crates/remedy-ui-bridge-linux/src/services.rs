@@ -465,7 +465,8 @@ pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, 
             .iter()
             .map(|(name, exts)| {
                 // An extension of `*` is every file, with or without an extension.
-                let globs = exts.iter().map(|e| (0u32, if e == "*" { "*".to_owned() } else { format!("*.{e}") }));
+                let globs =
+                    exts.iter().map(|e| (0u32, if e == "*" { "*".to_owned() } else { format!("*.{e}") }));
                 (name.clone(), globs.collect())
             })
             .collect();

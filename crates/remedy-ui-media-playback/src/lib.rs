@@ -109,10 +109,10 @@ pub use deps::{DependencyState, MissingDependency};
 pub use engine::{PlaybackState, PlaybackStats};
 pub use feed::AudioFeed;
 pub use host::{
-    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaBytes, MediaError, MediaHost, MediaInfo,
-    MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource, ScreenStream,
-    TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder,
-    YuvMatrix, merge_ranges, open_source,
+    AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, Latency, MediaBytes, MediaError, MediaHost,
+    MediaInfo, MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource,
+    ScreenStream, TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder,
+    VideoStreamEncoder, YuvMatrix, merge_ranges, open_source,
 };
 pub use limits::{MediaLimits, media_limits, set_media_limits};
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
