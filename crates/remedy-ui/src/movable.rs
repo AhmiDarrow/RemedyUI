@@ -66,17 +66,17 @@ impl Movable {
         let unit = ui.theme().spacing.unit;
         let me = self.clone();
         let (u1, u2, title) = (ui.clone(), ui.clone(), self.title.clone());
-        let note = remedy_ui_widgets_core::text(&ui, move || {
+        let note = remedy_ui_widgets::base::text(&ui, move || {
             crate::STRINGS.format(&u1, "movable-moved-out", &[("title", title.as_str().into())])
         })
         .variant("muted");
-        let back = remedy_ui_widgets_core::button(
+        let back = remedy_ui_widgets::base::button(
             &ui,
             move || crate::STRINGS.get(&u2, "movable-bring-back"),
             move || me.bring_back(),
         );
         let _ = self.holder.clone().child(
-            remedy_ui_widgets_core::column(&ui)
+            remedy_ui_widgets::base::column(&ui)
                 .gap(unit * 2.0)
                 .align(remedy_ui_engine::view::Align::Center)
                 .padding(remedy_ui_core::Insets::all(unit * 4.0))

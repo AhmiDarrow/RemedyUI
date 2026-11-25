@@ -2989,7 +2989,7 @@ impl El {
     /// spacing, alignment and right-to-left text included; the "…" lands on the line's visual
     /// end). Its minimum width is the "…" alone, so a row can shrink it. Screen readers,
     /// copying and searching still get the whole text; show it to sighted readers too with
-    /// `remedy_ui_widgets_core::full_text_tooltip`. 0 lifts the limit. Style sheets set the same with
+    /// `remedy_ui_widgets::base::full_text_tooltip`. 0 lifts the limit. Style sheets set the same with
     /// [`Style::max_lines`](remedy_ui_core::style::Style::max_lines).
     pub fn max_lines(self, n: u32) -> Self {
         self.style(remedy_ui_core::style::Style::default().max_lines(n))

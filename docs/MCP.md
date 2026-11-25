@@ -97,7 +97,7 @@ The server listens on `http://127.0.0.1:7801/mcp`. Every request needs `Authoriz
 - **`rfx_render`** `{source | path | name, width?, height?, scale?, time?, values?, background?}`: renders a frame of the effect on the CPU (the reference renderer the GPU kernel is tested against) and returns it as a PNG image the size of the element (`width`, `height` times `scale`), stretched smoothly as the element draws it, with the resolution the effect drew at and the time it took. `values` sets parameters by name (one number for a float, up to four for a color).
 - **`rfx_library`**: the built-in effects, with what each is, its parameters and its cost.
 - **`rui_check`** `{source | path, file?, elements?}`: checks `.rui` markup against the built-in elements, plus the app's own elements passed as specs (`{name, params: [{name, kind, required}], children, path}`). It reports the first problem at `file:line:column` with a hint. A valid file returns the signals it binds (with their Rust types) and the commands it names.
-- **`rui_compile`**: the same input. Returns the Rust that `remedy_ui_rui::build` would generate. App elements need their builder's `path`.
+- **`rui_compile`**: the same input. Returns the Rust that `remedy_ui_widgets::rui::build` would generate. App elements need their builder's `path`.
 - **`rui_elements`**: lists the built-in elements and their arguments.
 - **`new_app`** `{name, folder?, template?, remedy_path?}`: creates an app from the app templates (the same as `cargo remedy new`) (`basic`, `tray`, `multi-window`, `document`, `android`) in a new folder inside the workspace, and lists the files it made.
 - **`render_preview`** `{app, function, width?, height?, scale?, theme?, locale?, text_scale?, save_png?}`: renders part of an app headlessly. It returns:
@@ -205,6 +205,6 @@ Each group is a `ToolGroup` (`remedy_mcp::group(Group::Docs)`). A tool of your o
 The tools use only these engine entry points, so engine changes reach them in one place:
 
 - **The facade's `devtools` feature**, in the preview harness: `Preview`, `Variation`, `reader_lines`, `audit`, `is_rtl` and `Snapshot::to_png`. Also `remedy_ui::themes::PALETTES`, and `Ui::element(..).node_id()`.
-- **`remedy_ui_rui`**: `Markup::parse`, `spec::{built_in, check, Kind, Param, Spec}` and `codegen::compile`.
+- **`remedy_ui_widgets::rui`**: `Markup::parse`, `spec::{built_in, check, Kind, Param, Spec}` and `codegen::compile`.
 - **The JSON-lines protocols** of the agents listener (`remedy-ui-automation`) and the remote devtools server (`remedy-ui-devtools`). The tests check these against the real crates.
 - **The app templates** (`remedy-templates`), which follow the facade like any app.

@@ -1,7 +1,7 @@
 //! Pictures of the player's bar for review, drawn by the developer tools' preview renderer.
 //! Run with `REMEDY_SHOTS=<dir> cargo test -p remedy-ui-media-playback --test screens -- --ignored`.
 
-use remedy_ui_devtools::Preview;
+use remedy_ui_widgets::devtools::Preview;
 use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_media_playback::*;
 use remedy_ui_engine::view::{El, Ui};
@@ -158,7 +158,7 @@ impl MediaHost for Still {
 
 /// A rendered player showing `cues` (all at once): the picture, and the stage's bounds.
 struct Shot {
-    snap: remedy_ui_devtools::Snapshot,
+    snap: remedy_ui_widgets::devtools::Snapshot,
     stage: remedy_ui_core::Rect,
 }
 

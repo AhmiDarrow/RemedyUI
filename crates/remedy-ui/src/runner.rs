@@ -210,8 +210,8 @@ impl AppConfig {
     pub fn new(name: impl Into<String>) -> Self {
         #[cfg(feature = "widgets")]
         let (theme, sheet): (Theme, SheetBuilder) = (
-            remedy_ui_themes::PALETTES.first().map_or_else(Theme::dark_forest, remedy_ui_themes::theme),
-            Rc::new(remedy_ui_themes::sheet),
+            remedy_ui_widgets::themes::PALETTES.first().map_or_else(Theme::dark_forest, remedy_ui_widgets::themes::theme),
+            Rc::new(remedy_ui_widgets::themes::sheet),
         );
         #[cfg(not(feature = "widgets"))]
         let (theme, sheet): (Theme, SheetBuilder) = (Theme::dark_forest(), Rc::new(|_| StyleSheet::new()));
@@ -885,7 +885,7 @@ struct Shared {
     tray_effect: Option<remedy_ui_core::reactive::Effect>,
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
     #[cfg(feature = "agents")]
-    agents: HashMap<u64, remedy_ui_automation::Agents>,
+    agents: HashMap<u64, remedy_ui_widgets::automation::Agents>,
 }
 
 /// Asked before a window closes; false keeps it open.
@@ -2068,7 +2068,7 @@ impl Window {
     pub fn snapshot_png(&self, done: impl FnOnce(Option<Vec<u8>>) + 'static) {
         self.snapshot(move |img| {
             done(img.and_then(|i| {
-                let snap = remedy_ui_devtools::Snapshot {
+                let snap = remedy_ui_widgets::devtools::Snapshot {
                     width: i.width,
                     height: i.height,
                     rgba: i.pixels.to_vec(),
@@ -2133,8 +2133,8 @@ impl Window {
 
     /// Lets agents (an assistant, the RemedyOS mind) work with this window, through its
     /// semantics and the app's `commands`, once the person consents: ask them with
-    /// [`Agents::request_access`](remedy_ui_automation::Agents::request_access), then
-    /// [`Agents::listen`](remedy_ui_automation::Agents::listen) for the agent. The same
+    /// [`Agents::request_access`](remedy_ui_widgets::automation::Agents::request_access), then
+    /// [`Agents::listen`](remedy_ui_widgets::automation::Agents::listen) for the agent. The same
     /// access comes back on every call; it ends when the window closes. `None` once the window
     /// is closed.
     ///
@@ -2155,20 +2155,20 @@ impl Window {
     #[cfg(feature = "agents")]
     pub fn attach_agents(
         &self,
-        commands: Option<&remedy_ui_widgets_nav::Commands>,
-    ) -> Option<remedy_ui_automation::Agents> {
+        commands: Option<&remedy_ui_widgets::nav::Commands>,
+    ) -> Option<remedy_ui_widgets::automation::Agents> {
         if let Some(a) = self.agents() {
             return Some(a);
         }
         let ui = self.ui()?;
-        let agents = remedy_ui_automation::Agents::new(&ui, commands);
+        let agents = remedy_ui_widgets::automation::Agents::new(&ui, commands);
         self.app.0.borrow_mut().agents.insert(self.key, agents.clone());
         Some(agents)
     }
 
     /// The agents' access [`Window::attach_agents`] gave this window, if it did.
     #[cfg(feature = "agents")]
-    pub fn agents(&self) -> Option<remedy_ui_automation::Agents> {
+    pub fn agents(&self) -> Option<remedy_ui_widgets::automation::Agents> {
         self.app.0.borrow().agents.get(&self.key).cloned()
     }
 
@@ -2182,16 +2182,16 @@ impl Window {
         }
         let target = self.ui()?;
         let sheet = self.app.0.borrow().sheet.clone()?;
-        let insp = remedy_ui_devtools::Inspector::attach(&target, move |t| sheet(t));
+        let insp = remedy_ui_widgets::devtools::Inspector::attach(&target, move |t| sheet(t));
         let i2 = insp.clone();
         let title = match self.title() {
             t if t.is_empty() => "Inspector".to_owned(),
             t => format!("Inspector · {t}"),
         };
         let win = self.app.open(WindowSpec::new(title).size(480.0, 760.0), move |ui, _| {
-            let (theme, sheet) = remedy_ui_devtools::tool_style();
+            let (theme, sheet) = remedy_ui_widgets::devtools::tool_style();
             ui.set_theme(theme, sheet);
-            ui.root().child(remedy_ui_devtools::inspector_panel(ui, &i2));
+            ui.root().child(remedy_ui_widgets::devtools::inspector_panel(ui, &i2));
         });
         let (app, key) = (self.app.clone(), self.key);
         win.on_closed(move || {
@@ -2210,12 +2210,12 @@ impl Window {
     #[cfg(feature = "devtools")]
     pub fn serve_devtools(
         &self,
-        options: remedy_ui_devtools::RemoteOptions,
-    ) -> std::io::Result<remedy_ui_devtools::RemoteServer> {
+        options: remedy_ui_widgets::devtools::RemoteOptions,
+    ) -> std::io::Result<remedy_ui_widgets::devtools::RemoteServer> {
         let ui = self
             .ui()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "the window is not open"))?;
-        remedy_ui_devtools::RemoteServer::listen(&ui, options)
+        remedy_ui_widgets::devtools::RemoteServer::listen(&ui, options)
     }
 
     /// Keeps the window out of screenshots and screen sharing, or not.

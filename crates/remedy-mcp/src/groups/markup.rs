@@ -25,7 +25,7 @@ impl ToolGroup for Markup {
             ),
             ToolDef::of::<MarkupInput>(
                 "rui_compile",
-                "Compile .rui markup to the Rust that remedy_ui_rui::build generates in a build script: a Bindings struct with a field per signal and command, and build(&ui, &bindings, &translate). \
+                "Compile .rui markup to the Rust that remedy_ui_widgets::rui::build generates in a build script: a Bindings struct with a field per signal and command, and build(&ui, &bindings, &translate). \
                  App elements need their builder's path. Use it to see exactly what the app must provide.",
                 true,
             ),

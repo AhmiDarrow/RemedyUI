@@ -15,7 +15,7 @@ categories.workspace = true
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-video"] }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["paint", "view"] }
-remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["base"] }
 remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["services-desktop"], optional = true }
 
 [features]
@@ -104,11 +104,10 @@ zbus = { version = "=6.3.0", default-features = false, features = ["default-rt",
 
 [dev-dependencies]
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "render-cpu"] }
-remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["devtools", "themes"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-pixel"] }
 remedy-ui-media = { path = "../remedy-ui-media", version = "1.0.0-rc.1", features = ["media-image", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 
 # The browser tests (tests/web.rs, tests/web_gpu.rs, tests/web_cursor.rs): a player in a page through the facade's
 # web bridge, drawn by the CPU renderer and by the GPU renderer.

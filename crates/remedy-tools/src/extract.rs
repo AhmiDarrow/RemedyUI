@@ -90,7 +90,7 @@ pub fn sources(krate: &Path) -> Vec<PathBuf> {
 /// Markdown. `path` is `rustdoc/<crate>/<file relative to the crate>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Page {
-    /// `rustdoc/remedy-ui-widgets-core/src/actions.rs`.
+    /// `rustdoc/remedy-ui-widgets/src/base/actions.rs`.
     pub path: String,
     /// The page.
     pub text: String,
@@ -540,7 +540,7 @@ fn exports(lib: &str) -> Exports {
 /// a facade module, with what styles them.
 pub fn widgets(root: &Path) -> Vec<Widget> {
     let sheet =
-        std::fs::read_to_string(root.join("crates/remedy-ui-themes/src/sheet.rs")).unwrap_or_default();
+        std::fs::read_to_string(root.join("crates/remedy-ui-widgets/src/themes/sheet.rs")).unwrap_or_default();
     let styled = literals(&sheet);
     let mut out = Vec::new();
     for (krate, module, feature) in facade_modules(root) {

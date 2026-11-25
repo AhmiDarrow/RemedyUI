@@ -20,7 +20,7 @@ display gives. Within that:
 
 The engine's tests hold reference scenes to these budgets. The 300-page document zoomed
 from 1% to 6400% and back, a wheel notch a frame, keeps the UI thread's p95 near 0.2 ms
-against an 8 ms budget (`crates/remedy-ui-doc-pages/tests/zoom_budget.rs`, release builds);
+against an 8 ms budget (`crates/remedy-ui-widgets/tests/doc_pages/zoom_budget.rs`, release builds);
 animated images, tables and the terminal have budget tests of their own.
 
 ## Keeping work off the frame

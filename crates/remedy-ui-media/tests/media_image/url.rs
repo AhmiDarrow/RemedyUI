@@ -142,12 +142,12 @@ fn serve(conn: std::net::TcpStream, seen: &Mutex<Seen>) {
 fn ui() -> Ui {
     // Every test keeps its fetched images in the same folder of its own.
     set_cache_dir(Some(std::env::temp_dir().join(format!("remedy-image-url-{}", std::process::id()))));
-    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let theme = remedy_ui_widgets::themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
-    Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts)
+    Ui::new(theme.clone(), remedy_ui_widgets::themes::sheet(&theme), fonts)
 }
 
 fn frame(ui: &Ui) {

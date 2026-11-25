@@ -9,7 +9,7 @@ use remedy_ui_core::Size;
 use remedy_ui_core::input::Key;
 use remedy_ui_core::layout::{Align, Justify};
 use remedy_ui_engine::view::Ui;
-use remedy_ui_widgets_core as w;
+use remedy_ui_widgets::base as w;
 
 use crate::{App, Window, WindowSpec};
 
