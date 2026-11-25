@@ -18,9 +18,10 @@ fn below_profile(profile: PathBuf) -> PathBuf {
     profile.join("Default").join("Local Storage").join("leveldb")
 }
 
-/// Whether `id` can name one folder: not empty, not `.` or `..`, no separators.
+/// Whether `id` can name one folder: not empty, not `.` or `..`, no separators, and no colon
+/// (on Windows `C:` names a drive, and joining it leaves the folder it is joined to).
 fn one_folder(id: &str) -> bool {
-    !id.is_empty() && id != "." && id != ".." && !id.contains(['/', '\\', '\0'])
+    !id.is_empty() && id != "." && id != ".." && !id.contains(['/', '\\', '\0', ':'])
 }
 
 /// The localStorage folder of a Tauri app on Windows, by its bundle identifier
@@ -74,7 +75,7 @@ mod tests {
         .iter()
         .collect();
         assert_eq!(dir, Some(want));
-        for bad in ["", ".", "..", "a/b", "a\\b"] {
+        for bad in ["", ".", "..", "a/b", "a\\b", "D:", "D:x"] {
             assert_eq!(tauri_windows_dir_in("C:/x", bad), None, "{bad:?}");
         }
     }

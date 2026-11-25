@@ -134,6 +134,31 @@ fn typing_at_suggests_people_to_mention() {
 }
 
 #[test]
+fn the_mention_list_takes_a_click_and_goes_when_the_field_loses_focus() {
+    let alex = MentionCandidate { id: "u1".into(), name: "Alex".into() };
+    let source: MentionSource = Rc::new(move |_: &str| vec![alex.clone()]);
+    let (ui, el, field) = editor({
+        let mut v_ = RichEditorOptions::default();
+        v_.mentions = Some(source);
+        v_
+    });
+    let items = |ui: &Ui| -> Vec<El> {
+        anywhere(ui, Role::List).iter().flat_map(|l| with_role(l, Role::ListItem)).collect()
+    };
+    typed(&ui, "@a");
+    let Some(alex) = items(&ui).into_iter().next() else { unreachable!("the list is open") };
+    click(&ui, centre(&alex), Duration::from_secs(1));
+    assert_eq!(field.doc().unwrap_or_default().text, "@Alex ");
+    assert!(field.el().is_focused(), "the keyboard stayed in the field");
+    assert!(items(&ui).is_empty(), "the list closed");
+    typed(&ui, "@a");
+    assert_eq!(items(&ui).len(), 1);
+    button(&el, "Bold").focus();
+    frame(&ui);
+    assert!(items(&ui).is_empty(), "no list is left behind a field without focus");
+}
+
+#[test]
 fn a_composer_sends_on_enter_and_saves_markdown() {
     let (ui, _el, field) = editor({
         let mut v_ = RichEditorOptions::default();

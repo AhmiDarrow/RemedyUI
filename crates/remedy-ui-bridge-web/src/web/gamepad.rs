@@ -34,6 +34,9 @@ thread_local! {
 /// Starts reading pads when one connects (browsers announce one at its first press).
 pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window) {
     d.add_global(Listener::new(win, "gamepadconnected", |_| start()));
+    // A pad that connected under an app that ran here before is not announced again; with
+    // none, the first poll stops itself.
+    start();
 }
 
 /// The app's tuning ([`remedy_ui_core::host::Host::set_gamepad_tuning`]).
@@ -77,7 +80,15 @@ fn reading(pad: &web_sys::Gamepad) -> PadState {
 
 fn poll() {
     let Some(win) = web_sys::window() else { return };
-    let Some(d) = driver() else { return };
+    let Some(d) = driver() else {
+        // The app ended: nobody takes the keys, and the next app starts with nothing held.
+        if let Some(h) = POLL.take() {
+            win.clear_interval_with_handle(h);
+        }
+        KEYS.with_borrow_mut(|k| *k = GamepadKeys::new());
+        CONNECTED.with_borrow_mut(Vec::clear);
+        return;
+    };
     let now =
         win.performance().map_or(Duration::ZERO, |p| Duration::from_secs_f64(p.now().max(0.0) / 1000.0));
     let pads = win.navigator().get_gamepads().unwrap_or_default();

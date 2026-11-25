@@ -269,6 +269,11 @@ fn read_text(memory: &[u8], ptr: i32, len: i32) -> Option<String> {
     memory.get(start..end).map(|b| String::from_utf8_lossy(b).into_owned())
 }
 
+/// The text one `log` call writes: what it names, cut at [`MAX_LOG`] bytes.
+fn log_text(memory: &[u8], ptr: i32, len: i32) -> Option<String> {
+    read_text(memory, ptr, (len as u32).min(MAX_LOG) as i32)
+}
+
 fn engine(limits: &Limits) -> Engine {
     let mut config = Config::default();
     config
@@ -292,8 +297,7 @@ fn linker(engine: &Engine) -> Result<Linker<Host>, ScriptError> {
     linker
         .func_wrap(HOST_MODULE, "log", |caller: Caller<'_, Host>, ptr: i32, len: i32| {
             let Some(memory) = caller.data().memory else { return };
-            let len = (len as u32).min(MAX_LOG) as i32;
-            if let Some(text) = read_text(memory.data(&caller), ptr, len) {
+            if let Some(text) = log_text(memory.data(&caller), ptr, len) {
                 remedy_ui_core::trace::tracing::debug!(target: "remedy_ui::script", "{text}");
             }
         })
@@ -547,5 +551,23 @@ impl ScriptWidget for WasmWidget {
 
     fn memory_used(&self) -> usize {
         self.exports.memory.data_size(&self.store)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_call_writes_a_bounded_part_of_what_it_names() {
+        let memory = vec![b'a'; 3 * MAX_LOG as usize];
+        assert_eq!(log_text(&memory, 16, 5).as_deref(), Some("aaaaa"));
+        // The whole memory, or a length that reads as negative: the first 4096 bytes.
+        for len in [memory.len() as i32, -1, i32::MIN] {
+            assert_eq!(log_text(&memory, 0, len).map(|t| t.len()), Some(MAX_LOG as usize), "{len}");
+        }
+        // A place outside the memory logs nothing.
+        assert_eq!(log_text(&memory, memory.len() as i32 - 8, 64), None);
+        assert_eq!(log_text(&memory, -1, 4), None);
     }
 }

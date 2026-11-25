@@ -15,7 +15,8 @@ categories.workspace = true
 default = []
 compositor = ["dep:remedy-ui-core", "paint"]
 effects = ["dep:remedy-ui-core", "paint"]
-media-effects = ["dep:remedy-ui-core", "effects", "media-effects-gpu", "paint", "view"]
+media-effects = ["dep:remedy-ui-core", "effects", "paint", "view"]
+# Effect elements in windows the GPU renderer draws run on the GPU kernel (off: the CPU draws them).
 media-effects-gpu = ["render-gpu"]
 paint = ["dep:remedy-ui-core", "dep:remedy-ui-text"]
 render-cpu = ["compositor", "dep:remedy-ui-core", "dep:remedy-ui-text", "dep:vello_cpu", "paint"]

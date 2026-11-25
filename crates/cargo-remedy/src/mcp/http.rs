@@ -87,8 +87,19 @@ impl HttpServer {
         );
         let token: Arc<str> = Arc::from(self.token.as_str());
         loop {
-            let (stream, _) =
-                self.listener.accept().await.map_err(|e| ToolError::new(format!("accepting: {e}")))?;
+            // One failed accept (a client gone before it was taken, no free handles) is not the
+            // server's end; the pause keeps a lasting failure from spinning.
+            let stream = match self.listener.accept().await {
+                Ok((stream, _)) => stream,
+                Err(e) => {
+                    eprintln!("remedy-mcp: accepting a connection failed: {e}");
+                    let _ = tokio::task::spawn_blocking(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    })
+                    .await;
+                    continue;
+                }
+            };
             let (service, token) = (service.clone(), token.clone());
             tokio::spawn(async move {
                 let handler = service_fn(move |req: Request<Incoming>| {

@@ -398,6 +398,24 @@ pub(crate) fn signal_get(lua: &mut Lua, ctx: Ctx, id: Id, track: bool) -> Result
     Ok(v)
 }
 
+/// The value signal `id` holds now, with nothing run: a computed value whose inputs changed
+/// since it was worked out reads as it was. For the host between calls, where a script's
+/// function would run outside every limit.
+pub(crate) fn signal_held(lua: &mut Lua, ctx: Ctx, id: Id) -> Result<Value, Error> {
+    let read = with(lua, ctx, |w| {
+        let now = w.now;
+        w.signals.get(id).map(|s| match &s.kind {
+            SignalKind::Animated(a) => Read::Animated(a.sample(now)),
+            SignalKind::Plain | SignalKind::Computed { .. } => Read::Plain(s.value),
+        })
+    })?
+    .ok_or_else(|| err("that value was dropped"))?;
+    Ok(match read {
+        Read::Plain(r) | Read::Computed { value: r, .. } => get_ref(lua, ctx, r),
+        Read::Animated(x) => Value::Num(f64::from(x)),
+    })
+}
+
 /// Sets plain signal `id` to `v`; what read it runs again (effects at the end of the
 /// handler, timer or frame that set it).
 pub(crate) fn signal_set(lua: &mut Lua, ctx: Ctx, id: Id, v: Value) -> Result<(), Error> {

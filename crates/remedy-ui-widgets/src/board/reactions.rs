@@ -1,9 +1,11 @@
 //! Reactions: emoji with counts that people toggle, a component any widget (or app screen)
 //! can use. Shown as toggle buttons that say their count and whether they are the viewer's.
 
+use std::cell::RefCell;
+
 use crate::base as w;
 use remedy_ui_core::a11y::{Action as A11yAction, Role, Semantics};
-use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::reactive::{Scope, Signal, untrack};
 use remedy_ui_engine::view::{El, Ui};
 
 pub use crate::board::labels::ReactionLabels;
@@ -88,32 +90,74 @@ fn reactions_with(
     let row = w::wrap(ui).gap(unit);
     let on_toggle = std::rc::Rc::new(on_toggle);
     let (r2, u2) = (row.clone(), ui.clone());
+    // What every button shows, by its emoji: kept as long as the row, whatever binding the
+    // row was built in.
+    let (all, scope) = Scope::detached(|| Signal::new(Vec::<Reaction>::new()));
+    // The buttons in order, kept by emoji and updated in place: one built again on every
+    // toggle would take the keyboard's focus with it.
+    let buttons: RefCell<Vec<(String, El)>> = RefCell::new(Vec::new());
     row.bind(move || {
-        let list = shown.get();
-        let words = words_now();
-        untrack(|| {
-            r2.clear();
-            let mut all: Vec<Reaction> = list.clone();
-            for e in &offered {
-                if !all.iter().any(|r| r.emoji == *e) {
-                    all.push(Reaction { emoji: e.clone(), count: 0, mine: false });
-                }
+        let mut now = shown.get();
+        for e in &offered {
+            if !now.iter().any(|r| r.emoji == *e) {
+                now.push(Reaction { emoji: e.clone(), count: 0, mine: false });
             }
-            for r in all {
-                let label = if r.count > 0 { format!("{} {}", r.emoji, r.count) } else { r.emoji.clone() };
-                let (t, emoji) = (on_toggle.clone(), r.emoji.clone());
-                let b = w::button(&u2, label, move || t(&emoji))
-                    .variant(if r.mine { "primary" } else { "quiet" })
-                    .semantics(
-                        Semantics::new(Role::Button)
-                            .label(spoken_in(&r, &words))
-                            .checked(r.mine)
-                            .action(A11yAction::Click),
-                    );
-                let _ = r2.clone().child(b);
+        }
+        untrack(|| {
+            let mut kept = buttons.borrow_mut();
+            kept.retain(|(emoji, b)| {
+                let stays = now.iter().any(|r| r.emoji == *emoji);
+                if !stays {
+                    b.remove();
+                }
+                stays
+            });
+            all.set_if_changed(now.clone());
+            for (at, r) in now.iter().enumerate() {
+                let from = kept.iter().skip(at).position(|(emoji, _)| *emoji == r.emoji).map(|i| i + at);
+                let item = match from {
+                    Some(from) if from == at => continue,
+                    Some(from) => kept.remove(from),
+                    None => {
+                        let emoji = r.emoji.clone();
+                        let of = move || {
+                            all.with(|v| v.iter().find(|r| r.emoji == emoji).cloned())
+                                .unwrap_or_else(|| Reaction { emoji: emoji.clone(), count: 0, mine: false })
+                        };
+                        let (label_of, variant_of) = (of.clone(), of.clone());
+                        let label = move || {
+                            let r = label_of();
+                            if r.count > 0 { format!("{} {}", r.emoji, r.count) } else { r.emoji }
+                        };
+                        let (t, emoji, words) = (on_toggle.clone(), r.emoji.clone(), words_now.clone());
+                        let b = w::button(&u2, label, move || t(&emoji))
+                            .variant(move || if variant_of().mine { "primary" } else { "quiet" })
+                            .semantics(move || {
+                                let r = of();
+                                Semantics::new(Role::Button)
+                                    .label(spoken_in(&r, &words()))
+                                    .checked(r.mine)
+                                    .action(A11yAction::Click)
+                            });
+                        (r.emoji.clone(), b)
+                    }
+                };
+                // Moving a button detaches it: the keyboard's focus goes back to it.
+                let focused = item.1.is_focused();
+                r2.insert_child(at, &item.1);
+                if focused {
+                    item.1.focus();
+                }
+                kept.insert(at.min(kept.len()), item);
+            }
+            // The same emoji listed twice had a button each.
+            let extra = now.len().min(kept.len());
+            for (_, b) in kept.drain(extra..) {
+                b.remove();
             }
         });
     })
+    .on_removed(move || scope.dispose())
     .semantics(move || Semantics::new(Role::Group).label(group_words().group))
 }
 

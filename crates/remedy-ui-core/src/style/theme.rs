@@ -298,6 +298,56 @@ impl Theme {
         list
     }
 
+    /// `fg` readable on every surface text sits on: cards, panels and the background. The
+    /// background comes last, so when no color suits them all (light cards in a dark theme)
+    /// the background, where most text sits, keeps it.
+    fn readable(&self, fg: Color, ratio: f32) -> Color {
+        let c = &self.colors;
+        let surfaces = [c.card, c.panel, c.bg];
+        let once = surfaces.iter().fold(fg, |f, s| ensure_contrast(f, *s, ratio));
+        surfaces.iter().fold(once, |f, s| ensure_contrast(f, *s, ratio))
+    }
+
+    // One derived token each, for code that reads a single one per element: the whole of
+    // `derive` costs dozens of contrast searches.
+
+    /// [`DerivedTokens::text`].
+    pub(crate) fn derived_text(&self) -> Color {
+        self.readable(self.colors.text, CONTRAST_AAA)
+    }
+
+    /// [`DerivedTokens::muted`].
+    pub(crate) fn derived_muted(&self) -> Color {
+        self.readable(self.colors.muted, CONTRAST_AAA)
+    }
+
+    /// [`DerivedTokens::on_accent`].
+    pub(crate) fn derived_on_accent(&self) -> Color {
+        ensure_contrast(self.colors.on_accent, self.colors.accent, CONTRAST_AA)
+    }
+
+    /// [`DerivedTokens::line`].
+    pub(crate) fn derived_line(&self) -> Color {
+        let c = &self.colors;
+        c.line.unwrap_or_else(|| c.card.mix_oklab(c.text, 0.12))
+    }
+
+    /// [`DerivedTokens::focus`].
+    pub(crate) fn derived_focus(&self) -> Color {
+        ensure_contrast(self.colors.accent, self.colors.bg, 3.0)
+    }
+
+    /// [`DerivedTokens::selected`].
+    pub(crate) fn derived_selected(&self) -> Color {
+        self.colors.card.mix_oklab(self.colors.accent, 0.25)
+    }
+
+    /// [`DerivedTokens::sizes`].
+    pub(crate) fn derived_sizes(&self) -> [f32; 6] {
+        let ts = self.type_scale;
+        [ts.small - 1.0, ts.small, ts.body, ts.body + 2.0, ts.title, ts.title + 6.0]
+    }
+
     /// Computes the derived tokens.
     pub fn derive(&self) -> DerivedTokens {
         let c = &self.colors;
@@ -305,35 +355,25 @@ impl Theme {
         let toward = if dark { Color::WHITE } else { Color::BLACK };
         let tint = |base: Color, amount: f32| base.mix_oklab(toward, amount);
         let accent_toward = if c.accent.luminance() < 0.18 { Color::WHITE } else { Color::BLACK };
-        let line = c.line.unwrap_or_else(|| c.card.mix_oklab(c.text, 0.12));
-        let ts = self.type_scale;
         let control_height = match self.density {
             Density::Compact => self.spacing.control_height - self.spacing.unit,
             Density::Comfortable => self.spacing.control_height,
             Density::Spacious => self.spacing.control_height + 2.0 * self.spacing.unit,
         };
-        // Readable on every surface text sits on: cards, panels and the background. The
-        // background comes last, so when no color suits them all (light cards in a dark
-        // theme) the background, where most text sits, keeps it.
-        let readable = |fg: Color, ratio: f32| {
-            let surfaces = [c.card, c.panel, c.bg];
-            let once = surfaces.iter().fold(fg, |f, s| ensure_contrast(f, *s, ratio));
-            surfaces.iter().fold(once, |f, s| ensure_contrast(f, *s, ratio))
-        };
         DerivedTokens {
-            text: readable(c.text, CONTRAST_AAA),
-            muted: readable(c.muted, CONTRAST_AAA),
-            on_accent: ensure_contrast(c.on_accent, c.accent, CONTRAST_AA),
+            text: self.derived_text(),
+            muted: self.derived_muted(),
+            on_accent: self.derived_on_accent(),
             hover: tint(c.card, 0.06),
             pressed: tint(c.card, 0.12),
-            selected: c.card.mix_oklab(c.accent, 0.25),
+            selected: self.derived_selected(),
             mark: c.card.mix_oklab(c.warn, 0.35),
             accent_hover: c.accent.mix_oklab(accent_toward, 0.08),
             accent_pressed: c.accent.mix_oklab(accent_toward, 0.16),
-            line,
-            focus: ensure_contrast(c.accent, c.bg, 3.0),
+            line: self.derived_line(),
+            focus: self.derived_focus(),
             dark,
-            sizes: [ts.small - 1.0, ts.small, ts.body, ts.body + 2.0, ts.title, ts.title + 6.0],
+            sizes: self.derived_sizes(),
             control_height,
         }
     }

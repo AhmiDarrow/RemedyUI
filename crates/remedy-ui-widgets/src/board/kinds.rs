@@ -596,14 +596,38 @@ pub fn mount_script(
             let shown = widget.borrow_mut().render(&settings, &data);
             match shown {
                 Ok(node) => {
+                    // Built again from the description: the keyboard's focus goes back to
+                    // what stands where it was (the button just pressed).
+                    let focus = focused_path(&h2);
                     h2.clear();
                     let _ = h2.clone().child(build_node_with(&u2, &node, &widget, version, &hooks));
+                    if let Some(el) = focus.and_then(|path| {
+                        path.iter().try_fold(h2.clone(), |el, i| el.child_elements().get(*i).cloned())
+                    }) {
+                        el.focus();
+                    }
                     schedule_frames(&u2, Rc::downgrade(&widget), version, &pending, &hooks.stopped);
                 }
                 Err(e) => (hooks.stopped)(FailurePhase::Build, e),
             }
         });
     })
+}
+
+/// The child indices from `root` down to the focused element under it.
+fn focused_path(root: &El) -> Option<Vec<usize>> {
+    let mut rest = vec![(root.clone(), Vec::new())];
+    while let Some((el, path)) = rest.pop() {
+        if el.is_focused() {
+            return Some(path);
+        }
+        for (i, child) in el.child_elements().into_iter().enumerate() {
+            let mut at = path.clone();
+            at.push(i);
+            rest.push((child, at));
+        }
+    }
+    None
 }
 
 /// Asks the frame loop to move `widget`'s clock on when it next needs it
@@ -671,7 +695,8 @@ pub fn build_node(
 }
 
 /// Builds elements from what a script described, like [`build_node`], with pictures and the
-/// app's own elements built through `hooks`.
+/// app's own elements built through `hooks`. Elements nest at most twelve deep: what a
+/// description nests deeper is laid out, in order, in the twelfth level.
 pub fn build_node_with(
     ui: &Ui,
     node: &Node,
@@ -679,17 +704,62 @@ pub fn build_node_with(
     version: Signal<u64>,
     hooks: &ScriptHooks,
 ) -> El {
+    build_at(ui, node, widget, version, hooks, 0)
+}
+
+/// How deep the elements built from a description nest. Layout costs about half as much
+/// again with every level, so a description nested as deep as a script's limits allow would
+/// stall the window.
+const MAX_DEPTH: usize = 12;
+
+/// The elements of `children`, one level under `depth`; past [`MAX_DEPTH`], everything under
+/// them in order, without its rows and columns.
+fn build_children(
+    ui: &Ui,
+    children: &[Node],
+    widget: &SharedWidget,
+    version: Signal<u64>,
+    hooks: &ScriptHooks,
+    depth: usize,
+) -> Vec<El> {
+    if depth + 1 < MAX_DEPTH {
+        return children.iter().map(|n| build_at(ui, n, widget, version, hooks, depth + 1)).collect();
+    }
+    let mut out = Vec::new();
+    let mut rest: Vec<&Node> = children.iter().rev().collect();
+    while let Some(n) = rest.pop() {
+        match n {
+            Node::Column { children, .. } | Node::Row { children, .. } => {
+                rest.extend(children.iter().rev());
+            }
+            Node::Element { children, .. } => {
+                out.push(build_at(ui, n, widget, version, hooks, MAX_DEPTH));
+                rest.extend(children.iter().rev());
+            }
+            leaf => out.push(build_at(ui, leaf, widget, version, hooks, MAX_DEPTH)),
+        }
+    }
+    out
+}
+
+fn build_at(
+    ui: &Ui,
+    node: &Node,
+    widget: &SharedWidget,
+    version: Signal<u64>,
+    hooks: &ScriptHooks,
+    depth: usize,
+) -> El {
     let unit = ui.theme().spacing.unit;
     let (open, stopped) = (&hooks.open_link, &hooks.stopped);
     match node {
-        Node::Column { gap, children } => {
-            children.iter().fold(w::column(ui).gap(*gap).fill_width(), |c, n| {
-                c.child(build_node_with(ui, n, widget, version, hooks))
-            })
+        Node::Column { gap, children } => w::column(ui)
+            .gap(*gap)
+            .fill_width()
+            .children(build_children(ui, children, widget, version, hooks, depth)),
+        Node::Row { gap, children } => {
+            w::wrap(ui).gap(*gap).children(build_children(ui, children, widget, version, hooks, depth))
         }
-        Node::Row { gap, children } => children
-            .iter()
-            .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node_with(ui, n, widget, version, hooks))),
         Node::Text { text, style } => match style {
             TextStyle::Body => w::text(ui, text.clone()),
             TextStyle::Muted => w::text(ui, text.clone()).variant("muted"),
@@ -737,7 +807,12 @@ pub fn build_node_with(
         },
         Node::Element { kind, props, handlers, children } => {
             let Some(make) = &hooks.element else { return w::column(ui) };
-            let built = children.iter().map(|n| build_node_with(ui, n, widget, version, hooks)).collect();
+            // Past the deepest level its children stand after it ([`build_children`]).
+            let built = if depth < MAX_DEPTH {
+                build_children(ui, children, widget, version, hooks, depth)
+            } else {
+                Vec::new()
+            };
             let handlers = handlers
                 .iter()
                 .map(|(name, action)| {

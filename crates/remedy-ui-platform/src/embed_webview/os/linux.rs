@@ -38,6 +38,9 @@ const GTK_WINDOW_POPUP: c_int = 1;
 /// `WebKitPolicyDecisionType`.
 const DECISION_NAVIGATION: c_int = 0;
 const DECISION_NEW_WINDOW: c_int = 1;
+/// `WebKitNavigationType`: back or forward in the history, and a reload.
+const NAVIGATION_BACK_FORWARD: c_int = 2;
+const NAVIGATION_RELOAD: c_int = 3;
 /// `WebKitLoadEvent`.
 const LOAD_STARTED: c_int = 0;
 const LOAD_FINISHED: c_int = 3;
@@ -100,10 +103,18 @@ struct Api {
     cairo_region_destroy: unsafe extern "C" fn(Ptr),
     webkit_web_view_get_type: unsafe extern "C" fn() -> usize,
     webkit_user_content_manager_new: unsafe extern "C" fn() -> Ptr,
-    webkit_user_content_manager_register_script_message_handler:
-        unsafe extern "C" fn(Ptr, *const c_char) -> c_int,
+    webkit_user_content_manager_register_script_message_handler_in_world:
+        unsafe extern "C" fn(Ptr, *const c_char, *const c_char) -> c_int,
     webkit_user_script_new:
         unsafe extern "C" fn(*const c_char, c_int, c_int, *const *const c_char, *const *const c_char) -> Ptr,
+    webkit_user_script_new_for_world: unsafe extern "C" fn(
+        *const c_char,
+        c_int,
+        c_int,
+        *const c_char,
+        *const *const c_char,
+        *const *const c_char,
+    ) -> Ptr,
     webkit_user_content_manager_add_script: unsafe extern "C" fn(Ptr, Ptr),
     webkit_user_script_unref: unsafe extern "C" fn(Ptr),
     webkit_website_data_manager_new: unsafe extern "C" fn(*const c_char, ...) -> Ptr,
@@ -122,6 +133,7 @@ struct Api {
     webkit_web_view_can_go_forward: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_web_view_get_uri: unsafe extern "C" fn(Ptr) -> *const c_char,
     webkit_web_view_get_title: unsafe extern "C" fn(Ptr) -> *const c_char,
+    webkit_web_view_is_loading: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_web_view_run_javascript: unsafe extern "C" fn(Ptr, *const c_char, Ptr, GCallback, Ptr),
     webkit_policy_decision_use: unsafe extern "C" fn(Ptr),
     webkit_policy_decision_ignore: unsafe extern "C" fn(Ptr),
@@ -129,6 +141,7 @@ struct Api {
     webkit_navigation_action_get_request: unsafe extern "C" fn(Ptr) -> Ptr,
     webkit_navigation_action_is_user_gesture: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_navigation_action_is_redirect: unsafe extern "C" fn(Ptr) -> c_int,
+    webkit_navigation_action_get_navigation_type: unsafe extern "C" fn(Ptr) -> c_int,
     webkit_uri_request_get_uri: unsafe extern "C" fn(Ptr) -> *const c_char,
     webkit_permission_request_deny: unsafe extern "C" fn(Ptr),
     webkit_download_get_request: unsafe extern "C" fn(Ptr) -> Ptr,
@@ -212,11 +225,12 @@ impl Api {
                 cairo_region_destroy: sym(lib, "cairo_region_destroy")?,
                 webkit_web_view_get_type: sym(lib, "webkit_web_view_get_type")?,
                 webkit_user_content_manager_new: sym(lib, "webkit_user_content_manager_new")?,
-                webkit_user_content_manager_register_script_message_handler: sym(
+                webkit_user_content_manager_register_script_message_handler_in_world: sym(
                     lib,
-                    "webkit_user_content_manager_register_script_message_handler",
+                    "webkit_user_content_manager_register_script_message_handler_in_world",
                 )?,
                 webkit_user_script_new: sym(lib, "webkit_user_script_new")?,
+                webkit_user_script_new_for_world: sym(lib, "webkit_user_script_new_for_world")?,
                 webkit_user_content_manager_add_script: sym(lib, "webkit_user_content_manager_add_script")?,
                 webkit_user_script_unref: sym(lib, "webkit_user_script_unref")?,
                 webkit_website_data_manager_new: sym(lib, "webkit_website_data_manager_new")?,
@@ -244,6 +258,7 @@ impl Api {
                 webkit_web_view_can_go_forward: sym(lib, "webkit_web_view_can_go_forward")?,
                 webkit_web_view_get_uri: sym(lib, "webkit_web_view_get_uri")?,
                 webkit_web_view_get_title: sym(lib, "webkit_web_view_get_title")?,
+                webkit_web_view_is_loading: sym(lib, "webkit_web_view_is_loading")?,
                 webkit_web_view_run_javascript: sym(lib, "webkit_web_view_run_javascript")?,
                 webkit_policy_decision_use: sym(lib, "webkit_policy_decision_use")?,
                 webkit_policy_decision_ignore: sym(lib, "webkit_policy_decision_ignore")?,
@@ -257,6 +272,10 @@ impl Api {
                     "webkit_navigation_action_is_user_gesture",
                 )?,
                 webkit_navigation_action_is_redirect: sym(lib, "webkit_navigation_action_is_redirect")?,
+                webkit_navigation_action_get_navigation_type: sym(
+                    lib,
+                    "webkit_navigation_action_get_navigation_type",
+                )?,
                 webkit_uri_request_get_uri: sym(lib, "webkit_uri_request_get_uri")?,
                 webkit_permission_request_deny: sym(lib, "webkit_permission_request_deny")?,
                 webkit_download_get_request: sym(lib, "webkit_download_get_request")?,
@@ -314,6 +333,8 @@ struct Inner {
     api: &'static Api,
     /// The GTK popup window, reparented into the app's window.
     window: Ptr,
+    /// GDK's object for the app's window, ours to release once the popup is destroyed.
+    parent: Ptr,
     fixed: Ptr,
     view: Ptr,
     layout: RefCell<Option<Layout>>,
@@ -347,7 +368,7 @@ unsafe fn back(data: Ptr) -> Option<Rc<Inner>> {
     unsafe { &*data.cast::<Weak<Inner>>() }.upgrade().filter(|i| !i.closed.get())
 }
 
-unsafe extern "C" fn on_decide(_view: Ptr, decision: Ptr, kind: c_int, data: Ptr) -> c_int {
+unsafe extern "C" fn on_decide(view: Ptr, decision: Ptr, kind: c_int, data: Ptr) -> c_int {
     // SAFETY: the arguments of WebKit's `decide-policy` signal, on the UI thread.
     unsafe {
         let Some(inner) = back(data) else { return 0 };
@@ -368,7 +389,16 @@ unsafe extern "C" fn on_decide(_view: Ptr, decision: Ptr, kind: c_int, data: Ptr
         }
         let user = (api.webkit_navigation_action_is_user_gesture)(action) != 0;
         let redirect = (api.webkit_navigation_action_is_redirect)(action) != 0;
-        if inner.hub.decide(url, user, redirect, false) {
+        let history = matches!(
+            (api.webkit_navigation_action_get_navigation_type)(action),
+            NAVIGATION_BACK_FORWARD | NAVIGATION_RELOAD
+        );
+        // WebKitGTK's API does not say which frame navigates, so every one is decided as the
+        // page's own.
+        let allowed = inner.hub.decide(url, user, redirect, false, Some(history));
+        // A frame's navigation starts no page load: what the view says holds, not the guess.
+        inner.hub.set_loading((api.webkit_web_view_is_loading)(view) != 0);
+        if allowed {
             (api.webkit_policy_decision_use)(decision);
         } else {
             (api.webkit_policy_decision_ignore)(decision);
@@ -454,7 +484,7 @@ unsafe extern "C" fn on_crash(_view: Ptr, reason: c_int, data: Ptr) {
 
 unsafe extern "C" fn on_message(_manager: Ptr, result: Ptr, data: Ptr) {
     // SAFETY: the arguments of `script-message-received::remedy`, on the UI thread; the
-    // page posts `JSON.stringify(value)`, a string.
+    // relay posts the page's `JSON.stringify(value)`, a string.
     unsafe {
         let Some(inner) = back(data) else { return };
         let api = inner.api;
@@ -481,6 +511,23 @@ unsafe extern "C" fn on_download(_context: Ptr, download: Ptr, data: Ptr) {
         }
     }
 }
+
+/// The script world the message handler is registered in.
+const RELAY_WORLD: &CStr = c"RemedyUI";
+
+/// The relay: in its own script world in the top frame, it hands what `window.remedy` posts
+/// to the message handler. It takes only messages the top window sent itself (a frame of
+/// another origin cannot pass for it: the browser sets `source`), and keeps them from the
+/// page's own `message` listeners.
+const RELAY_SCRIPT: &CStr = c"(() => {
+  'use strict';
+  const handler = window.webkit.messageHandlers.remedy;
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || typeof e.data.__remedyPost !== 'string') return;
+    e.stopImmediatePropagation();
+    handler.postMessage(e.data.__remedyPost);
+  }, true);
+})();";
 
 /// Services GTK while `inner` lives.
 fn pump(ui: WeakUi, inner: Weak<Inner>) {
@@ -543,6 +590,7 @@ impl Native {
                 }
                 None => (api.webkit_web_context_new)(),
             };
+            let release_parent = || (api.g_object_unref)(parent);
             let manager = (api.webkit_user_content_manager_new)();
             let view = (api.g_object_new)(
                 (api.webkit_web_view_get_type)(),
@@ -555,6 +603,7 @@ impl Native {
             if view.is_null() {
                 (api.g_object_unref)(manager);
                 (api.g_object_unref)(context);
+                release_parent();
                 return Err("WebKitGTK could not make a web view".into());
             }
             let settings = (api.webkit_web_view_get_settings)(view);
@@ -562,10 +611,29 @@ impl Native {
             // Let `window.open` reach `create`, which refuses and reports it, rather than
             // WebKit's popup blocker dropping it unseen.
             (api.webkit_settings_set_javascript_can_open_windows_automatically)(settings, 1);
-            (api.webkit_user_content_manager_register_script_message_handler)(manager, c"remedy".as_ptr());
+            // WebKit shows a message handler to every frame of the world it is registered in
+            // and does not say which frame posted. So the handler lives in a script world of
+            // its own, where only the relay runs, and only in the top frame: no script of the
+            // page or of a frame in it can reach the handler.
+            (api.webkit_user_content_manager_register_script_message_handler_in_world)(
+                manager,
+                c"remedy".as_ptr(),
+                RELAY_WORLD.as_ptr(),
+            );
+            let relay = (api.webkit_user_script_new_for_world)(
+                RELAY_SCRIPT.as_ptr(),
+                INJECT_TOP_FRAME,
+                AT_DOCUMENT_START,
+                RELAY_WORLD.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+            );
+            (api.webkit_user_content_manager_add_script)(manager, relay);
+            (api.webkit_user_script_unref)(relay);
             let script = cstring(&crate::embed_webview::bridge_script(
-                "window.webkit.messageHandlers.remedy.postMessage(JSON.stringify(value));",
-                "Object.defineProperty(window, '__remedyDeliver', { value: deliver, enumerable: false, \
+                "send({ __remedyPost: JSON.stringify(value) }, '*');",
+                "const send = window.postMessage.bind(window);\n  \
+                 Object.defineProperty(window, '__remedyDeliver', { value: deliver, enumerable: false, \
                  configurable: false, writable: false });",
             ));
             let user_script = (api.webkit_user_script_new)(
@@ -587,6 +655,7 @@ impl Native {
                 (api.gtk_widget_destroy)(window);
                 (api.g_object_unref)(manager);
                 (api.g_object_unref)(context);
+                release_parent();
                 return Err("GTK could not make the web view's window".into());
             }
             (api.gdk_window_reparent)(gdk, parent, 0, 0);
@@ -594,6 +663,7 @@ impl Native {
                 hub,
                 api,
                 window,
+                parent,
                 fixed,
                 view,
                 layout: RefCell::new(None),
@@ -780,8 +850,12 @@ impl Native {
         }
         i.hub.abandon_pending();
         // SAFETY: destroying our own popup window destroys the view in it; the signal data
-        // is freed by GLib as the handlers go.
-        unsafe { (i.api.gtk_widget_destroy)(i.window) };
+        // is freed by GLib as the handlers go. The reference `new` took on the app's window
+        // goes last, once nothing of ours is in it.
+        unsafe {
+            (i.api.gtk_widget_destroy)(i.window);
+            (i.api.g_object_unref)(i.parent);
+        }
     }
 }
 

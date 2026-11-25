@@ -471,9 +471,13 @@ pub fn play_enter(el: &El, t: &Transition) {
 }
 
 /// Plays `t` out on `el`, which is inert (outside hit testing and accessibility) while it
-/// leaves, then calls `gone` (which removes it).
+/// leaves, then calls `gone` (which removes it). `gone` runs exactly once: also when a
+/// property it moves is jumped meanwhile, or `el` is removed first (or was already).
 pub fn play_exit(el: &El, t: &Transition, gone: impl FnOnce() + 'static) {
-    let _ = el.ui.tree().set_hit_mode(el.id, remedy_ui_core::tree::HitMode::None);
+    if let Some(d) = el.ui.0.borrow_mut().els.get_mut(&el.id) {
+        d.leaving = true;
+    }
+    el.sync_hit_mode();
     let _ = el
         .clone()
         .semantics(remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Group).hidden(true));
@@ -485,7 +489,7 @@ pub fn play_exit(el: &El, t: &Transition, gone: impl FnOnce() + 'static) {
     let gone = Rc::new(RefCell::new(Some(gone)));
     for f in &t.from {
         let (left, gone) = (left.clone(), gone.clone());
-        el.animate_then(*f, t.motion, move || {
+        el.animate_ended(*f, t.motion, move |_| {
             left.set(left.get().saturating_sub(1));
             if left.get() == 0
                 && let Some(g) = gone.borrow_mut().take()

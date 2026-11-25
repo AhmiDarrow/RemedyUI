@@ -668,6 +668,23 @@ pub fn accept_list(filters: &[(String, Vec<String>)]) -> String {
     out.join(",")
 }
 
+/// True for an address a mirror link may carry as a real `href`: the app's own pages (a
+/// fragment, a path: no scheme) or one the host opens (web pages and mail). Never
+/// `javascript:` or `data:`, which the browser would run or show with the app's origin when
+/// a screen reader's own command opens the link.
+pub fn link_href_allowed(href: &str) -> bool {
+    // A colon before any `/`, `?` or `#` ends a scheme, however the browser would trim it.
+    let scheme = href.split(['/', '?', '#']).next().unwrap_or_default().contains(':');
+    !scheme || remedy_ui_core::host::is_openable_url(href)
+}
+
+/// What is left of the address's `path` under `base` (`/app`, or empty for the site's root):
+/// the app's route. A path that only starts with the same letters (`/application` under
+/// `/app`) is not under it and stays whole.
+pub fn path_under<'a>(path: &'a str, base: &str) -> &'a str {
+    path.strip_prefix(base).filter(|rest| rest.is_empty() || rest.starts_with('/')).unwrap_or(path)
+}
+
 /// Byte ranges kept inside `text` and on character boundaries.
 pub fn clamp_range(text: &str, r: &Range<usize>) -> Range<usize> {
     let fit = |mut i: usize| {
@@ -973,6 +990,27 @@ mod tests {
         assert_eq!(accept_list(&f), ".png,.jpg");
         assert_eq!(accept_list(&[("All".into(), vec!["*".into()])]), "");
         assert_eq!(clamp_range("añb", &(2..9)), 1..4, "inside the text, on character boundaries");
+    }
+
+    #[test]
+    fn routes_are_the_path_under_the_base() {
+        assert_eq!(path_under("/app/settings/2", "/app"), "/settings/2");
+        assert_eq!(path_under("/app", "/app"), "");
+        assert_eq!(path_under("/application/x", "/app"), "/application/x", "not under the base");
+        assert_eq!(path_under("/settings", ""), "/settings");
+    }
+
+    #[test]
+    fn mirror_links_carry_only_addresses_a_click_may_open() {
+        let ok = ["#/settings", "/app/page?x=1:2", "page.html#a:b", "https://example.com/a", "mailto:a@b.c"];
+        for href in ok {
+            assert!(link_href_allowed(href), "{href}");
+        }
+        let no = ["javascript:alert(1)", " JavaScript:alert(1)", "java\tscript:alert(1)", "data:text/html,x"];
+        for href in no {
+            assert!(!link_href_allowed(href), "{href}");
+        }
+        assert!(!link_href_allowed("file:///etc/passwd"));
     }
 
     #[test]

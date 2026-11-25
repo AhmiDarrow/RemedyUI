@@ -4,7 +4,7 @@
 //! per-pixel programs, dead-code removal, register allocation, and the limits that keep a
 //! hostile effect cheap.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::paint::Blend;
 
@@ -20,6 +20,14 @@ fn item_at(item: &Item) -> Span {
         Item::Setting(_, _, at) | Item::Const(_, _, at) | Item::Output(_, at) => *at,
         Item::Fn(f) => f.at,
         Item::Pass { at, .. } | Item::Filter { at, .. } | Item::Particles { at, .. } => *at,
+    }
+}
+
+/// Where a statement starts.
+fn stmt_at(s: &Stmt) -> Span {
+    match s {
+        Stmt::Let { at, .. } | Stmt::Assign { at, .. } | Stmt::For { at, .. } | Stmt::If { at, .. } => *at,
+        Stmt::Return(_, at) => *at,
     }
 }
 
@@ -281,6 +289,11 @@ enum Ctx {
 /// needs a bound of its own.
 const WORK_PER_VALUE: u64 = 32;
 
+/// Expressions and blocks the compiler may be inside at once, through inlined functions. The
+/// parser bounds nesting within one function only, and every call inlined adds its body's:
+/// without a bound of its own, the two limits multiplied would be the depth of this recursion.
+const MAX_NESTING: u32 = 192;
+
 pub(crate) struct Compiler<'a> {
     g: Graph,
     limits: &'a Limits,
@@ -291,6 +304,8 @@ pub(crate) struct Compiler<'a> {
     /// Buffers written so far: name to (index, stage scale).
     buffers: HashMap<String, u8>,
     inline_depth: u32,
+    /// Expressions and blocks being compiled now, one in another (see [`MAX_NESTING`]).
+    nesting: u32,
     unrolled: u64,
     /// Compile steps taken so far (see [`WORK_PER_VALUE`]).
     work: u64,
@@ -308,6 +323,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         consts: HashMap::new(),
         buffers: HashMap::new(),
         inline_depth: 0,
+        nesting: 0,
         unrolled: 0,
         work: 0,
         feedback: false,
@@ -669,6 +685,15 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
             Diagnostic::new(at, with_suggestion(format!("`{name}` is not a pass"), &name, known))
         })?;
         if usize::from(idx) + 1 != pending.len() {
+            if pending.len() >= limits.max_stages {
+                return Err(Diagnostic::new(
+                    at,
+                    format!(
+                        "more than {} passes (`output` of a pass that is not the last adds one)",
+                        limits.max_stages
+                    ),
+                ));
+            }
             let uv = c.g.add(NodeKey::Leaf(Leaf::Input(Input::Uv as u16)), at)?;
             let copy = c.g.op(Op::Sample, Source::Buffer(idx).encode(), &[uv], at)?;
             pending.push(PendingStage::Shade { name: "output".into(), roots: vec![copy], scale: 1.0, at });
@@ -975,6 +1000,18 @@ impl Compiler<'_> {
         Ok(())
     }
 
+    /// Enters one more expression or block, refusing code nested too deep once inlined.
+    fn descend(&mut self, at: Span) -> R<()> {
+        self.nesting += 1;
+        if self.nesting > MAX_NESTING {
+            return Err(Diagnostic::new(
+                at,
+                format!("nested more than {MAX_NESTING} deep once functions are inlined"),
+            ));
+        }
+        Ok(())
+    }
+
     fn stage_scale(&self, s: Option<f32>, at: Span) -> R<f32> {
         match s {
             None => Ok(1.0),
@@ -1137,6 +1174,20 @@ impl Compiler<'_> {
         body: &[Stmt],
         scope: &mut Vec<HashMap<String, Binding>>,
         ctx: Ctx,
+        ret: Option<&mut Option<Val>>,
+    ) -> R<()> {
+        let at = body.first().map_or(Span { line: 1, col: 1 }, stmt_at);
+        self.descend(at)?;
+        let r = self.stmts_inner(body, scope, ctx, ret);
+        self.nesting -= 1;
+        r
+    }
+
+    fn stmts_inner(
+        &mut self,
+        body: &[Stmt],
+        scope: &mut Vec<HashMap<String, Binding>>,
+        ctx: Ctx,
         mut ret: Option<&mut Option<Val>>,
     ) -> R<()> {
         for (i, s) in body.iter().enumerate() {
@@ -1232,6 +1283,7 @@ impl Compiler<'_> {
                             let orig = before.get(lvl).and_then(|m| m.get(name));
                             let same = |a: &Val, b: &Val| match (a, b) {
                                 (Val::V(x, _), Val::V(y, _)) => x == y,
+                                (Val::M(x, _), Val::M(y, _)) => x == y,
                                 (Val::Src(a), Val::Src(b)) => a == b,
                                 (Val::Unset, Val::Unset) => true,
                                 _ => false,
@@ -1288,6 +1340,13 @@ impl Compiler<'_> {
 
     fn expr(&mut self, e: &Expr, scope: &mut Vec<HashMap<String, Binding>>, ctx: Ctx) -> R<Val> {
         self.spend(1, e.span())?;
+        self.descend(e.span())?;
+        let r = self.expr_inner(e, scope, ctx);
+        self.nesting -= 1;
+        r
+    }
+
+    fn expr_inner(&mut self, e: &Expr, scope: &mut Vec<HashMap<String, Binding>>, ctx: Ctx) -> R<Val> {
         match e {
             Expr::Num(n, at) => Ok(Val::V(self.g.konst([*n; 4], *at)?, Ty::F)),
             Expr::Color(c, at) => Ok(Val::V(self.g.konst(*c, *at)?, Ty::V4)),
@@ -1695,14 +1754,15 @@ impl Compiler<'_> {
         let mut stack: Vec<u32> = roots.to_vec();
         let mut slots: HashMap<u32, usize> = HashMap::new();
         let mut consts: Vec<Slot> = Vec::new();
+        // Every node is its own slot (equal constants and parameters are one node already),
+        // so a slot is never looked up again: no search.
         let slot_of = |key: Slot, consts: &mut Vec<Slot>| -> usize {
-            if let Some(i) = consts.iter().position(|c| *c == key) {
-                i
-            } else {
-                consts.push(key);
-                consts.len() - 1
-            }
+            consts.push(key);
+            consts.len() - 1
         };
+        let root_set: HashSet<u32> = roots.iter().copied().collect();
+        // The first place of each hoisted node (the per-frame roots may repeat).
+        let mut hoisted: HashMap<u32, usize> = hoist.iter().enumerate().rev().map(|(u, h)| (*h, u)).collect();
         while let Some(id) = stack.pop() {
             let Some(n) = self.g.nodes.get(id as usize) else { continue };
             if need.get(id as usize).copied().unwrap_or(true) || slots.contains_key(&id) {
@@ -1716,13 +1776,10 @@ impl Compiler<'_> {
                     slots.insert(id, slot_of(Slot::Param(usize::from(*p)), &mut consts));
                 }
                 (NodeKey::Op(..), Rate::Frame) if !all => {
-                    let u = match hoist.iter().position(|h| *h == id) {
-                        Some(u) => u,
-                        None => {
-                            hoist.push(id);
-                            hoist.len() - 1
-                        }
-                    };
+                    let u = *hoisted.entry(id).or_insert_with(|| {
+                        hoist.push(id);
+                        hoist.len() - 1
+                    });
                     slots.insert(id, slot_of(Slot::Uniform(u), &mut consts));
                 }
                 (NodeKey::Op(_, _, args), _) => {
@@ -1737,6 +1794,13 @@ impl Compiler<'_> {
                     }
                 }
             }
+        }
+        // `Op::Const` names its slot in a 16-bit immediate.
+        if consts.len() > usize::from(u16::MAX) + 1 {
+            return Err(Diagnostic::new(
+                Span { line: 1, col: 1 },
+                format!("a program reads {} constants and per-frame values; the most is 65536", consts.len()),
+            ));
         }
         // A multiply whose only use is an add becomes part of it: one `fma` instead of two
         // instructions (the interpreter computes `a * b + c` unfused, so the value is the same).
@@ -1761,7 +1825,7 @@ impl Compiler<'_> {
                 Some(NodeKey::Op(Op::Mul, 0, [a, b, ..]))
                     if need.get(m as usize).copied().unwrap_or(false)
                         && uses.get(&m) == Some(&1)
-                        && !roots.contains(&m) =>
+                        && !root_set.contains(&m) =>
                 {
                     Some([*a, *b])
                 }
@@ -1788,7 +1852,7 @@ impl Compiler<'_> {
         let order: Vec<u32> = (0..self.g.nodes.len() as u32)
             .filter(|i| {
                 need.get(*i as usize).copied().unwrap_or(false)
-                    || (roots.contains(i) && slots.contains_key(i))
+                    || (root_set.contains(i) && slots.contains_key(i))
             })
             .collect();
         // Last use of every value, for register reuse.

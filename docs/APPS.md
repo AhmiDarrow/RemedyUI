@@ -24,22 +24,22 @@ None of these waits on RemedyLua. It only adds Lua bindings for effects; FreeSpe
 
 | App | What it is | Before | Packs it uses | Bridges |
 |---|---|---|---|---|
-| **FreeSpeak** | Chat, voice, screen share | Rust, egui/eframe | core, nav, data, forms, doc-rich, media-image/anim/svg/video/isolated, viz (voice ring meters), services-desktop, services-spell, services-i18n, services-update | Windows, macOS, Linux, Android |
-| **SecretSticky** | Encrypted sticky notes | Tauri + React | core, forms (colors), services-desktop (tray, single instance), services-update; frameless always-on-top windows; `secure` | Windows (macOS, Linux free) |
-| **SecretFolder** | Encrypted folder vault | Tauri + React | core, nav, data (explorer tree and table), media-image (preview), services-desktop, services-update; `secure` (idle lock, clipboard clear, capture protection) | Windows |
-| **Alex's Craft Calc** | Soap and candle calculators, wiki | React PWA, Tauri, Capacitor | core, forms (exact decimal inputs), data (tables), doc-rich (wiki, F1 help), services-i18n, services-update | Windows, Android, web |
-| **Hearth** | LAN folder sharing and chat | Python, pywebview | core, nav, data, media-image, media-isolated, services-desktop (tray, folder picker), services-i18n, services-update; drag in and out | Windows |
-| **Portal** | Media dashboard with HLS player | Rust service, TypeScript web UI, tray launcher | core, nav, data (shelves as virtual grids), media-image, media-video, media-playback, widgets-extra (QR pairing), services-desktop | Windows, web |
-| **RemedyPDF** | Multi-format document viewer and annotator | Python, PyQt5 and Kivy | core, nav, doc-pages, forms, media-isolated, services-desktop, services-update; the document engine (MuPDF) stays in the app | Windows, Android |
-| **GuitarRemedy** | Guitar school, tuner, tabs | React, Tauri, Capacitor, PWA | core, nav, doc-rich (wiki), viz (tuner), widgets-music (fretboard, tab staff), services-i18n, services-update; audio stays in the app | Windows, Android, web |
-| **VoiceRemedy** | Offline singing coach | React, Tauri, Capacitor | core, nav, viz (pitch graph at 60 fps), widgets-music (note staff), services-i18n; mic capture stays in the app | Windows, Android (tablets) |
-| **RemedyAI desktop** | AI partner app | Tauri + React | core, nav, data, forms, doc-rich, doc-code (editor, diffs), widgets-term, embed-webview, viz (usage), media-image, widgets-extra (QR), services-desktop, services-i18n, services-update | Windows, macOS, Linux, Android |
+| **FreeSpeak** | Chat, voice, screen share | Rust, egui/eframe | core, nav, data, forms, doc-rich, media-image/anim/svg/video/isolated, viz (voice ring meters), services-desktop, spell, services-i18n, update | Windows, macOS, Linux, Android |
+| **SecretSticky** | Encrypted sticky notes | Tauri + React | core, forms (colors), services-desktop (tray, single instance), update; frameless always-on-top windows; `secure` | Windows (macOS, Linux free) |
+| **SecretFolder** | Encrypted folder vault | Tauri + React | core, nav, data (explorer tree and table), media-image (preview), services-desktop, update; `secure` (idle lock, clipboard clear, capture protection) | Windows |
+| **Alex's Craft Calc** | Soap and candle calculators, wiki | React PWA, Tauri, Capacitor | core, forms (exact decimal inputs), data (tables), doc-rich (wiki, F1 help), services-i18n, update | Windows, Android, web |
+| **Hearth** | LAN folder sharing and chat | Python, pywebview | core, nav, data, media-image, media-isolated, services-desktop (tray, folder picker), services-i18n, update; drag in and out | Windows |
+| **Portal** | Media dashboard with HLS player | Rust service, TypeScript web UI, tray launcher | core, nav, data (shelves as virtual grids), media-image, media-video, media-playback, extra (QR pairing), services-desktop | Windows, web |
+| **RemedyPDF** | Multi-format document viewer and annotator | Python, PyQt5 and Kivy | core, nav, doc-pages, forms, media-isolated, services-desktop, update; the document engine (MuPDF) stays in the app | Windows, Android |
+| **GuitarRemedy** | Guitar school, tuner, tabs | React, Tauri, Capacitor, PWA | core, nav, doc-rich (wiki), viz (tuner), music (fretboard, tab staff), services-i18n, update; audio stays in the app | Windows, Android, web |
+| **VoiceRemedy** | Offline singing coach | React, Tauri, Capacitor | core, nav, viz (pitch graph at 60 fps), music (note staff), services-i18n; mic capture stays in the app | Windows, Android (tablets) |
+| **RemedyAI desktop** | AI partner app | Tauri + React | core, nav, data, forms, doc-rich, doc-code (editor, diffs), widgets-term, embed-webview, viz (usage), media-image, extra (QR), services-desktop, services-i18n, update | Windows, macOS, Linux, Android |
 | **RemedyOS apps** | Files, Editor, Settings, Monitor, Ask, panels | Kernel-drawn C | core, nav, data, forms, doc-code, widgets-term, viz (Monitor), services via kernel wires | RemedyOS (developed on all) |
 | **FallenEarth** | RPG | Godot 4 | Out of scope. A game engine draws its own UI. RemedyUI could render menus into a Godot texture through the embedding path if wanted | — |
 
 Six of these apps (SecretSticky, SecretFolder, Alex's Craft Calc, GuitarRemedy, VoiceRemedy, RemedyAI desktop) kept their users' data in a web view's `localStorage`. Each one's first RemedyUI run imports it with `services-webstorage` (read-only, lossless), so no update loses what people saved.
 
-The survey found no app that needs maps or calendars. Date and time pickers are in `widgets-forms` because settings and forms need them. Maps stay out of scope until an app needs them.
+The survey found no app that needs maps or calendars. Date and time pickers are in `forms` because settings and forms need them. Maps stay out of scope until an app needs them.
 
 ## What only one app needs
 
@@ -47,7 +47,7 @@ These are optional packs, so no other app carries them:
 
 - `doc-pages` (RemedyPDF)
 - `widgets-term` and `doc-code` (RemedyAI, RemedyOS)
-- `widgets-music` (GuitarRemedy, VoiceRemedy)
+- `music` (GuitarRemedy, VoiceRemedy)
 - `media-playback` (Portal)
 - `embed-webview` (RemedyAI)
 - the RemedyOS bridge

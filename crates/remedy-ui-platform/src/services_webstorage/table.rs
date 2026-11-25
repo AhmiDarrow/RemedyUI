@@ -76,10 +76,18 @@ fn read_block<'a>(file: &str, data: &'a [u8], handle: BlockHandle) -> Result<Cow
     }
     match *kind {
         NO_COMPRESSION => Ok(Cow::Borrowed(contents)),
-        SNAPPY => snap::raw::Decoder::new()
-            .decompress_vec(contents)
-            .map(Cow::Owned)
-            .map_err(|e| WebStorageError::corrupt(file, format!("block at offset {start}: {e}"))),
+        SNAPPY => {
+            let bad = |e: &dyn std::fmt::Display| {
+                WebStorageError::corrupt(file, format!("block at offset {start}: {e}"))
+            };
+            // Snappy's densest element is 3 bytes copying 64, so no block grows more than
+            // 22 times: a longer declared length is refused before it is allocated.
+            let declared = snap::raw::decompress_len(contents).map_err(|e| bad(&e))?;
+            if declared > contents.len().saturating_mul(22) {
+                return Err(bad(&"its declared length is more than the block can hold"));
+            }
+            snap::raw::Decoder::new().decompress_vec(contents).map(Cow::Owned).map_err(|e| bad(&e))
+        }
         kind => Err(WebStorageError::UnsupportedCompression { file: file.to_owned(), kind }),
     }
 }
@@ -327,6 +335,14 @@ pub(crate) mod tests {
         }
         // A copy that reaches before the start of the output is an error, not garbage.
         assert!(snap::raw::Decoder::new().decompress_vec(&[4, 0x01, 0x05]).is_err());
+        // A tiny block declaring 4 GiB is refused before anything that size is allocated.
+        let mut file = Vec::new();
+        let bomb = [0xff, 0xff, 0xff, 0xff, 0x0f, 0x00, b'a'];
+        file.extend_from_slice(&bomb);
+        file.push(SNAPPY);
+        file.extend_from_slice(&mask_crc(crc32c(&[&bomb, &[SNAPPY]])).to_le_bytes());
+        let out = read_block("t", &file, BlockHandle { offset: 0, size: bomb.len() as u64 });
+        assert!(matches!(out, Err(WebStorageError::Corrupt { .. })));
         // A declared length the data does not fill.
         assert!(snap::raw::Decoder::new().decompress_vec(&[10, 0x00, b'a']).is_err());
     }

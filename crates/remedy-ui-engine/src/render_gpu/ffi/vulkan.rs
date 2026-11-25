@@ -392,6 +392,13 @@ impl VkChain {
             for image in self.images.drain(..) {
                 self.device.destroy_semaphore(image.rendered, None);
             }
+            // The acquire semaphores are made again too: one an acquire signalled for a frame
+            // that was never submitted (wgpu rejected it, or it was dropped) stays signalled,
+            // and may not be handed to another acquire. Nothing waits on any of them now.
+            for (s, _) in self.acquires.drain(..) {
+                self.device.destroy_semaphore(s, None);
+            }
+            self.next_acquire = 0;
             if old != vk::SwapchainKHR::null() {
                 self.swapchain_fns.destroy_swapchain(old, None);
             }
@@ -399,16 +406,22 @@ impl VkChain {
             (self.width, self.height) = (extent.width, extent.height);
             let images = self.swapchain_fns.get_swapchain_images(raw).map_err(failed("swapchain images"))?;
             let semaphore = || self.device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None);
+            // Kept as they are made, so a failure part-way leaves them to the next rebuild.
+            for _ in 0..=images.len() {
+                self.acquires.push((semaphore().map_err(failed("semaphore"))?, None));
+            }
             let mut made = Vec::with_capacity(images.len());
             for raw in images {
-                made.push(Image {
-                    raw,
-                    rendered: semaphore().map_err(failed("semaphore"))?,
-                    last_presented: 0,
-                });
-            }
-            while self.acquires.len() < made.len() + 1 {
-                self.acquires.push((semaphore().map_err(failed("semaphore"))?, None));
+                match semaphore() {
+                    Ok(rendered) => made.push(Image { raw, rendered, last_presented: 0 }),
+                    Err(e) => {
+                        // Nothing has used the ones made so far: they go with this attempt.
+                        for image in made {
+                            self.device.destroy_semaphore(image.rendered, None);
+                        }
+                        return Err(failed("semaphore")(e));
+                    }
+                }
             }
             self.images = made;
             self.current = None;

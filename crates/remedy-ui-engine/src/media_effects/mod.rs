@@ -308,6 +308,11 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     } else {
         LADDER.get(level).copied().unwrap_or((1.0, 0))
     };
+    // An element with no area draws nothing, so it asks for no frames either.
+    let rect = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
+    if rect.is_empty() {
+        return;
+    }
     // A picture that does not change with time is drawn once, like a still frame: it asks for
     // no frames at all.
     let live = if !effect.animated || (!gpu_path && level >= LADDER.len()) {
@@ -315,10 +320,6 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     } else {
         cx.ambient_at(effect.fps.min(fps_cap).max(1))
     };
-    let rect = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
-    if rect.is_empty() {
-        return;
-    }
     let (time, light) = match live {
         Some(tick) => (tick.t.as_secs_f32(), tick.light),
         None => (effect.still, false),

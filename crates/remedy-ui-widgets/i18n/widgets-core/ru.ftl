@@ -7,6 +7,11 @@ lamp-on = вкл.
 lamp-off = выкл.
 loading = Загрузка
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = { $label }: переместить
+dock-move-hint = { $label }: перетащите или нажмите Enter, чтобы закрепить с другой стороны
+dock-collapsed = { $label } (свёрнуто)
+
 ## Secret fields.
 show-password = Показать пароль
 hide-password = Скрыть пароль

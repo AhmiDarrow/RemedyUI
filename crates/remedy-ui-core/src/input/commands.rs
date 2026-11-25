@@ -26,50 +26,10 @@ impl Chord {
         Chord { modifiers: Modifiers::primary(platform), key }
     }
 
-    /// How to show it in a menu or tooltip on `platform`, such as "Ctrl+Shift+Z" or "⇧⌘Z".
+    /// How to show it in a menu or tooltip on `platform`, such as "Ctrl+Shift+Z" or "⇧⌘Z":
+    /// [`Chord::label_in`] with English key names ("Ctrl+Left", "Esc").
     pub fn label(&self, platform: Platform) -> String {
-        let key = match &self.key {
-            Key::Character(s) => s.to_uppercase(),
-            Key::F(n) => format!("F{n}"),
-            Key::Named(n) => n.clone(),
-            other => format!("{other:?}"),
-        };
-        let m = self.modifiers;
-        match platform {
-            Platform::Apple => {
-                let mut s = String::new();
-                if m.ctrl {
-                    s.push('⌃');
-                }
-                if m.alt {
-                    s.push('⌥');
-                }
-                if m.shift {
-                    s.push('⇧');
-                }
-                if m.meta {
-                    s.push('⌘');
-                }
-                s + &key
-            }
-            Platform::Standard => {
-                let mut parts = Vec::new();
-                if m.ctrl {
-                    parts.push("Ctrl");
-                }
-                if m.alt {
-                    parts.push("Alt");
-                }
-                if m.shift {
-                    parts.push("Shift");
-                }
-                if m.meta {
-                    parts.push("Win");
-                }
-                parts.push(&key);
-                parts.join("+")
-            }
-        }
+        self.label_in(platform, "en")
     }
 }
 
@@ -415,6 +375,7 @@ impl std::error::Error for ChordError {}
 /// modifiers in the order `Ctrl`, `Alt`, `Shift`, `Meta`, then the key, joined by `+`
 /// (`Ctrl+Shift+Z`, `Alt+F4`, `Meta+Left`, `Ctrl+Plus`). Letters are written in capitals,
 /// except those whose capital is not one letter that reads back as the same key (`ß`, `ı`).
+/// A space character is written `Space`, and reads back as [`Key::Space`].
 /// [`Chord::label`] is the platform's way of showing it instead.
 impl fmt::Display for Chord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -427,6 +388,8 @@ impl fmt::Display for Chord {
         match (&self.key, key_name(&self.key)) {
             (_, Some(name)) => f.write_str(&name),
             (Key::Character(c), None) if c == "+" => f.write_str("Plus"),
+            // A space would be trimmed away on reading: the space bar by its name.
+            (Key::Character(c), None) if c == " " => f.write_str("Space"),
             (Key::Character(c), None) => {
                 // Capitals only where they read back as the same key: "ß" would become "SS".
                 let upper = c.to_uppercase();
@@ -677,8 +640,10 @@ impl CommandTable {
     }
 
     /// The command a key press runs, among the scopes active now (innermost first). Disabled
-    /// commands are skipped so an outer one can answer; key releases, auto-repeats of
-    /// commands, and keys an input method is composing never match.
+    /// commands are skipped so an outer one can answer; key releases and keys an input
+    /// method is composing never match. A held key's auto-repeats match like its first press
+    /// (holding Ctrl+Z keeps undoing): a caller whose command must run once per press checks
+    /// [`KeyEvent::repeat`].
     pub fn match_key(&self, e: &KeyEvent, active: &[Scope]) -> Option<&Command> {
         if !e.pressed || e.composing {
             return None;

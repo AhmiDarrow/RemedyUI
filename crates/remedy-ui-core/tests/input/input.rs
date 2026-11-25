@@ -270,3 +270,35 @@ fn chord_labels_speak_the_persons_language() {
     assert_eq!(c("F11").label_in(Platform::Standard, "de"), "F11");
     assert_eq!(c("Ctrl+Plus").label_in(Platform::Standard, "de"), "Strg++");
 }
+
+#[test]
+fn a_space_chord_is_written_by_name_and_labels_name_keys_one_way() {
+    let space = Chord::new(Modifiers::CTRL, Key::char(' '));
+    assert_eq!(space.to_string(), "Ctrl+Space");
+    assert_eq!(space.to_string().parse::<Chord>(), Ok(Chord::new(Modifiers::CTRL, Key::Space)));
+    assert_eq!(space.label(Platform::Standard), "Ctrl+Space");
+    let back = Chord::new(Modifiers::ALT, Key::ArrowLeft);
+    assert_eq!(back.label(Platform::Standard), "Alt+Left");
+    assert_eq!(back.label(Platform::Standard), back.label_in(Platform::Standard, "en"));
+    assert_eq!(Chord::new(Modifiers::NONE, Key::Escape).label(Platform::Apple), "⎋");
+}
+
+#[test]
+fn a_fling_ends_whatever_the_physics_and_values_that_are_not_numbers_move_nothing() {
+    let mut physics = ScrollPhysics::CLAMPED;
+    physics.stop_speed = 0.0;
+    let mut a = ScrollAxis::new(1_000_000.0, physics);
+    a.fling(3000.0);
+    let mut frames = 0;
+    while a.step(1.0 / 60.0) {
+        frames += 1;
+        assert!(frames < 2000, "a fling ends even with no stop speed");
+    }
+    assert!(a.rest().is_finite());
+    let at = a.offset;
+    a.drag(f32::NAN);
+    a.drag(f32::INFINITY);
+    a.fling(f32::NAN);
+    assert_eq!((a.offset, a.velocity), (at, 0.0));
+    assert!(!a.step(1.0 / 60.0));
+}

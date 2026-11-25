@@ -3,6 +3,7 @@
 //! pads (the Gamepad API, XInput, evdev) and hand each one's state to [`GamepadKeys`], which
 //! turns it into key events; the app tunes it with [`GamepadTuning`].
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::input::{Key, KeyEvent};
@@ -122,7 +123,8 @@ pub struct GamepadKeys {
     tuning: GamepadTuning,
     /// The system keyboard's repeat delay and interval, for what the tuning leaves to it.
     system: (Duration, Duration),
-    pads: Vec<Option<Pad>>,
+    /// By the platform's pad number, which need not be small.
+    pads: BTreeMap<usize, Pad>,
 }
 
 impl Default for GamepadKeys {
@@ -138,7 +140,7 @@ impl GamepadKeys {
         GamepadKeys {
             tuning: GamepadTuning::default(),
             system: (Duration::from_millis(500), Duration::from_millis(33)),
-            pads: Vec::new(),
+            pads: BTreeMap::new(),
         }
     }
 
@@ -180,11 +182,7 @@ impl GamepadKeys {
     pub fn update(&mut self, pad: usize, state: Option<&PadState>, now: Duration) -> Vec<KeyEvent> {
         let held = state.map_or(PadButtons::NONE, |s| self.buttons(s));
         let delay = self.delay();
-        if self.pads.len() <= pad {
-            self.pads.resize(pad + 1, None);
-        }
-        let Some(slot) = self.pads.get_mut(pad) else { return Vec::new() };
-        let mut p = slot.unwrap_or_default();
+        let mut p = self.pads.get(&pad).copied().unwrap_or_default();
         let mut out = Vec::new();
         for (bit, key) in KEYS {
             let was = p.held.contains(bit);
@@ -200,7 +198,11 @@ impl GamepadKeys {
             }
         }
         p.held = held;
-        *slot = state.map(|_| p);
+        if state.is_some() {
+            self.pads.insert(pad, p);
+        } else {
+            self.pads.remove(&pad);
+        }
         out
     }
 
@@ -208,7 +210,7 @@ impl GamepadKeys {
     pub fn tick(&mut self, now: Duration) -> Vec<KeyEvent> {
         let interval = self.interval();
         let mut out = Vec::new();
-        for p in self.pads.iter_mut().flatten() {
+        for p in self.pads.values_mut() {
             let Some((bit, due)) = p.repeat else { continue };
             if due > now {
                 continue;
@@ -225,7 +227,7 @@ impl GamepadKeys {
 
     /// When the next repeat is due, if a direction is held.
     pub fn next_due(&self) -> Option<Duration> {
-        self.pads.iter().flatten().filter_map(|p| p.repeat.map(|(_, at)| at)).min()
+        self.pads.values().filter_map(|p| p.repeat.map(|(_, at)| at)).min()
     }
 }
 
@@ -332,5 +334,8 @@ mod tests {
         let e = k.update(0, None, ms(10));
         assert_eq!((e[0].key.clone(), e[0].pressed), (Key::ArrowLeft, false));
         assert_eq!(k.tick(ms(500)).len(), 1, "pad 2 still repeats");
+        // The platform's number for a pad may be anything.
+        let e = k.update(usize::MAX, Some(&pressed(PadButtons::A)), ms(510));
+        assert_eq!((e.len(), e[0].key.clone()), (1, Key::Enter));
     }
 }

@@ -49,7 +49,7 @@ pub(crate) fn fragment() -> String {
     match base() {
         Some(base) => {
             let path = location.pathname().unwrap_or_default();
-            let rest = path.strip_prefix(base.as_str()).unwrap_or(&path);
+            let rest = crate::convert::path_under(&path, &base);
             format!("/{}{}", rest.trim_start_matches('/'), location.search().unwrap_or_default())
         }
         None => {

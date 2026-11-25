@@ -195,7 +195,7 @@ impl Pool {
                 let inner = self.inner.clone();
                 let started = std::thread::Builder::new()
                     .name(self.inner.name.clone())
-                    .spawn(move || native_worker(&inner))
+                    .spawn(move || native_worker(inner))
                     .is_ok();
                 if started {
                     s.workers += 1;
@@ -222,19 +222,32 @@ impl Drop for Pool {
 }
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-fn native_worker(inner: &PoolInner) {
+fn native_worker(inner: Arc<PoolInner>) {
     // A step that panics takes its thread with it: the pool stops counting the worker, so the
     // next notification starts another.
-    struct Leaving<'a>(&'a PoolInner);
-    impl Drop for Leaving<'_> {
+    struct Leaving(Arc<PoolInner>);
+    impl Drop for Leaving {
         fn drop(&mut self) {
             if std::thread::panicking() {
                 let mut s = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
                 s.workers = s.workers.saturating_sub(1);
+                // A notification that came while this one was still counted started nobody
+                // and woke nobody: its work gets a worker now, not at the next notification.
+                if s.pending > 0 && s.idle == 0 {
+                    let inner = self.0.clone();
+                    let started = std::thread::Builder::new()
+                        .name(self.0.name.clone())
+                        .spawn(move || native_worker(inner))
+                        .is_ok();
+                    if started {
+                        s.workers += 1;
+                    }
+                }
             }
         }
     }
-    let _leaving = Leaving(inner);
+    let leaving = Leaving(inner);
+    let inner = &*leaving.0;
     loop {
         {
             let mut s = inner.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -821,6 +834,25 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(10), "no worker took the next job");
         };
         assert_eq!(got, 7);
+    }
+
+    #[test]
+    fn work_notified_while_a_worker_fails_needs_no_further_notification() {
+        let queue: Arc<Mutex<VecDeque<u32>>> = Arc::default();
+        let (tx, rx) = channel();
+        let tx = Mutex::new(tx);
+        let q = queue.clone();
+        let pool = Pool::new("remedy-test-pool", 1, move || {
+            let Some(n) = q.lock().unwrap_or_else(PoisonError::into_inner).pop_front() else { return false };
+            assert!(n != 0, "job 0 fails, taking the only worker with it");
+            let _ = tx.lock().unwrap_or_else(PoisonError::into_inner).send(n);
+            true
+        });
+        queue.lock().unwrap_or_else(PoisonError::into_inner).extend([0, 7]);
+        // One notification per job, the second while the only worker is counted or failing.
+        pool.notify();
+        pool.notify();
+        assert_eq!(recv_timeout(&rx, Duration::from_secs(10)), Ok(7));
     }
 
     #[test]

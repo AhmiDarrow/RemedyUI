@@ -7,6 +7,11 @@ lamp-on = قيد التشغيل
 lamp-off = متوقف
 loading = جارٍ التحميل
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = نقل { $label }
+dock-move-hint = اسحب أو اضغط Enter لإرساء { $label } على الجانب الآخر
+dock-collapsed = { $label } (مطوي)
+
 ## Secret fields.
 show-password = إظهار كلمة المرور
 hide-password = إخفاء كلمة المرور

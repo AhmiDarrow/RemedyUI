@@ -360,6 +360,10 @@ struct Links {
     lookup: HashMap<(Option<String>, String), u32>,
     /// Links alive after the last sweep: the table is swept again when it doubles.
     live_at_sweep: usize,
+    /// The bytes of the listed links' addresses and ids, now and after the last sweep: a
+    /// few links can each be as long as a string may be, so the table is swept by size too.
+    bytes: usize,
+    bytes_at_sweep: usize,
 }
 
 /// What the program asked of the terminal since the UI last looked.
@@ -440,7 +444,7 @@ pub(crate) struct State {
     /// The parser is being forced out of an over-long string: what it dispatches is dropped.
     aborting: bool,
     /// The kitty keyboard protocol's flag stacks, for the primary and alternate screens.
-    kitty: [Vec<u8>; 2],
+    kitty: [VecDeque<u8>; 2],
     /// The device control string being received.
     dcs: Option<Dcs>,
     /// The working directory the shell reported (OSC 7).
@@ -502,7 +506,7 @@ impl State {
             acted: false,
             spare: Vec::new(),
             aborting: false,
-            kitty: [Vec::new(), Vec::new()],
+            kitty: [VecDeque::new(), VecDeque::new()],
             dcs: None,
             cwd: None,
             budget_memory: machine_memory(),
@@ -1149,7 +1153,7 @@ impl State {
         std::mem::swap(&mut self.grid, &mut self.other);
         self.modes.alt_screen = on;
         // Each screen has its own keyboard flags.
-        self.modes.kitty_flags = self.kitty_stack().last().copied().unwrap_or(0);
+        self.modes.kitty_flags = self.kitty_stack().back().copied().unwrap_or(0);
         if on && clear {
             let blank = self.blank_line();
             self.grid.iter_mut().for_each(|l| *l = blank.clone());
@@ -1301,9 +1305,14 @@ impl State {
         if let Some(n) = self.links.lookup.get(&key) {
             return *n;
         }
-        if self.links.list.len() >= 2 * self.links.live_at_sweep + 64 {
+        let size = uri.len() + id.as_ref().map_or(0, String::len);
+        let room = self.links.bytes_at_sweep.saturating_mul(2).saturating_add(self.string_limit);
+        if self.links.list.len() >= 2 * self.links.live_at_sweep + 64
+            || self.links.bytes.saturating_add(size) > room
+        {
             self.sweep_links();
         }
+        self.links.bytes = self.links.bytes.saturating_add(size);
         self.links.list.push(Some(Link { id, uri }));
         let n = u32::try_from(self.links.list.len()).unwrap_or(u32::MAX);
         self.links.lookup.insert(key, n);
@@ -1360,6 +1369,9 @@ impl State {
             .filter_map(|(i, l)| l.as_ref().map(|l| ((l.id.clone(), l.uri.clone()), i as u32 + 1)))
             .collect();
         self.links.live_at_sweep = list.len();
+        self.links.bytes =
+            list.iter().flatten().map(|l| l.uri.len() + l.id.as_ref().map_or(0, String::len)).sum();
+        self.links.bytes_at_sweep = self.links.bytes;
         self.links.list = list;
     }
 
@@ -1723,7 +1735,7 @@ impl State {
     }
 
     /// The kitty keyboard flag stack of the screen showing.
-    fn kitty_stack(&mut self) -> &mut Vec<u8> {
+    fn kitty_stack(&mut self) -> &mut VecDeque<u8> {
         let i = usize::from(self.modes.alt_screen);
         let [a, b] = &mut self.kitty;
         if i == 0 { a } else { b }
@@ -1732,11 +1744,11 @@ impl State {
     fn push_kitty(&mut self, flags: u8) {
         let limit = self.string_limit;
         let stack = self.kitty_stack();
-        stack.push(flags & 31);
+        stack.push_back(flags & 31);
         // The protocol bounds the stack, dropping the oldest entries; ours holds what fits
         // in the string limit.
         if stack.len() > limit {
-            stack.remove(0);
+            stack.pop_front();
         }
         self.modes.kitty_flags = flags & 31;
     }
@@ -1745,20 +1757,20 @@ impl State {
         let stack = self.kitty_stack();
         let keep = stack.len().saturating_sub(n);
         stack.truncate(keep);
-        self.modes.kitty_flags = self.kitty_stack().last().copied().unwrap_or(0);
+        self.modes.kitty_flags = self.kitty_stack().back().copied().unwrap_or(0);
     }
 
     /// Replaces the top of the stack (`None`: empties it).
     fn set_kitty_top(&mut self, flags: Option<u8>) {
         let stack = self.kitty_stack();
         match flags {
-            Some(f) => match stack.last_mut() {
+            Some(f) => match stack.back_mut() {
                 Some(top) => *top = f,
-                None => stack.push(f),
+                None => stack.push_back(f),
             },
             None => stack.clear(),
         }
-        self.modes.kitty_flags = self.kitty_stack().last().copied().unwrap_or(0);
+        self.modes.kitty_flags = self.kitty_stack().back().copied().unwrap_or(0);
     }
 
     /// The machine's memory changed (or became known): the automatic scrollback budget
@@ -2518,10 +2530,15 @@ impl vte::Perform for State {
 pub struct Emulator {
     parser: vte::Parser,
     pub(crate) state: State,
-    /// Bytes of input in a row with no action: vte is inside a string it buffers (OSC).
+    /// Bytes of input in a row with no action while a string is open: vte buffers an OSC.
     silent: usize,
     /// Dropping the rest of a string that grew past the limit, up to its terminator.
     discarding: bool,
+    /// The last ESC started a string (OSC, DCS, APC, PM or SOS). Only a string is cut for
+    /// its length: bytes a CSI or an escape sequence ignores are kept nowhere.
+    in_string: bool,
+    /// The byte that says what the last ESC starts has not come yet.
+    after_esc: bool,
 }
 
 impl std::fmt::Debug for Emulator {
@@ -2542,7 +2559,32 @@ pub const SYNC_TIMEOUT: Duration = Duration::from_millis(150);
 impl Emulator {
     /// An emulator of `cols` × `rows` cells (each at least 1).
     pub fn new(cols: usize, rows: usize) -> Emulator {
-        Emulator { parser: vte::Parser::new(), state: State::new(cols, rows), silent: 0, discarding: false }
+        Emulator {
+            parser: vte::Parser::new(),
+            state: State::new(cols, rows),
+            silent: 0,
+            discarding: false,
+            in_string: false,
+            after_esc: false,
+        }
+    }
+
+    /// Follows `piece` far enough to know whether it leaves the parser inside a string.
+    fn track_string(&mut self, piece: &[u8]) {
+        let mut rest = piece;
+        if let Some(at) = piece.iter().rposition(|b| *b == 0x1b) {
+            // An ESC ends any string before it; what follows says what it starts.
+            self.after_esc = true;
+            self.in_string = false;
+            rest = piece.get(at + 1..).unwrap_or_default();
+        }
+        if self.after_esc
+            // Controls and DEL between the ESC and that byte are run or ignored on the way.
+            && let Some(b) = rest.iter().find(|b| !matches!(**b, 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f))
+        {
+            self.after_esc = false;
+            self.in_string = matches!(*b, b']' | b'P' | b'_' | b'^' | b'X');
+        }
     }
 
     /// Parses `bytes` from the program and updates the screen.
@@ -2569,7 +2611,8 @@ impl Emulator {
             rest = tail;
             self.state.acted = false;
             self.parser.advance(&mut self.state, piece);
-            if self.state.acted {
+            self.track_string(piece);
+            if self.state.acted || !self.in_string {
                 self.silent = 0;
             } else {
                 self.silent += piece.len();
@@ -2582,6 +2625,7 @@ impl Emulator {
                 self.state.aborting = false;
                 self.silent = 0;
                 self.discarding = true;
+                self.in_string = false;
                 // The parser's string buffer is let go too.
                 self.parser = vte::Parser::new();
             }

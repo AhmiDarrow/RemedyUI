@@ -9,6 +9,10 @@ use remedy_ui_engine::paint::Brush;
 use remedy_ui_engine::view::{El, Ui};
 
 fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
+    // `clamp` panics on a range that is inverted or not a number: such a range holds `min` alone.
+    if min > max || min.is_nan() || max.is_nan() {
+        return min;
+    }
     let v = v.clamp(min, max);
     if step > 0.0 { (min + ((v - min) / step).round() * step).clamp(min, max) } else { v }
 }
@@ -203,5 +207,13 @@ mod tests {
         assert_eq!(stepped_text(3.0, 1.0), "3");
         assert_eq!(stepped_text(snap(0.2 + 0.1, 0.0, 1.0, 0.1), 0.1), "0.3");
         assert_eq!(stepped_text(0.75, 0.25), "0.75");
+    }
+
+    #[test]
+    fn an_inverted_or_undefined_range_does_not_panic() {
+        assert_eq!(snap(5.0, 10.0, 0.0, 1.0), 10.0);
+        assert!(snap(5.0, f64::NAN, 1.0, 1.0).is_nan());
+        assert_eq!(snap(5.0, 0.0, f64::NAN, 0.0), 0.0);
+        assert_eq!(snap(0.26, 0.0, 1.0, 0.25), 0.25);
     }
 }

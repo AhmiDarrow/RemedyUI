@@ -796,6 +796,10 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     });
     // Cast: one name that says whether it is casting; the app opens its menu of devices.
     let p = player.clone();
+    let cast_name = {
+        let (p, u) = (player.clone(), ui.clone());
+        move || tr(&u, if p.is_remote() { "playback-casting" } else { "playback-cast" })
+    };
     let cast = glyph_button(
         ui,
         icons,
@@ -805,12 +809,16 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             let p = player.clone();
             move || usize::from(p.is_remote())
         },
-        {
-            let (p, u) = (player.clone(), ui.clone());
-            move || tr(&u, if p.is_remote() { "playback-casting" } else { "playback-cast" })
-        },
+        cast_name.clone(),
         || {},
     );
+    // It opens the app's menu of devices, and says so.
+    let cast = cast.semantics(move || {
+        Semantics::new(Role::Button)
+            .label(cast_name())
+            .has_popup(remedy_ui_core::a11y::Popup::Menu)
+            .action(Action::Click)
+    });
     let (cb, me) = (cast.clone(), cast.clone());
     let cast = cast.on_click(move || p.request_cast(&me)).bind({
         let p = player.clone();
@@ -1459,8 +1467,9 @@ fn clock(ui: &Ui, player: &Player) -> El {
             None => pos,
         }
     };
-    let part = || ui.el("label").nowrap();
-    let (before, now, after) = (part(), ui.el("player_clock_now").nowrap(), part());
+    // The parts are for the eye: the clock itself says the whole time, once.
+    let part = |kind: &'static str| ui.el(kind).nowrap().semantics(Semantics::new(Role::Label).hidden(true));
+    let (before, now, after) = (part("label"), part("player_clock_now"), part("label"));
     let (b, n, a, p) = (before.clone(), now.clone(), after.clone(), player.clone());
     ui.el("player_clock")
         .row()
@@ -2308,7 +2317,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             }
         })
         .on_key(move |e| {
-            if !e.pressed {
+            // With Ctrl, Alt or the system key held a key is the app's or the system's, as in `apply_key`.
+            if !e.pressed || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
             }
             if e.key == Key::Space {

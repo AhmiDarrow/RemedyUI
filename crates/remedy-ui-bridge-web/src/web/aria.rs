@@ -285,7 +285,7 @@ impl Mirror {
 fn apply(el: &HtmlElement, node: &Node, _id: NodeId) {
     dom::attr(el, "role", convert::aria_role(node.role()));
     if el.tag_name() == "A" {
-        dom::attr(el, "href", node.url());
+        dom::attr(el, "href", node.url().filter(|u| convert::link_href_allowed(u)));
     }
     for (name, value) in convert::aria_attributes(node) {
         dom::attr(el, name, value.as_deref());

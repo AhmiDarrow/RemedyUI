@@ -15,7 +15,7 @@
 //!
 //! Notifications, the tray and badges need the event loop, so they are part of the host
 //! contract (`remedy_ui_core::host::Host::show_notification`, `set_tray`, `set_badge`) and every
-//! bridge, not this crate. What a platform cannot do says [`DesktopError::Unsupported`].
+//! bridge, not this module. What a platform cannot do says [`DesktopError::Unsupported`].
 
 pub mod autostart;
 pub use autostart::Entry;

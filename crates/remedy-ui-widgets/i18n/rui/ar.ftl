@@ -5,3 +5,7 @@
 layout-failed = تعذّر تحميل تخطيطك لـ { $file }، لذا يُعرض الأصلي: { $error }
 # The button that removes the person's layout.
 layout-reset = إعادة تعيين
+
+## Undo history names. { $file } is the layout's file.
+layout-change-named = تغيير التخطيط { $file }
+layout-reset-named = إعادة تعيين التخطيط { $file }

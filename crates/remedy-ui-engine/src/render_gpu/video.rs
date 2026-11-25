@@ -380,10 +380,15 @@ fn convert(
         None => {
             // Otherwise its bytes are uploaded, read back first when it is on the GPU.
             let cpu = frame.in_cpu_memory()?;
-            if s.planes.is_empty() {
-                s.planes = cpu
-                    .format
-                    .plane_sizes(cpu.width, cpu.height)
+            let sizes = cpu.format.plane_sizes(cpu.width, cpu.height);
+            // A read-back's format need not be the stream's own, and a stream may go from
+            // pictures read back to frames in memory: planes that are not these are made again.
+            let fits = s.planes.len() == sizes.len()
+                && s.planes.iter().zip(&sizes).enumerate().all(|(i, (t, (w, h, _)))| {
+                    (t.width(), t.height(), t.format()) == (*w, *h, plane_format(cpu.format, i))
+                });
+            if !fits {
+                s.planes = sizes
                     .into_iter()
                     .enumerate()
                     .map(|(i, (w, h, _))| {

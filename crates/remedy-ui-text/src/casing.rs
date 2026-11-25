@@ -58,12 +58,16 @@ pub(crate) fn apply(text: &RichText, base: &TextStyle, lang: Lang) -> Option<(Ri
         return None;
     }
     let src = text.as_str();
-    let transform_at = |i: usize| {
-        spans
-            .iter()
-            .filter(|s| s.range.contains(&i))
-            .fold(base.transform, |t, s| s.patch.transform.unwrap_or(t))
-    };
+    // The transform over each stretch of the text, found in one pass: asking every span at
+    // every character is quadratic in a text with thousands of them.
+    let casing: Vec<&crate::rich::Span> = spans.iter().filter(|s| s.patch.transform.is_some()).collect();
+    let ranges: Vec<std::ops::Range<usize>> = casing.iter().map(|s| s.range.clone()).collect();
+    let mut transforms: Vec<(usize, TextTransform)> = Vec::new();
+    crate::rich::stretches(&ranges, src.len(), |range, over| {
+        let last = over.iter().next_back().and_then(|i| casing.get(*i)).and_then(|s| s.patch.transform);
+        transforms.push((range.start, last.unwrap_or(base.transform)));
+    });
+    let mut stretch = 0;
     let mut out = String::with_capacity(src.len() + src.len() / 8);
     let mut map = Vec::with_capacity(src.len() + 1);
     let mut prev: Option<char> = None;
@@ -80,7 +84,10 @@ pub(crate) fn apply(text: &RichText, base: &TextStyle, lang: Lang) -> Option<(Ri
             rest.next().map(|(_, n)| n)
         };
         let carry = std::mem::take(&mut carried);
-        match transform_at(i) {
+        while transforms.get(stretch + 1).is_some_and(|(start, _)| *start <= i) {
+            stretch += 1;
+        }
+        match transforms.get(stretch).map_or(base.transform, |(_, t)| *t) {
             TextTransform::None => out.push(c),
             TextTransform::Upper if lang == Lang::Greek && is_greek(c) => {
                 carried = greek_upper(c, prev, next, after, carry, &mut out);
@@ -303,6 +310,16 @@ mod tests {
         assert_eq!(map.to_original(r.as_str().len()), t.as_str().len());
         let bold = r.spans().first().map(|s| &r.as_str()[s.range.clone()]);
         assert_eq!(bold, Some("X"));
+        // Spans over one another: the last one added that sets a transform decides.
+        let mut nested = RichText::plain("abcdef");
+        nested.add_span(1..5, TextStylePatch::transform(TextTransform::None));
+        nested.add_span(0..6, TextStylePatch::bold());
+        nested.add_span(2..4, TextStylePatch::transform(TextTransform::Upper));
+        nested.add_span(3..6, TextStylePatch::transform(TextTransform::None));
+        assert_eq!(
+            apply(&nested, &base, Lang::Default).map(|(r, _)| r.as_str().to_owned()).as_deref(),
+            Some("AbCdef")
+        );
         let mut lower_span = RichText::plain("ab");
         lower_span.add_span(0..1, TextStylePatch::transform(TextTransform::None));
         assert_eq!(

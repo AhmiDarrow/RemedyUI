@@ -39,6 +39,23 @@ async fn read_files(list: Vec<web_sys::File>, folders: bool) -> Vec<PathBuf> {
     if folders { tops } else { paths }
 }
 
+type Listeners = std::rc::Rc<std::cell::RefCell<Vec<Listener>>>;
+
+thread_local! {
+    /// The picker that has not answered yet: its dialog, its input and its listeners.
+    static OPEN: std::cell::RefCell<Option<(DialogId, web_sys::HtmlInputElement, Listeners)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The picker of `id` answered: it is no longer the open one.
+fn answered(id: DialogId) {
+    OPEN.with_borrow_mut(|open| {
+        if open.as_ref().is_some_and(|(open, ..)| *open == id) {
+            *open = None;
+        }
+    });
+}
+
 fn file_list(list: Option<web_sys::FileList>) -> Vec<web_sys::File> {
     let Some(list) = list else { return Vec::new() };
     (0..list.length()).filter_map(|i| list.get(i)).collect()
@@ -87,12 +104,21 @@ pub(crate) fn file_dialog(d: &Driver, dialog: &FileDialog) -> Result<DialogStart
         DialogId(id)
     };
     let folders = dialog.folders;
+    // A browser shows one picker at a time, so one still unanswered was dismissed in a
+    // browser that sends no `cancel` event (before 2023): it is answered now, not never.
+    if let Some((old, input, listeners)) = OPEN.take() {
+        input.remove();
+        listeners.borrow_mut().clear();
+        post(HostEvent::FileDialog(old, Vec::new()));
+    }
     // The listeners live until the picker answers, then go with the input.
-    let holder: std::rc::Rc<std::cell::RefCell<Vec<Listener>>> = Default::default();
+    let holder: Listeners = Default::default();
+    OPEN.set(Some((id, input.clone(), holder.clone())));
     let (h1, h2) = (holder.clone(), holder.clone());
     let (i1, i2) = (input.clone(), input.clone());
     let change = Listener::new(&input, "change", move |_| {
         let chosen = file_list(i1.files());
+        answered(id);
         i1.remove();
         h1.borrow_mut().clear();
         wasm_bindgen_futures::spawn_local(async move {
@@ -101,6 +127,7 @@ pub(crate) fn file_dialog(d: &Driver, dialog: &FileDialog) -> Result<DialogStart
         });
     });
     let cancel = Listener::new(&input, "cancel", move |_| {
+        answered(id);
         i2.remove();
         h2.borrow_mut().clear();
         post(HostEvent::FileDialog(id, Vec::new()));

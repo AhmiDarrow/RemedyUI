@@ -651,7 +651,10 @@ impl Compositor {
         let mut follows = Vec::new();
         tree.for_each(|l| {
             let snap = l.scroll_snap.clone();
-            alive.insert(l.id, (l.scroll.is_some(), l.max_scroll(), l.scroll_origin, snap, l.bounds.size()));
+            // An origin that is not a number would make the offset one, for good.
+            let o = l.scroll_origin;
+            let origin = if o.x.is_finite() && o.y.is_finite() { o } else { Vec2::ZERO };
+            alive.insert(l.id, (l.scroll.is_some(), l.max_scroll(), origin, snap, l.bounds.size()));
             if let Some(f) = l.scroll_follow {
                 follows.push((l.id, f));
             }

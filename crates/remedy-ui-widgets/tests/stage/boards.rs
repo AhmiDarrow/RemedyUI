@@ -182,6 +182,24 @@ fn board_text_is_real_text_padded_to_its_cells() {
 }
 
 #[test]
+fn a_flap_holds_a_whole_character_as_a_reader_sees_it() {
+    let ui = ui();
+    // "e" with a combining acute, a flag (two code points), then a plain letter.
+    let text = "e\u{301}\u{1F1E9}\u{1F1EA}x".to_owned();
+    let el = display_text(&ui, text.clone(), DisplayOptions::default().board(Board::SplitFlap).cells(5));
+    mount(&ui, &el);
+    let flaps: Vec<String> = line(&el)
+        .child_elements()
+        .iter()
+        .filter_map(|flap| flap.child_elements().first().and_then(El::text_content))
+        .collect();
+    let want = ["e\u{301}", "\u{1F1E9}\u{1F1EA}", "x", "\u{a0}", "\u{a0}"];
+    assert_eq!(flaps, want, "three characters, padded to five");
+    let names: Vec<String> = ui.reader_view().iter().filter_map(|n| n.name.clone()).collect();
+    assert!(names.iter().any(|n| *n == text), "{names:?}");
+}
+
+#[test]
 fn flaps_flip_then_rest() {
     let ui = ui();
     let clock = Clock::manual();

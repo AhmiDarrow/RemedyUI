@@ -222,3 +222,22 @@ fn a_tauri_latest_json_feed_picks_this_platform_and_verifies() {
     up_to_date.current = "1.0.0".into();
     assert_eq!(check(&up_to_date), Ok(None), "up to date with a v-prefixed feed version");
 }
+
+#[test]
+fn a_download_longer_than_its_published_size_is_refused() {
+    let k = keys();
+    let data = b"a body much longer than the feed said".to_vec();
+    let base = serve(vec![("/app.bin".to_owned(), data.clone())]);
+    let cfg = UpdateConfig::new("1.0.0", Feed::Json(String::new()), k.public.clone());
+    let mut release = Release::new("2.0.0", format!("{base}/app.bin"));
+    release.signature = sign(&k, &data);
+    release.size = Some(4);
+    let dir = std::env::temp_dir().join(format!("remedy-ui-update-size-{}", std::process::id()));
+    let got = download(&cfg, &release, &dir, |_, _| {});
+    assert!(matches!(got, Err(UpdateError::Network(_))), "{got:?}");
+    assert!(!dir.exists(), "nothing was written");
+    release.size = Some(data.len() as u64);
+    let got = download(&cfg, &release, &dir, |_, _| {});
+    assert!(got.is_ok(), "the published size itself is fine: {got:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

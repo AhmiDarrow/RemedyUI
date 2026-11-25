@@ -288,7 +288,7 @@ pub fn select(ui: &Ui, label: impl IntoProp<String>, options: Vec<String>, selec
         );
     })
     .on_key(move |e| {
-        if arrows(e, selected, n) && !matches!(e.key, Key::ArrowLeft | Key::ArrowRight) {
+        if arrows(e, selected, n) {
             return true;
         }
         // Type-ahead: the next option starting with the typed letter.

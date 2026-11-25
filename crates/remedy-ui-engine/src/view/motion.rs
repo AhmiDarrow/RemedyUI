@@ -62,7 +62,11 @@ fn play(el: El, steps: Rc<Vec<(Target, Motion)>>, at: usize, left: Repeat, handl
     }
     let Some((target, motion)) = steps.get(at).copied() else { return };
     let next = el.clone();
-    el.animate_then(target, motion, move || {
+    el.animate_ended(target, motion, move |end| {
+        // Cut short (the property was jumped, the element removed): it plays no further.
+        if end != End::Arrived {
+            return handle.stop();
+        }
         if at + 1 < steps.len() {
             return play(next, steps, at + 1, left, handle);
         }
@@ -154,7 +158,26 @@ enum Slot {
 pub(crate) struct Running {
     key: u8,
     slot: Slot,
-    done: Vec<Box<dyn FnOnce()>>,
+    done: Vec<Ended>,
+}
+
+/// How a move ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum End {
+    /// Its value arrived.
+    Arrived,
+    /// The property was jumped elsewhere ([`El::set_animated`]).
+    Jumped,
+    /// The element was removed (or was gone already).
+    Removed,
+}
+
+/// Told once how a move ended.
+type Ended = Box<dyn FnOnce(End)>;
+
+/// The completions of moves cut short with `end`, each ready to be told so.
+pub(crate) fn cut_short(anims: Vec<Running>, end: End) -> impl Iterator<Item = Box<dyn FnOnce()>> {
+    anims.into_iter().flat_map(|r| r.done).map(move |f| Box::new(move || f(end)) as Box<dyn FnOnce()>)
 }
 
 /// The window's frame clock: set by the runner each frame, or wall time since the view
@@ -348,7 +371,9 @@ impl Ui {
                     moved = true;
                 }
                 if r.slot.settled(now) {
-                    done.append(&mut r.done);
+                    done.extend(
+                        r.done.drain(..).map(|f| Box::new(move || f(End::Arrived)) as Box<dyn FnOnce()>),
+                    );
                 } else {
                     keep.push(r);
                 }
@@ -378,26 +403,45 @@ impl El {
     }
 
     /// Like [`El::animate`], calling `done` once the value has arrived (or the move was
-    /// replaced by none: it is called when this property's motion settles).
+    /// replaced by none: it is called when this property's motion settles), or once
+    /// [`El::set_animated`] has jumped the property instead. It is not called for an element
+    /// that is removed: nothing is left for it to act on.
     pub fn animate_then(&self, target: Target, motion: Motion, done: impl FnOnce() + 'static) {
+        // Not on removal: a completion that starts the next move would never stop.
+        self.animate_ended(target, motion, move |end| {
+            if end != End::Removed {
+                done();
+            }
+        });
+    }
+
+    /// [`El::animate_then`], telling `done` how the move ended, always and exactly once
+    /// (at once on an element already removed).
+    pub(crate) fn animate_ended(&self, target: Target, motion: Motion, done: impl FnOnce(End) + 'static) {
         let reduced = self.ui.reduced_motion();
+        let mut done: Option<Ended> = Some(Box::new(done));
         {
             let mut i = self.ui.0.borrow_mut();
             let now = i.clock.now();
-            let Some(d) = i.els.get_mut(&self.id) else { return };
             let key = target.key();
-            let at = match d.anims.iter().position(|r| r.key == key) {
-                Some(at) => at,
-                None => {
-                    let from = current(d, &target);
-                    d.anims.push(Running { key, slot: slot_for(from), done: Vec::new() });
-                    d.anims.len() - 1
+            if let Some(d) = i.els.get_mut(&self.id) {
+                let at = match d.anims.iter().position(|r| r.key == key) {
+                    Some(at) => at,
+                    None => {
+                        let from = current(d, &target);
+                        d.anims.push(Running { key, slot: slot_for(from), done: Vec::new() });
+                        d.anims.len() - 1
+                    }
+                };
+                if let Some(r) = d.anims.get_mut(at) {
+                    r.slot.retarget(target, motion, now, reduced);
+                    r.done.extend(done.take());
                 }
-            };
-            if let Some(r) = d.anims.get_mut(at) {
-                r.slot.retarget(target, motion, now, reduced);
-                r.done.push(Box::new(done));
             }
+        }
+        // Nothing took it (the element is gone): nothing will move, and the caller hears so.
+        if let Some(done) = done {
+            return done(End::Removed);
         }
         self.ui.request(crate::view::Request::Frame);
     }
@@ -428,12 +472,15 @@ impl El {
         }
     }
 
-    /// Jumps `target`'s property to its value, stopping any move of it.
+    /// Jumps `target`'s property to its value, stopping any move of it (whoever waited for
+    /// that move to end hears that it has).
     pub fn set_animated(&self, target: Target) {
         let mut i = self.ui.0.borrow_mut();
         let Some(d) = i.els.get_mut(&self.id) else { return };
         let key = target.key();
-        d.anims.retain(|r| r.key != key);
+        let (stopped, keep): (Vec<Running>, Vec<Running>) =
+            std::mem::take(&mut d.anims).into_iter().partition(|r| r.key == key);
+        d.anims = keep;
         let mut slot = slot_for(target);
         slot.retarget(target, Motion::Instant, Duration::ZERO, true);
         let styled = slot.apply(key, d, Duration::ZERO);
@@ -445,6 +492,9 @@ impl El {
         }
         drop(i);
         self.ui.request(crate::view::Request::Frame);
+        for f in cut_short(stopped, End::Jumped) {
+            f();
+        }
     }
 
     /// Glides the element through the layout change about to happen (FLIP: first, last,

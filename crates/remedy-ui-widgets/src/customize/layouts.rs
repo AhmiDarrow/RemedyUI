@@ -101,10 +101,15 @@ impl Customizations {
         if self.0.layouts.borrow().is_none() {
             return Err(CustomizeError::NotEnabled(Area::Layouts));
         }
-        self.live_screens()
-            .into_iter()
-            .find(|(s, _)| s.file == file)
-            .ok_or_else(|| CustomizeError::Invalid(tr_in("en", "no-screen", &[("file", file.into())])))
+        self.live_screens().into_iter().find(|(s, _)| s.file == file).ok_or_else(|| {
+            CustomizeError::Invalid(tr_in(&self.locale_now(), "no-screen", &[("file", file.into())]))
+        })
+    }
+
+    /// The language for an error no window was named for: an attached window's, else English.
+    fn locale_now(&self) -> String {
+        let window = self.0.windows.borrow().iter().find_map(|w| w.upgrade());
+        window.map_or_else(|| "en".to_owned(), |ui| crate::customize::locale_of(&ui))
     }
 
     /// The text of screen `file` as it stands: the person's version, else the app's (tracked).

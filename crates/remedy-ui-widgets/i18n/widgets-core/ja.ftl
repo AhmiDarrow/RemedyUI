@@ -7,6 +7,11 @@ lamp-on = オン
 lamp-off = オフ
 loading = 読み込み中
 
+## Docked panes: { $label } is the pane's name ("Plans").
+dock-move = { $label }を移動
+dock-move-hint = ドラッグするか Enter キーを押すと、{ $label }を反対側にドッキングします
+dock-collapsed = { $label }（折りたたみ済み）
+
 ## Secret fields.
 show-password = パスワードを表示
 hide-password = パスワードを非表示

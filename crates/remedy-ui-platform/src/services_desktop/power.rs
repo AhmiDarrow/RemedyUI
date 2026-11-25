@@ -284,8 +284,11 @@ mod platform {
         // Refused (the page hidden, a permissions policy): nothing is held until it shows.
         let l = lock.clone();
         let refused = Closure::once_into_js(move |_: JsValue| l.borrow_mut().asking = false);
-        then.call2(&promise, &held, &refused)
-            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
+        if let Err(e) = then.call2(&promise, &held, &refused) {
+            // Neither closure will run: nothing is in flight, so the next showing asks again.
+            lock.borrow_mut().asking = false;
+            return Err(DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")));
+        }
         Ok(())
     }
 

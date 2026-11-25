@@ -28,6 +28,8 @@ pub(crate) struct Clip {
     seen: Option<(String, Option<String>)>,
     /// The user let the page read the clipboard (`clipboard-read` is granted).
     readable: bool,
+    /// What the page saw is a secret the app copied: never kept past the page losing focus.
+    secret: bool,
 }
 
 /// A key event for the platform's clipboard shortcut `letter` (c, x or v).
@@ -83,7 +85,11 @@ pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window, doc: &web_sys::Docu
         ce.prevent_default();
         let text = data.get_data("text/plain").unwrap_or_default();
         let html = data.get_data("text/html").ok().filter(|h| !h.is_empty());
-        d.state.borrow_mut().clip.seen = Some((text, html));
+        {
+            let mut s = d.state.borrow_mut();
+            s.clip.seen = Some((text, html));
+            s.clip.secret = false;
+        }
         let key = w.deferred_paste.borrow_mut().take();
         let platform = d.state.borrow().settings.platform;
         match key {
@@ -99,9 +105,11 @@ pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window, doc: &web_sys::Docu
     d.add_global(Listener::new(win, "blur", |_| {
         if let Some(d) = driver() {
             let mut s = d.state.borrow_mut();
-            if !s.clip.readable {
+            if !s.clip.readable || s.clip.secret {
                 // The user may copy something else now; what the page saw is no longer known.
+                // A secret goes even where the page may read the clipboard again later.
                 s.clip.seen = None;
+                s.clip.secret = false;
             }
         }
     }));
@@ -141,7 +149,9 @@ fn refresh() {
         if let Ok(t) = wasm_bindgen_futures::JsFuture::from(read).await
             && let (Some(text), Some(d)) = (t.as_string(), driver())
         {
-            d.state.borrow_mut().clip.seen = Some((text, None));
+            let mut s = d.state.borrow_mut();
+            s.clip.seen = Some((text, None));
+            s.clip.secret = false;
         }
     });
 }
@@ -183,7 +193,7 @@ pub(crate) fn set_text(d: &Driver, text: &str, sensitive: bool) {
         // A secret is remembered only so its time-out can tell whether it is still there; it
         // is forgotten as soon as the page loses focus.
         s.clip.seen = Some((text.to_owned(), None));
-        let _ = sensitive;
+        s.clip.secret = sensitive;
     }
     write_async(text, None);
 }
@@ -193,6 +203,7 @@ pub(crate) fn set_html(d: &Driver, text: &str, html: &str) {
         let mut s = d.state.borrow_mut();
         s.clip.pending = Some((text.to_owned(), Some(html.to_owned())));
         s.clip.seen = Some((text.to_owned(), Some(html.to_owned())));
+        s.clip.secret = false;
     }
     write_async(text, Some(html));
 }
@@ -202,6 +213,7 @@ pub(crate) fn clear(d: &Driver) {
         let mut s = d.state.borrow_mut();
         s.clip.pending = None;
         s.clip.seen = None;
+        s.clip.secret = false;
     }
     write_async("", None);
 }

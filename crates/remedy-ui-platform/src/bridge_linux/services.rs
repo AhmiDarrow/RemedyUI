@@ -408,30 +408,6 @@ impl Tray {
     }
 }
 
-/// `file://` URIs from the portal to paths (percent-decoding, local files only).
-fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    let rest = uri.strip_prefix("file://")?;
-    let bytes = rest.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while let Some(&b) = bytes.get(i) {
-        if b == b'%'
-            && let Some(h) = bytes
-                .get(i + 1..i + 3)
-                .and_then(|h| std::str::from_utf8(h).ok())
-                .and_then(|h| u8::from_str_radix(h, 16).ok())
-        {
-            out.push(h);
-            i += 3;
-            continue;
-        }
-        out.push(b);
-        i += 1;
-    }
-    use std::os::unix::ffi::OsStringExt;
-    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
-}
-
 /// Runs the portal's open or save dialog and waits for the answer.
 pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, Unsupported> {
     use std::pin::Pin;
@@ -504,7 +480,8 @@ pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, 
         }
         let uris: Vec<String> =
             results.get("uris").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
-        Ok(uris.iter().filter_map(|u| uri_to_path(u)).collect())
+        // The portal answers with `file://` URIs; only local files are paths.
+        Ok(uris.iter().filter_map(|u| crate::bridge_linux::dnd::file_uri_path(u)).collect())
     })
     .map_err(err)
 }

@@ -169,6 +169,39 @@ impl RichText {
     }
 }
 
+/// Calls `f` with each stretch between the boundaries of `ranges` (and 0 and `len`), in
+/// order, and the indices of the ranges over it, lowest first. One pass over the boundaries:
+/// asking every range about every stretch is quadratic in a text with thousands of spans.
+pub(crate) fn stretches(
+    ranges: &[Range<usize>],
+    len: usize,
+    mut f: impl FnMut(Range<usize>, &std::collections::BTreeSet<usize>),
+) {
+    let mut cuts: Vec<usize> = ranges.iter().flat_map(|r| [r.start, r.end]).collect();
+    cuts.push(0);
+    cuts.push(len);
+    cuts.sort_unstable();
+    cuts.dedup();
+    // A range is over the stretches from its start to its end; an empty one is over none.
+    let mut starts: Vec<(usize, &Range<usize>)> =
+        ranges.iter().enumerate().filter(|(_, r)| r.start < r.end).collect();
+    let mut ends = starts.clone();
+    starts.sort_by_key(|(_, r)| r.start);
+    ends.sort_by_key(|(_, r)| r.end);
+    let (mut starts, mut ends) = (starts.into_iter().peekable(), ends.into_iter().peekable());
+    let mut over = std::collections::BTreeSet::new();
+    for w in cuts.windows(2) {
+        let &[start, end] = w else { continue };
+        while let Some((i, _)) = starts.next_if(|(_, r)| r.start <= start) {
+            over.insert(i);
+        }
+        while let Some((i, _)) = ends.next_if(|(_, r)| r.end <= start) {
+            over.remove(&i);
+        }
+        f(start..end, &over);
+    }
+}
+
 impl From<&str> for RichText {
     fn from(s: &str) -> Self {
         RichText::plain(s)
@@ -178,5 +211,31 @@ impl From<&str> for RichText {
 impl From<String> for RichText {
     fn from(s: String) -> Self {
         RichText::plain(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stretches_name_the_ranges_over_each_piece() {
+        // Nested, touching, overlapping, empty and past the end.
+        let ranges = [0..10, 2..4, 4..6, 3..8, 5..5, 9..14, 2..4];
+        let mut seen = Vec::new();
+        stretches(&ranges, 12, |piece, over| seen.push((piece, over.iter().copied().collect::<Vec<_>>())));
+        let pieces: Vec<Range<usize>> = seen.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(pieces, [0..2, 2..3, 3..4, 4..5, 5..6, 6..8, 8..9, 9..10, 10..12, 12..14]);
+        for (piece, over) in &seen {
+            let slow: Vec<usize> = (0..ranges.len())
+                .filter(|i| ranges.get(*i).is_some_and(|r| r.start <= piece.start && r.end >= piece.end))
+                .collect();
+            assert_eq!(*over, slow, "{piece:?}");
+        }
+        // No ranges: the whole text is one piece; no text, none.
+        let mut whole = Vec::new();
+        stretches(&[], 3, |piece, over| whole.push((piece, over.len())));
+        assert_eq!(whole, [(0..3, 0)]);
+        stretches(&[], 0, |_, _| unreachable!("nothing to cut"));
     }
 }

@@ -75,7 +75,7 @@ fn files_dragged_out_reach_an_xdnd_target_as_a_uri_list() {
         atom(&conn, "text/uri-list"),
         atom(&conn, "XdndActionCopy"),
     );
-    let got = atom(&conn, "HEARTH_TEST_DROP");
+    let got = atom(&conn, "REMEDY_UI_TEST_DROP");
     let _ = conn.change_property32(PropMode::REPLACE, target, aware, AtomEnum::ATOM, &[5]);
     let _ = conn.map_window(target);
     // The button goes down over the target, as when a drag leaves the app's window.

@@ -621,3 +621,53 @@ fn turned_text_matches_the_cpu_and_turns_its_glyphs() {
         );
     }
 }
+
+/// A picture on the GPU that no device here opens where it is (a browser's frame): shown from
+/// its read-back, when it has one.
+struct Elsewhere(Option<remedy_ui_engine::paint::CpuPixels>);
+
+impl remedy_ui_engine::paint::GpuPicture for Elsewhere {
+    fn texture(&self) -> remedy_ui_engine::paint::GpuTexture {
+        remedy_ui_engine::paint::GpuTexture::WebVideoFrame { frame: 0, width: 64, height: 48 }
+    }
+
+    fn read_back(&self) -> Option<remedy_ui_engine::paint::CpuPixels> {
+        self.0.clone()
+    }
+}
+
+#[test]
+fn a_stream_takes_read_backs_then_uploads_and_skips_what_it_cannot_draw() {
+    use remedy_ui_engine::paint::{CpuPixels, PixelFormat, VideoFrame};
+    let mut g = gpu();
+    let draw = |g: &mut GpuRenderer, f: &VideoFrame| {
+        let mut list = DisplayList::new();
+        list.push(Item::Video {
+            frame: f.clone(),
+            rect: Rect::new(0.0, 0.0, 64.0, 48.0),
+            radii: CornerRadii::ZERO,
+        });
+        match g.render(&list, 64, 48, 1.0, Color::BLACK) {
+            Ok(frame) => frame,
+            Err(e) => unreachable!("it renders: {e:?}"),
+        }
+    };
+    let shows = |got: &Frame, f: &VideoFrame| {
+        let reference = Frame { width: 64, height: 48, pixels: f.to_rgba().unwrap_or_default() };
+        differing(got, &reference, 2) == 0
+    };
+    // A picture the device cannot open is read back (as RGBA here) and uploaded.
+    let rgba = video_frame(9, 1, PixelFormat::Rgba);
+    let pixels = CpuPixels { format: rgba.format, planes: rgba.planes, data: rgba.data.clone() };
+    let read_back = VideoFrame::on_gpu(9, 1, 64, 48, Arc::new(Elsewhere(Some(pixels))));
+    assert!(shows(&draw(&mut g, &read_back), &rgba), "the read-back shows");
+    // The stream's next frame is in memory, in its own format: other planes than the read-back's.
+    let nv12 = video_frame(9, 2, PixelFormat::Nv12);
+    assert!(shows(&draw(&mut g, &nv12), &nv12), "the frame in memory shows");
+    // A picture that can be neither opened nor read is not drawn, nor taken for drawn.
+    let lost = VideoFrame::on_gpu(9, 3, 64, 48, Arc::new(Elsewhere(None)));
+    let blank = draw(&mut g, &lost);
+    let black = blank.pixels.as_chunks::<4>().0.iter().all(|p| *p == [0, 0, 0, 255]);
+    assert!(black, "not the frame before it");
+    assert!(shows(&draw(&mut g, &nv12), &nv12), "the stream draws again");
+}

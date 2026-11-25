@@ -261,7 +261,19 @@ impl GpuPicture for ElementFrame {
     }
 
     fn read_back(&self) -> Option<CpuPixels> {
-        let data = draw_rgba(&self.video, (self.width, self.height), &mut None)?;
+        // One canvas for every read (a CPU renderer reads each picture it draws).
+        thread_local! {
+            static CANVAS: RefCell<Option<(JsValue, JsValue)>> = const { RefCell::new(None) };
+        }
+        let data = CANVAS.with(|c| {
+            let mut slot = c.borrow_mut();
+            let data = draw_rgba(&self.video, (self.width, self.height), &mut slot);
+            // A canvas that could not be read (its context lost) is made anew next time.
+            if data.is_none() {
+                *slot = None;
+            }
+            data
+        })?;
         let stride = self.width as usize * 4;
         Some(CpuPixels {
             format: PixelFormat::Rgba,

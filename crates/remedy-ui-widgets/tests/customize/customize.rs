@@ -603,6 +603,31 @@ fn every_string_can_be_rewritten_in_message_files() {
     assert_eq!(catalog.text_in("fr", "Share a folder"), "Partager");
 }
 
+#[test]
+fn undo_puts_back_only_the_files_a_change_touched() {
+    let dir = TempDir::new("touched");
+    let ui = window();
+    let catalog = Catalog::new("en").embedded_json("fr", r#"{"Share a folder": "Partager un dossier"}"#);
+    dir.write("text/de.json", r#"{"Share a folder": "Ordner teilen"}"#);
+    let c = Customizations::new(dir.path());
+    c.enable_text(&catalog);
+    c.set_text(&ui, "fr-FR", "Share a folder", "Partager un rép").must("the first of a run");
+    c.set_text(&ui, "fr-FR", "Share a folder", "Partager un répertoire").must("the run goes on");
+    assert_eq!(ui.history().len(), 1);
+    // Edited by hand since: no part of the change, so undo and redo leave it alone.
+    let by_hand = r#"{"Share a folder": "Ordner freigeben"}"#;
+    dir.write("text/de.json", by_hand);
+    assert!(ui.undo_change());
+    assert!(dir.read("text/fr-FR.json").is_none(), "back to before the run");
+    assert_eq!(dir.read("text/de.json").as_deref(), Some(by_hand));
+    assert!(ui.redo_change());
+    assert_eq!(
+        json(&dir.read("text/fr-FR.json").must("made again")),
+        json(r#"{"Share a folder": "Partager un répertoire"}"#)
+    );
+    assert_eq!(dir.read("text/de.json").as_deref(), Some(by_hand));
+}
+
 // --- Editors through the accessibility tree --------------------------------------------------
 
 #[test]
@@ -822,6 +847,14 @@ fn people_rearrange_screens_with_notices_resets_and_undo() {
     c.reset_layout(&ui, "settings.rui").must("reset one");
     assert!(!layout.is_custom());
     c.reset_layouts(&ui).must("reset all layouts");
+
+    // A screen that is not shown is said so in the attached window's language.
+    ui.set_locale("de");
+    c.attach(&ui);
+    let Err(CustomizeError::Invalid(why)) = c.check_layout("other.rui", mine) else {
+        unreachable!("no such screen")
+    };
+    assert_eq!(why, "kein Bildschirm other.rui wird angezeigt");
 }
 
 #[test]

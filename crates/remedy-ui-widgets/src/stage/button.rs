@@ -315,8 +315,9 @@ fn round(cx: &mut PaintCx<'_>, pressed: bool, lit: bool, text: &str) {
         brush: Brush::Solid(Color::WHITE.with_alpha(if lit { 0.16 } else { 0.08 })),
         even_odd: false,
     });
-    let size =
-        (cx.theme.type_scale.body * s / 80.0).clamp(cx.theme.type_scale.small, cx.theme.type_scale.title);
+    // `max` then `min`, not `clamp`: that panics on a theme whose small text is the larger.
+    let scale = cx.theme.type_scale;
+    let size = (scale.body * s / 80.0).max(scale.small).min(scale.title);
     label_on(cx, text, face, fill, size);
 }
 

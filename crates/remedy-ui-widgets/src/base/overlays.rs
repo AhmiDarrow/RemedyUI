@@ -34,7 +34,8 @@ const EDGE: f32 = 4.0;
 
 /// Where an overlay of `size` goes for `anchor` (the rectangle it belongs to) in a window of
 /// `window`: below the anchor at its start, slid back from the end edge, flipped above when
-/// it does not fit below, and never past the window's start or top.
+/// it does not fit below, and never past the window's start or top (nor its bottom, for an
+/// anchor that has scrolled out below it).
 pub fn fit_near(anchor: Rect, size: Size, gap: f32, window: Size) -> Point {
     let x = anchor.min.x.min(window.width - size.width - EDGE).max(EDGE);
     let below = anchor.max.y + gap;
@@ -42,7 +43,7 @@ pub fn fit_near(anchor: Rect, size: Size, gap: f32, window: Size) -> Point {
     let y = if below + size.height + EDGE <= window.height || above < EDGE {
         below.min(window.height - size.height - EDGE)
     } else {
-        above
+        above.min(window.height - size.height - EDGE)
     };
     Point::new(x.max(0.0), y.max(0.0))
 }
@@ -217,11 +218,14 @@ pub fn tooltip(target: &El, text: impl remedy_ui_engine::view::IntoProp<String>)
             let (ui2, t2, text, shown) = (ui.clone(), t.clone(), text.clone(), shown.clone());
             let id = ui.after(TOOLTIP_DELAY, move || {
                 let Some(b) = t2.bounds() else { return };
+                // Nothing to say (a label that is empty now): no empty bubble.
+                let said = text.get();
+                if said.is_empty() {
+                    return;
+                }
                 // Long tips wrap: at most a readable width, never past the window.
-                let tip = ui2
-                    .el("tooltip")
-                    .text(remedy_ui_engine::view::RichText::plain(text.get()))
-                    .pass_through();
+                let said = remedy_ui_engine::view::RichText::plain(said);
+                let tip = ui2.el("tooltip").text(said).pass_through();
                 let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
                 *shown.borrow_mut() = Some(tip);
             });
@@ -335,10 +339,17 @@ pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
 }
 
 /// Shows `content` below `anchor` until a press outside or Escape (which gives focus back).
+/// It stays inside the window as [`fit_near`] places it, and scrolls when it is taller than
+/// the window.
 #[track_caller]
 pub fn popover(ui: &Ui, anchor: &El, content: El) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
-    let card = place_near(ui, ui.el("menu").column(), b, 4.0).child(content);
+    let first = Point::new(b.min.x, b.max.y + 4.0);
+    let card = ui.el("menu").column().scroll();
+    let card = place_fitted(ui, card, first, f32::INFINITY, true, move |size, window| {
+        fit_near(b, size, 4.0, window)
+    })
+    .child(content);
     let l = dismissable(ui, card.clone());
     card.focus_first();
     l
@@ -487,6 +498,8 @@ pub fn dialog(
             .variant(variant),
         )
     });
+    // Buttons that do not fit side by side (long labels, a narrow window) go onto more rows.
+    let row = row.layout(|l| l.wrap = true);
     let m = modal(ui, title, content.child(row), true);
     *slot.borrow_mut() = Some(m.clone());
     m
@@ -521,10 +534,17 @@ pub fn trusted_prompt(
     let allow = crate::base::button(ui, move || crate::base::tr(&u2, "prompt-allow"), answer(true))
         .variant("primary")
         .disabled(true);
+    // A long message in a small window scrolls inside the prompt, as a modal's does: the
+    // buttons are never left outside the window.
     let body = ui
         .el("dialog")
         .column()
         .gap(gap)
+        .scroll()
+        .layout(|l| {
+            l.max_width = Length::Percent(0.92);
+            l.max_height = Length::Percent(0.92);
+        })
         .semantics(Semantics::new(Role::Dialog).label(title.clone()).modal(true))
         .child(crate::base::icon(ui, crate::base::Icon::Lock, ui.theme().type_scale.title))
         .child(crate::base::heading(ui, 2, title))
@@ -534,6 +554,7 @@ pub fn trusted_prompt(
                 .row()
                 .gap(gap)
                 .justify(Justify::End)
+                .layout(|l| l.wrap = true)
                 .child(deny.clone())
                 .child(allow.clone()),
         );
@@ -615,6 +636,9 @@ mod tests {
         let tall = Size::new(100.0, 590.0);
         let p = fit_near(Rect::new(10.0, 300.0, 30.0, 320.0), tall, 4.0, WIN);
         assert!(p.y + tall.height <= WIN.height && p.y >= 0.0, "{p:?}");
+        // An anchor scrolled out below the window: the overlay stays inside all the same.
+        let p = fit_near(Rect::new(100.0, 700.0, 140.0, 730.0), tip, 4.0, WIN);
+        assert!(p.y + tip.height <= WIN.height, "{p:?}");
         // Near the start edge: not pushed past it.
         assert_eq!(fit_near(Rect::new(0.0, 0.0, 20.0, 20.0), tip, 4.0, WIN).x, 4.0);
     }

@@ -1,5 +1,7 @@
 //! Cookies natively, as RFC 6265 describes a user agent keeping them: `Domain` and host-only
-//! cookies, `Path`, `Secure`, `HttpOnly`, `Expires` and `Max-Age`, and `SameSite` kept.
+//! cookies, `Path`, `Secure`, `HttpOnly`, `Expires` and `Max-Age`, and `SameSite` kept; with
+//! RFC 6265bis's size limits, `__Secure-` and `__Host-` name prefixes and its rule that a
+//! plain-http origin leaves `Secure` cookies alone.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -45,7 +47,10 @@ pub struct Cookie {
 /// Cookies kept between native requests, as a server sets them with `Set-Cookie` and as
 /// RFC 6265 sends them back: to the host that set them (or its subdomains, with `Domain`),
 /// under their `Path`, `Secure` ones only over `https` or to the loopback interface, until
-/// they expire (`Expires`, `Max-Age`). A `Domain` of a single label (`com`) is refused; a
+/// they expire (`Expires`, `Max-Age`). As RFC 6265bis says, a cookie whose name and value
+/// are longer than 4096 bytes is ignored (an attribute longer than 1024 bytes too), a
+/// `__Secure-` name needs `Secure`, a `__Host-` name also `Path=/` and no `Domain`, and a
+/// plain-http origin cannot replace a `Secure` cookie. A `Domain` of a single label (`com`) is refused; a
 /// longer public suffix (`co.uk`) is not known without the public suffix list, so the jar
 /// trusts the servers the app talks to. A browser page needs no jar: the browser keeps the
 /// page's cookies.
@@ -56,16 +61,32 @@ pub struct CookieJar(Arc<Mutex<Jar>>);
 /// browsers keep in all.
 pub const DEFAULT_MAX_COOKIES: usize = 3000;
 
+/// The cookies a jar keeps for one domain unless set otherwise
+/// ([`CookieJar::max_per_host`]): 180, about what browsers keep, so one server cannot push
+/// out every other server's cookies.
+pub const DEFAULT_MAX_COOKIES_PER_HOST: usize = 180;
+
+/// RFC 6265bis 5.6: the longest name and value together, in bytes.
+const MAX_PAIR: usize = 4096;
+/// RFC 6265bis 5.6: the longest attribute value, in bytes.
+const MAX_ATTRIBUTE: usize = 1024;
+
 #[derive(Debug)]
 struct Jar {
     cookies: Vec<Cookie>,
     next: u64,
     max: Option<usize>,
+    per_host: Option<usize>,
 }
 
 impl Default for Jar {
     fn default() -> Self {
-        Jar { cookies: Vec::new(), next: 0, max: Some(DEFAULT_MAX_COOKIES) }
+        Jar {
+            cookies: Vec::new(),
+            next: 0,
+            max: Some(DEFAULT_MAX_COOKIES),
+            per_host: Some(DEFAULT_MAX_COOKIES_PER_HOST),
+        }
     }
 }
 
@@ -85,7 +106,8 @@ fn now() -> i64 {
 }
 
 impl CookieJar {
-    /// An empty jar, keeping up to [`DEFAULT_MAX_COOKIES`].
+    /// An empty jar, keeping up to [`DEFAULT_MAX_COOKIES`], [`DEFAULT_MAX_COOKIES_PER_HOST`]
+    /// of them for one domain.
     pub fn new() -> Self {
         CookieJar::default()
     }
@@ -95,6 +117,21 @@ impl CookieJar {
         let mut jar = self.lock();
         jar.max = max.into();
         jar.trim();
+        drop(jar);
+        self
+    }
+
+    /// Keeps at most `max` cookies of one domain ([`Cookie::domain`]), forgetting that
+    /// domain's oldest beyond that; `None` for no limit.
+    pub fn max_per_host(self, max: impl Into<Option<usize>>) -> Self {
+        let mut jar = self.lock();
+        jar.per_host = max.into();
+        let mut domains: Vec<String> = jar.cookies.iter().map(|c| c.domain.clone()).collect();
+        domains.sort_unstable();
+        domains.dedup();
+        for d in &domains {
+            jar.trim_host(d);
+        }
         drop(jar);
         self
     }
@@ -109,22 +146,30 @@ impl CookieJar {
     }
 
     /// Keeps a cookie for `url`'s host and every path, as if the server had set
-    /// `name=value; Path=/`.
+    /// `name=value; Path=/` (with `Secure` for a `__Secure-` or `__Host-` name, which
+    /// promises it). Like a server's, it is ignored when `url` is plain `http` beyond the
+    /// loopback interface and the name has such a prefix or a `Secure` cookie has that name.
     pub fn set(&self, url: &str, name: impl Into<String>, value: impl Into<String>) {
         let Some(at) = Parts::of(url) else { return };
+        let name = name.into();
+        let from_secure = at.secure();
+        let secure = prefixed(&name, "__Secure-") || prefixed(&name, "__Host-");
+        if secure && !from_secure {
+            return;
+        }
         let cookie = Cookie {
-            name: name.into(),
+            name,
             value: value.into(),
             domain: at.host,
             host_only: true,
             path: "/".into(),
-            secure: false,
+            secure,
             http_only: false,
             same_site: None,
             expires: None,
             created: 0,
         };
-        self.lock().keep(cookie, now());
+        self.lock().keep(cookie, from_secure, now());
     }
 
     /// Every cookie kept and not yet expired.
@@ -172,16 +217,29 @@ impl CookieJar {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) fn store(&self, url: &str, set_cookie: &str) {
         let now = now();
-        if let Some(c) = parse(url, set_cookie, now) {
-            self.lock().keep(c, now);
+        if let Some((c, from_secure)) = parse(url, set_cookie, now) {
+            self.lock().keep(c, from_secure, now);
         }
     }
 }
 
 impl Jar {
     /// Replaces the cookie of the same name, domain and path (keeping when it was first
-    /// set), or drops it when the new one has already expired.
-    fn keep(&mut self, mut c: Cookie, now: i64) {
+    /// set), or drops it when the new one has already expired. `from_secure`: its origin was
+    /// `https` or the loopback interface.
+    fn keep(&mut self, mut c: Cookie, from_secure: bool, now: i64) {
+        // RFC 6265bis 5.7: a plain-http origin neither replaces nor shadows a Secure cookie.
+        if !from_secure
+            && self.cookies.iter().any(|o| {
+                o.secure
+                    && o.name == c.name
+                    && (domain_match(&o.domain, &c.domain) || domain_match(&c.domain, &o.domain))
+                    && path_match(&c.path, &o.path)
+                    && o.expires.is_none_or(|e| e > now)
+            })
+        {
+            return;
+        }
         let old =
             self.cookies.iter().position(|o| o.name == c.name && o.domain == c.domain && o.path == c.path);
         let created = old.map(|i| self.cookies.remove(i).created);
@@ -192,8 +250,22 @@ impl Jar {
             self.next += 1;
             self.next
         });
+        let domain = c.domain.clone();
         self.cookies.push(c);
+        self.trim_host(&domain);
         self.trim();
+    }
+
+    /// Forgets the oldest cookies of `domain` beyond the limit for one domain.
+    fn trim_host(&mut self, domain: &str) {
+        let Some(max) = self.per_host else { return };
+        while self.cookies.iter().filter(|c| c.domain == domain).count() > max {
+            let of_domain = self.cookies.iter().enumerate().filter(|(_, c)| c.domain == domain);
+            let Some(oldest) = of_domain.min_by_key(|(_, c)| c.created).map(|(i, _)| i) else {
+                return;
+            };
+            self.cookies.remove(oldest);
+        }
     }
 
     /// Forgets the oldest cookies beyond the limit.
@@ -230,20 +302,32 @@ fn default_path(path: &str) -> String {
     }
 }
 
-/// RFC 6265 5.2 and 5.3: the cookie a `Set-Cookie` header from `url` sets, or `None` when a
-/// user agent ignores it.
-fn parse(url: &str, header: &str, now: i64) -> Option<Cookie> {
+/// RFC 6265bis 4.1.3: whether `name` starts with `prefix` (`__Secure-`, `__Host-`) in any case.
+fn prefixed(name: &str, prefix: &str) -> bool {
+    name.get(..prefix.len()).is_some_and(|p| p.eq_ignore_ascii_case(prefix))
+}
+
+/// RFC 6265 5.2 and 5.3 with RFC 6265bis's limits: the cookie a `Set-Cookie` header from `url`
+/// sets and whether `url` is a secure origin, or `None` when a user agent ignores it.
+fn parse(url: &str, header: &str, now: i64) -> Option<(Cookie, bool)> {
     let at = Parts::of(url)?;
+    // A control character anywhere makes a user agent ignore the whole header.
+    if header.bytes().any(|b| b.is_ascii_control() && b != b'\t') {
+        return None;
+    }
     let mut attrs = header.split(';');
     let (name, value) = attrs.next()?.split_once('=')?;
     let (name, value) = (name.trim(), value.trim());
-    if name.is_empty() {
+    if name.is_empty() || name.len() + value.len() > MAX_PAIR {
         return None;
     }
     let (mut expires, mut max_age, mut domain, mut path) = (None, None, None, None);
     let (mut secure, mut http_only, mut same_site) = (false, false, None);
     for a in attrs {
         let (k, v) = a.split_once('=').map_or((a.trim(), ""), |(k, v)| (k.trim(), v.trim()));
+        if v.len() > MAX_ATTRIBUTE {
+            continue;
+        }
         match k.to_ascii_lowercase().as_str() {
             "expires" => expires = cookie_date(v).or(expires),
             "max-age" => {
@@ -272,7 +356,16 @@ fn parse(url: &str, header: &str, now: i64) -> Option<Cookie> {
         }
     }
     // A secure cookie only from a secure origin (RFC 6265bis), as browsers keep them.
-    if secure && !at.secure() {
+    let from_secure = at.secure();
+    if secure && !from_secure {
+        return None;
+    }
+    // RFC 6265bis 4.1.3: a prefixed name is only kept with what the prefix promises.
+    let host_prefix = prefixed(name, "__Host-");
+    if (host_prefix || prefixed(name, "__Secure-")) && !secure {
+        return None;
+    }
+    if host_prefix && (domain.is_some() || path.as_deref() != Some("/")) {
         return None;
     }
     let (domain, host_only) = match domain {
@@ -282,7 +375,7 @@ fn parse(url: &str, header: &str, now: i64) -> Option<Cookie> {
         Some(d) => (d, false),
         None => (at.host.clone(), true),
     };
-    Some(Cookie {
+    let cookie = Cookie {
         name: name.to_owned(),
         value: value.to_owned(),
         domain,
@@ -293,7 +386,8 @@ fn parse(url: &str, header: &str, now: i64) -> Option<Cookie> {
         same_site,
         expires: max_age.or(expires),
         created: 0,
-    })
+    };
+    Some((cookie, from_secure))
 }
 
 /// RFC 6265 5.1.1: a cookie date (`Wed, 21 Oct 2026 07:28:00 GMT` and the older forms), in
@@ -423,12 +517,65 @@ mod tests {
             jar.store("https://a.test/", &format!("{n}=1"));
         }
         assert_eq!(jar.header("https://a.test/").as_deref(), Some("b=1; c=1"), "the oldest went");
-        let jar = jar.max_cookies(None);
+        let jar = jar.max_cookies(None).max_per_host(None);
         for n in 0..(DEFAULT_MAX_COOKIES + 5) {
             jar.store("https://a.test/", &format!("n{n}=1"));
         }
         assert_eq!(jar.cookies().len(), DEFAULT_MAX_COOKIES + 7);
         assert_eq!(CookieJar::new().lock().max, Some(DEFAULT_MAX_COOKIES));
+    }
+
+    #[test]
+    fn one_domain_cannot_fill_the_jar() {
+        let jar = CookieJar::new().max_per_host(2);
+        jar.store("https://b.test/", "keep=1");
+        for n in ["a", "b", "c"] {
+            jar.store("https://a.test/", &format!("{n}=1"));
+        }
+        assert_eq!(jar.header("https://a.test/").as_deref(), Some("b=1; c=1"), "its own oldest went");
+        assert_eq!(jar.get("https://b.test/", "keep").as_deref(), Some("1"));
+        let jar = jar.max_per_host(1);
+        assert_eq!(jar.header("https://a.test/").as_deref(), Some("c=1"));
+        assert_eq!(CookieJar::new().lock().per_host, Some(DEFAULT_MAX_COOKIES_PER_HOST));
+    }
+
+    #[test]
+    fn sizes_prefixes_and_secure_cookies_left_alone() {
+        let names = |jar: &CookieJar| jar.cookies().into_iter().map(|c| c.name).collect::<Vec<_>>();
+        let jar = CookieJar::new();
+        let at = "https://www.a.test/x/y";
+        jar.store(at, &format!("big={}", "v".repeat(MAX_PAIR)));
+        jar.store(at, &format!("fits={}", "v".repeat(MAX_PAIR - 4)));
+        // An attribute too long is ignored, not the cookie.
+        jar.store(at, &format!("attr=1; Path=/{}", "p".repeat(MAX_ATTRIBUTE)));
+        jar.store(at, "ctl=1\u{1}");
+        assert_eq!(names(&jar), ["fits", "attr"]);
+        assert_eq!(jar.cookies().get(1).map(|c| c.path.clone()).as_deref(), Some("/x"));
+
+        let jar = CookieJar::new();
+        jar.store(at, "__Secure-no=1");
+        jar.store(at, "__secure-yes=1; Secure");
+        jar.store(at, "__Host-nopath=1; Secure");
+        jar.store(at, "__Host-domain=1; Secure; Path=/; Domain=a.test");
+        jar.store(at, "__Host-plain=1; Path=/");
+        jar.store(at, "__Host-yes=1; Secure; Path=/");
+        jar.set("http://www.a.test/", "__Host-set", "1");
+        jar.set(at, "__Host-set2", "1");
+        assert_eq!(names(&jar), ["__secure-yes", "__Host-yes", "__Host-set2"]);
+        assert!(jar.cookies().iter().all(|c| c.secure));
+
+        // Over plain http neither the same cookie nor one that would shadow it is taken.
+        let jar = CookieJar::new();
+        jar.store("https://www.a.test/", "sid=good; Secure; Path=/; Domain=a.test");
+        jar.store("http://www.a.test/", "sid=evil; Path=/; Domain=a.test");
+        jar.store("http://www.a.test/", "sid=evil; Path=/deep");
+        jar.store("http://www.a.test/", "sid=; Max-Age=0; Path=/; Domain=a.test");
+        jar.set("http://www.a.test/", "sid", "evil");
+        jar.store("http://www.a.test/", "other=1");
+        assert_eq!(jar.header("https://www.a.test/deep/x").as_deref(), Some("sid=good; other=1"));
+        // A secure origin replaces it as before.
+        jar.store("https://www.a.test/", "sid=new; Path=/; Domain=a.test");
+        assert_eq!(jar.get("http://www.a.test/", "sid").as_deref(), Some("new"));
     }
 
     #[test]
