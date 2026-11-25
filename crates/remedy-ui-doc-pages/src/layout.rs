@@ -235,7 +235,8 @@ impl PageLayout {
         self.margin + self.prefix.get(r).copied().unwrap_or(0.0) * zoom + self.gap * r as f32
     }
 
-    fn row_bottom(&self, r: usize, zoom: f32) -> f32 {
+    /// The bottom of row `r` at `zoom`.
+    pub fn row_bottom(&self, r: usize, zoom: f32) -> f32 {
         self.row_top(r, zoom) + self.rows.get(r).map_or(0.0, |row| row.height) * zoom
     }
 
