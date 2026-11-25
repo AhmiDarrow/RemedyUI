@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] قطع ناقص
     [line] خط
     [arrow] سهم
+    [image] صورة
    *[annotation] تعليق توضيحي
 }
 annotation-quoting = { $what }: «{ $text }»
@@ -42,6 +43,7 @@ undo-add = { $kind ->
     [ellipse] إضافة قطع ناقص
     [line] إضافة خط
     [arrow] إضافة سهم
+    [image] إضافة صورة
    *[annotation] إضافة تعليق توضيحي
 }
 undo-change = { $kind ->
@@ -56,6 +58,7 @@ undo-change = { $kind ->
     [ellipse] تغيير القطع الناقص
     [line] تغيير الخط
     [arrow] تغيير السهم
+    [image] تغيير الصورة
    *[annotation] تغيير التعليق التوضيحي
 }
 undo-delete = { $kind ->
@@ -70,6 +73,7 @@ undo-delete = { $kind ->
     [ellipse] حذف القطع الناقص
     [line] حذف الخط
     [arrow] حذف السهم
+    [image] حذف الصورة
    *[annotation] حذف التعليق التوضيحي
 }
 undo-move = { $kind ->
@@ -84,5 +88,6 @@ undo-move = { $kind ->
     [ellipse] نقل القطع الناقص
     [line] نقل الخط
     [arrow] نقل السهم
+    [image] نقل الصورة
    *[annotation] نقل التعليق التوضيحي
 }

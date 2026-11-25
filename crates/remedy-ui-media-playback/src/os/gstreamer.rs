@@ -416,7 +416,15 @@ impl MediaHost for GstHost {
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(GstOutput::open(gst()?, format)?))
+        Ok(Box::new(GstOutput::open(gst()?, format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(GstOutput::open(gst()?, format, latency)?))
     }
 
     fn video_stream_decoder_choice(&self, codec: VideoCodec, hardware: bool) -> Result<String, MediaError> {
@@ -579,6 +587,11 @@ impl GstDecoder {
                 s
             }
             MediaSource::Url(u) => u.clone(),
+            MediaSource::Bytes(_) => {
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
+            }
         };
         let uri = CString::new(uri).map_err(|e| MediaError::NotFound(e.to_string()))?;
         let playbin = g.make("playbin")?;
@@ -1139,6 +1152,8 @@ struct GstOutput {
     pipeline: Ptr,
     src: Ptr,
     format: AudioFormat,
+    /// How much sound waits in the pipeline's queue when it is full.
+    depth: Duration,
     queue_bytes: u64,
     written: u64,
     playing: bool,
@@ -1148,10 +1163,20 @@ struct GstOutput {
 unsafe impl Send for GstOutput {}
 
 impl GstOutput {
-    fn open(g: &'static Gst, format: AudioFormat) -> Result<GstOutput, MediaError> {
+    fn open(
+        g: &'static Gst,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<GstOutput, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
+        // Interactive: little waiting in the pipeline's own queue (the sound server's
+        // buffer after it is the server's to size).
+        let depth = match latency {
+            crate::host::Latency::Interactive => Duration::from_millis(20),
+            _ => OUTPUT_QUEUE,
+        };
         let desc = format!(
             "appsrc name=src format=time is-live=false block=false \
              caps=audio/x-raw,format=F32LE,layout=interleaved,rate={},channels={} \
@@ -1179,7 +1204,7 @@ impl GstOutput {
             unsafe { (g.object_unref)(pipeline) };
             return Err(MediaError::Device("the sound pipeline has no source".into()));
         }
-        let queue_bytes = format.frames_in(OUTPUT_QUEUE) * u64::from(format.channels) * 4;
+        let queue_bytes = format.frames_in(depth) * u64::from(format.channels) * 4;
         // SAFETY: a documented appsrc property and a state change on a live pipeline.
         unsafe {
             (g.object_set)(src, c"max-bytes".as_ptr(), queue_bytes, std::ptr::null::<c_char>());
@@ -1197,6 +1222,7 @@ impl GstOutput {
             pipeline,
             src,
             format,
+            depth,
             queue_bytes,
             written: 0,
             playing: false,
@@ -1217,7 +1243,7 @@ impl AudioOutput for GstOutput {
     }
 
     fn buffer(&self) -> Duration {
-        OUTPUT_QUEUE
+        self.depth
     }
 
     fn room(&mut self) -> Result<usize, MediaError> {

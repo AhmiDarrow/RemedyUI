@@ -8,7 +8,17 @@
 //! feed, or Tauri's multi-platform `latest.json`). Plain `http` is refused except
 //! on the loopback interface (local testing). See `docs/design/08-security-and-privacy.md`.
 //!
-//! The calls block; run them off the UI thread (`App::background`).
+//! A feed entry that carries a SHA-256 and no signature is refused, on purpose: the hash
+//! arrives over the same channel as the address it vouches for, so whoever can change the
+//! feed changes both, and it proves the download is whole, not that it is the publisher's.
+//! The one checksum channel that is allowed is [`Trust::Checksums`]: the checksum file
+//! published beside the asset in the app's own GitHub release, and on Windows the
+//! installer's Authenticode signer pinned by thumbprint. An app that wants hashes alone on
+//! its own server signs its feed's downloads with minisign instead.
+//!
+//! The calls block; run them off the UI thread (`App::background`). A download is held in
+//! memory until it verifies, so one that is cancelled ([`download_with`]) or fails leaves
+//! nothing on disk; a file that fails its publisher check is deleted.
 
 /// The update strip's own words in every language the engine ships, from `i18n/*.ftl`. Apps
 /// reword them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the
@@ -46,7 +56,7 @@ pub enum Feed {
         /// The asset name or its ending.
         asset: String,
     },
-    /// A JSON document: a flat `{"version", "url", "signature", "sha256"?, "notes"?}`, or
+    /// A JSON document: a flat `{"version", "url", "signature", "sha256"?, "notes"?, "page"?}`, or
     /// Tauri's `latest.json` (`version`, optional `notes` / `pub_date`, and
     /// `platforms.<key>.{url, signature, sha256?}`). `signature` is the minisign signature
     /// (text, or base64 of it). A Tauri document uses the entry for this OS and architecture
@@ -124,6 +134,9 @@ pub struct Release {
     pub signature: String,
     /// Its SHA-256, hex, when the feed gives one.
     pub sha256: Option<String>,
+    /// The release's own page (its notes on GitHub, the feed's `page`), for a "what's new"
+    /// link, when the feed gives one.
+    pub page: Option<String>,
 }
 
 impl Release {
@@ -135,7 +148,30 @@ impl Release {
             url: url.into(),
             signature: String::new(),
             sha256: None,
+            page: None,
         }
+    }
+}
+
+/// Stops a [`download_with`] from another thread (a Cancel button).
+#[derive(Clone, Debug, Default)]
+pub struct CancelDownload(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl CancelDownload {
+    /// A handle nothing has cancelled.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Asks the download to stop: it ends with [`UpdateError::Cancelled`] within one block
+    /// of the transfer.
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether [`CancelDownload::cancel`] was called.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -151,6 +187,8 @@ pub enum UpdateError {
     Verification(String),
     /// Writing or starting the update failed.
     Io(String),
+    /// The download was cancelled ([`CancelDownload`]); nothing was written.
+    Cancelled,
 }
 
 impl std::fmt::Display for UpdateError {
@@ -160,6 +198,7 @@ impl std::fmt::Display for UpdateError {
             UpdateError::Feed(e) => write!(f, "the update feed is not readable: {e}"),
             UpdateError::Verification(e) => write!(f, "the update did not verify and was not installed: {e}"),
             UpdateError::Io(e) => write!(f, "the update could not be applied: {e}"),
+            UpdateError::Cancelled => write!(f, "the download was cancelled"),
         }
     }
 }
@@ -218,10 +257,11 @@ mod http {
         String::from_utf8(res.body).map_err(net)
     }
 
-    /// The body of `url`, reporting bytes so far and the total when the server says it.
+    /// The body of `url`, reporting bytes so far and the total when the server says it;
+    /// `progress` answering `false` stops it with [`UpdateError::Cancelled`].
     pub(super) fn fetch(
         url: &str,
-        mut progress: impl FnMut(u64, Option<u64>),
+        mut progress: impl FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Vec<u8>, UpdateError> {
         let res = agent().get(url).header("User-Agent", "RemedyUI-updater").call().map_err(net)?;
         let total =
@@ -235,7 +275,9 @@ mod http {
                 break;
             }
             bytes.extend_from_slice(buf.get(..n).unwrap_or_default());
-            progress(bytes.len() as u64, total);
+            if !progress(bytes.len() as u64, total) {
+                return Err(UpdateError::Cancelled);
+            }
         }
         Ok(bytes)
     }
@@ -256,7 +298,10 @@ mod http {
         Err(none())
     }
 
-    pub(super) fn fetch(_url: &str, _progress: impl FnMut(u64, Option<u64>)) -> Result<Vec<u8>, UpdateError> {
+    pub(super) fn fetch(
+        _url: &str,
+        _progress: impl FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Vec<u8>, UpdateError> {
         Err(none())
     }
 }
@@ -313,6 +358,11 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
                 url: url.to_owned(),
                 signature: signature.to_owned(),
                 sha256,
+                page: entry
+                    .get("page")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_owned)
+                    .or_else(|| json_str(v, "page")),
             });
         }
         return Err(UpdateError::Feed(format!("no platform in the feed for {os}-{arch}")));
@@ -323,6 +373,7 @@ fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Releas
         url: json_str(v, "url").ok_or_else(|| UpdateError::Feed("no url".into()))?,
         signature: json_str(v, "signature").ok_or_else(|| UpdateError::Feed("no signature".into()))?,
         sha256: json_str(v, "sha256"),
+        page: json_str(v, "page"),
     })
 }
 
@@ -409,6 +460,7 @@ fn github_release(cfg: &UpdateConfig, v: &serde_json::Value, asset: &str) -> Res
         url,
         signature,
         sha256: Some(sha256).flatten(),
+        page: v.get("html_url").and_then(|u| u.as_str()).map(str::to_owned),
     })
 }
 
@@ -487,10 +539,28 @@ pub fn download(
     cfg: &UpdateConfig,
     release: &Release,
     dir: &Path,
+    progress: impl FnMut(u64, Option<u64>),
+) -> Result<PathBuf, UpdateError> {
+    download_with(cfg, release, dir, &CancelDownload::new(), progress)
+}
+
+/// [`download`], stopped by `cancel` from another thread: it then ends with
+/// [`UpdateError::Cancelled`], having written nothing.
+pub fn download_with(
+    cfg: &UpdateConfig,
+    release: &Release,
+    dir: &Path,
+    cancel: &CancelDownload,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, UpdateError> {
     allowed(&release.url)?;
-    let bytes = http::fetch(&release.url, &mut progress)?;
+    if cancel.is_cancelled() {
+        return Err(UpdateError::Cancelled);
+    }
+    let bytes = http::fetch(&release.url, |got, total| {
+        progress(got, total);
+        !cancel.is_cancelled()
+    })?;
     verify(cfg, release, &bytes)?;
     let name = release.url.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("update.bin");
     let name: String =
@@ -729,7 +799,7 @@ pub fn update_banner_with(
 
 #[cfg(test)]
 mod json_feed_tests {
-    use super::{UpdateError, json_release_on, tauri_platform_keys_for};
+    use super::*;
 
     fn tauri_doc() -> serde_json::Value {
         serde_json::json!({
@@ -837,5 +907,25 @@ mod json_feed_tests {
         });
         let err = json_release_on(&empty_sig, "windows", "x86_64").map(|r| r.url);
         assert!(matches!(&err, Err(UpdateError::Feed(e)) if e.contains("signature")), "{err:?}");
+    }
+
+    #[test]
+    fn a_cancelled_download_writes_nothing_and_a_feed_gives_the_release_page() {
+        let cancel = CancelDownload::new();
+        cancel.cancel();
+        assert!(cancel.is_cancelled());
+        let cfg = UpdateConfig::new("1.0.0", Feed::Json("https://example.invalid/latest.json".into()), "");
+        let release = Release::new("1.1.0", "https://example.invalid/app-1.1.0.exe");
+        let dir = std::env::temp_dir().join(format!("remedy-update-cancel-{}", std::process::id()));
+        let got = download_with(&cfg, &release, &dir, &cancel, |_, _| {});
+        assert_eq!(got, Err(UpdateError::Cancelled));
+        assert!(!dir.exists(), "nothing was written");
+        assert_eq!(release.page, None);
+        let feed = serde_json::json!({
+            "version": "1.1.0", "url": "https://example.invalid/a.exe", "signature": "s",
+            "page": "https://example.invalid/releases/1.1.0"
+        });
+        let page = json_release(&feed).ok().and_then(|r| r.page);
+        assert_eq!(page.as_deref(), Some("https://example.invalid/releases/1.1.0"));
     }
 }

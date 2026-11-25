@@ -18,6 +18,7 @@ use remedy_ui_input::{GamepadTuning, KeyEvent, PinchEvent, Platform, PointerEven
 
 mod badge;
 pub use badge::Badge;
+pub use remedy_ui_input::Cursor;
 
 pub use accesskit;
 pub use raw_window_handle;
@@ -1550,6 +1551,11 @@ pub trait Host {
     /// playing full screen with its controls faded). Hosts without a pointer ignore it.
     fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
         let _ = (window, hidden);
+    }
+    /// Gives the mouse pointer this shape while it is over the window. Hosts without a
+    /// pointer ignore it.
+    fn set_cursor(&mut self, window: WindowId, cursor: Cursor) {
+        let _ = (window, cursor);
     }
     /// Asks for a [`HostEvent::Frame`] at the next display refresh. Several requests before
     /// it arrives merge into one.

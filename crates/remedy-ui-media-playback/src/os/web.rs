@@ -877,6 +877,48 @@ fn body_length(resp: &web_sys::Response) -> Option<u64> {
 /// Fetches `url` without blocking, a chunk at a time into `bytes`, and opens it as soon as
 /// its movie box is in (at once for a file made for streaming, its movie box first; at the
 /// end otherwise). Samples still to come wait in the feed; each chunk wakes the reader.
+/// All of `source`'s sound, mono, at `rate` frames a second: the browser decodes it
+/// (whatever it can play: mp3, wav, ogg, flac, m4a) and brings it to the rate asked for.
+pub(crate) async fn decode_audio(source: &MediaSource, rate: u32) -> Result<Vec<f32>, MediaError> {
+    let bytes: Vec<u8> = match source {
+        MediaSource::Bytes(b) => b.data.to_vec(),
+        MediaSource::File(path) => read_file(path)?,
+        MediaSource::Url(url) => {
+            let not_found = |e: JsValue| MediaError::NotFound(js_error(url, &e));
+            let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
+            let resp = JsFuture::from(win.fetch_with_str(url)).await.map_err(not_found)?;
+            let resp: web_sys::Response = resp.unchecked_into();
+            if !resp.ok() {
+                return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+            }
+            let buf = JsFuture::from(resp.array_buffer().map_err(not_found)?).await.map_err(not_found)?;
+            Uint8Array::new(&buf).to_vec()
+        }
+    };
+    let fail = |e: JsValue| MediaError::Format(js_error("the browser could not decode the sound", &e));
+    // An offline context at the wanted rate: what it decodes comes out at that rate.
+    let ctx = web_sys::OfflineAudioContext::new_with_number_of_channels_and_length_and_sample_rate(
+        1,
+        1,
+        rate as f32,
+    )
+    .map_err(|e| MediaError::Unsupported(js_error("no audio context at that rate", &e)))?;
+    let data = Uint8Array::from(bytes.as_slice()).buffer();
+    let decoded = JsFuture::from(ctx.decode_audio_data(&data).map_err(fail)?).await.map_err(fail)?;
+    let audio: web_sys::AudioBuffer = decoded.unchecked_into();
+    let channels = audio.number_of_channels();
+    let mut mono = vec![0.0f32; audio.length() as usize];
+    for c in 0..channels {
+        let plane = audio.get_channel_data(c).map_err(fail)?;
+        for (m, v) in mono.iter_mut().zip(plane) {
+            *m += v / channels as f32;
+        }
+    }
+    // A browser that kept the file's own rate leaves the last step to us.
+    let got = audio.sample_rate().round() as u32;
+    Ok(if got == rate { mono } else { crate::pcm::resample(&mono, 1, got, rate) })
+}
+
 fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>, bytes: SharedBytes) {
     wasm_bindgen_futures::spawn_local(async move {
         let not_found = |e: &JsValue| MediaError::NotFound(js_error(&url, e));
@@ -975,15 +1017,28 @@ struct WebAudio {
     heard_base: u64,
     /// Where the next block starts on the context's clock.
     next_time: f64,
+    /// How far ahead of the clock sound is scheduled.
+    depth: Duration,
 }
 
 // SAFETY: as for the decoder: one thread in a page without shared memory.
 unsafe impl Send for WebAudio {}
 
 impl WebAudio {
-    fn new(format: AudioFormat) -> Result<WebAudio, MediaError> {
+    fn new(format: AudioFormat, latency: crate::host::Latency) -> Result<WebAudio, MediaError> {
         let opts = web_sys::AudioContextOptions::new();
         opts.set_sample_rate(format.sample_rate as f32);
+        // Interactive: the browser's shortest output path, and little scheduled ahead.
+        let depth = match latency {
+            crate::host::Latency::Interactive => {
+                let _ = js_sys::Reflect::set(&opts, &"latencyHint".into(), &"interactive".into());
+                Duration::from_millis(40)
+            }
+            _ => {
+                let _ = js_sys::Reflect::set(&opts, &"latencyHint".into(), &"playback".into());
+                AUDIO_BUFFER
+            }
+        };
         let ctx = web_sys::AudioContext::new_with_context_options(&opts)
             .or_else(|_| web_sys::AudioContext::new())
             .map_err(|e| MediaError::Device(js_error("WebAudio", &e)))?;
@@ -993,6 +1048,7 @@ impl WebAudio {
         Ok(WebAudio {
             ctx,
             format,
+            depth,
             blocks: VecDeque::new(),
             sources: VecDeque::new(),
             written: 0,
@@ -1014,12 +1070,12 @@ impl AudioOutput for WebAudio {
     }
 
     fn buffer(&self) -> Duration {
-        AUDIO_BUFFER
+        self.depth
     }
 
     fn room(&mut self) -> Result<usize, MediaError> {
         let queued = (self.next_time - self.ctx.current_time()).max(0.0);
-        let room = (AUDIO_BUFFER.as_secs_f64() - queued).max(0.0);
+        let room = (self.depth.as_secs_f64() - queued).max(0.0);
         Ok((room * f64::from(self.format.sample_rate)) as usize)
     }
 
@@ -1111,6 +1167,7 @@ impl WebHost {
     fn open_element(source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(match source {
             MediaSource::File(path) => mse::ElementDecoder::bytes(&read_file(path)?)?,
+            MediaSource::Bytes(b) => mse::ElementDecoder::bytes(&b.data)?,
             MediaSource::Url(url) if crate::hls::is_hls(source) => mse::ElementDecoder::hls(url)?,
             MediaSource::Url(url) => mse::ElementDecoder::plain(url)?,
         }))
@@ -1143,8 +1200,12 @@ impl MediaHost for WebHost {
         let out: Shared = Rc::default();
         let slot: Rc<RefCell<Option<Open>>> = Rc::default();
         match source {
-            MediaSource::File(path) => {
-                let bytes = read_file(path)?;
+            MediaSource::File(_) | MediaSource::Bytes(_) => {
+                let bytes = match source {
+                    MediaSource::Bytes(b) => b.data.to_vec(),
+                    MediaSource::File(path) => read_file(path)?,
+                    MediaSource::Url(_) => Vec::new(),
+                };
                 let m = mp4::parse(&bytes).map_err(MediaError::Format)?;
                 let data: SharedBytes =
                     Rc::new(RefCell::new(Bytes { data: bytes, complete: true, dropped: false }));
@@ -1165,12 +1226,28 @@ impl MediaHost for WebHost {
         }
     }
 
+    fn opens_bytes(&self) -> bool {
+        true
+    }
+
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
-        Ok(Box::new(WebMicrophone::open(format)?))
+        Ok(Box::new(WebMicrophone::open(format, true)?))
+    }
+
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(WebMicrophone::open(format, raw)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(WebAudio::new(format)?))
+        Ok(Box::new(WebAudio::new(format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(WebAudio::new(format, latency)?))
     }
 }
 
@@ -1287,7 +1364,7 @@ struct WebMicrophone {
 unsafe impl Send for WebMicrophone {}
 
 impl WebMicrophone {
-    fn open(format: AudioFormat) -> Result<WebMicrophone, MediaError> {
+    fn open(format: AudioFormat, raw: bool) -> Result<WebMicrophone, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
@@ -1301,7 +1378,7 @@ impl WebMicrophone {
         let shared: Rc<RefCell<MicShared>> = Rc::default();
         let s = shared.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            if let Err(e) = start_microphone(devices, format, s.clone()).await {
+            if let Err(e) = start_microphone(devices, format, raw, s.clone()).await {
                 let mut m = s.borrow_mut();
                 m.error = Some(e);
                 m.release();
@@ -1324,13 +1401,14 @@ fn media_error(e: &JsValue) -> MediaError {
 async fn start_microphone(
     devices: JsValue,
     format: AudioFormat,
+    raw: bool,
     shared: Rc<RefCell<MicShared>>,
 ) -> Result<(), MediaError> {
     // Sound as the microphone hears it: the voice-call processing would bend a sung note.
     let audio = obj(&[
-        ("echoCancellation", JsValue::FALSE),
-        ("noiseSuppression", JsValue::FALSE),
-        ("autoGainControl", JsValue::FALSE),
+        ("echoCancellation", JsValue::from(!raw)),
+        ("noiseSuppression", JsValue::from(!raw)),
+        ("autoGainControl", JsValue::from(!raw)),
         ("channelCount", JsValue::from(u32::from(format.channels))),
     ]);
     let constraints = obj(&[("audio", audio.into()), ("video", JsValue::FALSE)]);

@@ -155,6 +155,8 @@ fn decode(s: &str) -> String {
 struct Entry {
     route: Route,
     scroll: Vec2,
+    /// The app's own state for the entry ([`Router::push_with`]).
+    state: String,
 }
 
 type TitleFn = Rc<dyn Fn(&Route) -> String>;
@@ -174,6 +176,9 @@ struct Inner {
     /// The current page's scroll container ([`Router::remember_scroll`]).
     scroller: Option<El>,
     windows: Option<Rc<NewWindows>>,
+    /// The path routes live under in a browser page's address, when they are not in its
+    /// fragment ([`Router::for_window_at`]).
+    base: Option<String>,
 }
 
 /// The app's routes: the current one (a signal pages follow), the history behind and ahead
@@ -201,12 +206,13 @@ impl Router {
         let route = Route::parse(start);
         Router {
             inner: Rc::new(RefCell::new(Inner {
-                entries: vec![Entry { route: route.clone(), scroll: Vec2::ZERO }],
+                entries: vec![Entry { route: route.clone(), scroll: Vec2::ZERO, state: String::new() }],
                 index: 0,
                 title: None,
                 window: None,
                 scroller: None,
                 windows: None,
+                base: None,
             })),
             route: Signal::new(route),
         }
@@ -218,10 +224,30 @@ impl Router {
     /// their places and with their scroll positions: each history entry carries the list
     /// in its `history.state`, written again as the page is put away.
     pub fn for_window(window: &Window, start: &str) -> Router {
+        Router::start(window, start, None)
+    }
+
+    /// The router of `window`, as [`Router::for_window`] makes it, with a browser page's
+    /// routes in the address's path under `base`, not its fragment: `/app` gives
+    /// `https://host/app/settings/2` (an empty base, `https://host/settings/2`). Links and
+    /// the history are plain addresses, as search engines and people expect; the server must
+    /// answer every path under the base with the page. Outside a browser it is
+    /// [`Router::for_window`].
+    pub fn for_window_at(window: &Window, start: &str, base: &str) -> Router {
+        Router::start(window, start, Some(base))
+    }
+
+    #[cfg_attr(
+        not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")),
+        allow(unused_variables)
+    )]
+    fn start(window: &Window, start: &str, base: Option<&str>) -> Router {
         let me = Router::new(start);
         me.inner.borrow_mut().window = Some(window.clone());
+        me.inner.borrow_mut().base = base.map(|b| b.trim_end_matches('/').to_owned());
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         {
+            history::use_paths(base);
             let fragment = history::fragment();
             let here = (!fragment.is_empty()).then(|| Route::parse(&fragment));
             // The list this entry carried, when it is this app's and still names this page.
@@ -235,7 +261,11 @@ impl Router {
                     Some((at, list)) => {
                         i.entries = list
                             .into_iter()
-                            .map(|(r, x, y)| Entry { route: Route::parse(&r), scroll: Vec2::new(x, y) })
+                            .map(|(r, x, y, state)| Entry {
+                                route: Route::parse(&r),
+                                scroll: Vec2::new(x, y),
+                                state,
+                            })
                             .collect();
                         i.index = at as usize;
                     }
@@ -309,21 +339,59 @@ impl Router {
     /// Shows `path` as a new history entry (after the current one; entries ahead of it are
     /// dropped). Nothing happens when it is the current route.
     pub fn push(&self, path: &str) {
-        let route = Route::parse(path);
-        if route == self.route_untracked() {
-            return;
+        if Route::parse(path) != self.route_untracked() {
+            self.push_with(path, "");
         }
+    }
+
+    /// Shows `path` as a new history entry that carries `state`: something of the app's own
+    /// that belongs to this visit and not to the address (the item a list was opened from, a
+    /// form's draft, where a wizard came from). [`Router::state`] reads it while the entry
+    /// is shown, also after back and forward return to it and, in a browser page, after a
+    /// reload. Unlike [`Router::push`] it adds an entry even for the current route.
+    pub fn push_with(&self, path: &str, state: &str) {
+        let route = Route::parse(path);
         self.store_current();
         let index = {
             let mut i = self.inner.borrow_mut();
             let at = i.index + 1;
             i.entries.truncate(at);
-            i.entries.push(Entry { route, scroll: Vec2::ZERO });
+            i.entries.push(Entry { route, scroll: Vec2::ZERO, state: state.to_owned() });
             i.index = at;
             at
         };
         self.write_address(index, false);
         self.show();
+    }
+
+    /// The state the entry shown carries ([`Router::push_with`], [`Router::set_state`]);
+    /// empty when it has none.
+    pub fn state(&self) -> String {
+        let i = self.inner.borrow();
+        i.entries.get(i.index).map(|e| e.state.clone()).unwrap_or_default()
+    }
+
+    /// Gives the entry shown another state, without moving.
+    pub fn set_state(&self, state: &str) {
+        let index = {
+            let mut i = self.inner.borrow_mut();
+            let at = i.index;
+            if let Some(e) = i.entries.get_mut(at) {
+                e.state = state.to_owned();
+            }
+            at
+        };
+        self.write_address(index, true);
+    }
+
+    /// The address a link to `path` has: `#/path`, or under the base of
+    /// [`Router::for_window_at`] a plain path.
+    pub fn href(&self, path: &str) -> String {
+        let route = Route::parse(path);
+        match &self.inner.borrow().base {
+            Some(base) => format!("{base}{}", route.href().trim_start_matches('#')),
+            None => route.href(),
+        }
     }
 
     /// Shows `path` in place of the current entry (no new history entry).
@@ -332,7 +400,7 @@ impl Router {
             let mut i = self.inner.borrow_mut();
             let at = i.index;
             if let Some(e) = i.entries.get_mut(at) {
-                *e = Entry { route: Route::parse(path), scroll: Vec2::ZERO };
+                *e = Entry { route: Route::parse(path), scroll: Vec2::ZERO, state: String::new() };
             }
             at
         };
@@ -469,7 +537,7 @@ impl Router {
     #[track_caller]
     pub fn link_to(&self, ui: &Ui, path: &str, label: impl Into<String>) -> El {
         let label = label.into();
-        let href = Route::parse(path).href();
+        let href = self.href(path);
         let elsewhere = Rc::new(Cell::new(false));
         let (me, el, target) = (self.clone(), elsewhere.clone(), path.to_owned());
         let (me2, target2) = (self.clone(), path.to_owned());
@@ -549,7 +617,7 @@ impl Router {
                     let mut i = self.inner.borrow_mut();
                     let at = i.index + 1;
                     i.entries.truncate(at);
-                    i.entries.push(Entry { route, scroll: Vec2::ZERO });
+                    i.entries.push(Entry { route, scroll: Vec2::ZERO, state: String::new() });
                     i.index = at;
                     at
                 };
@@ -603,8 +671,11 @@ impl Router {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         {
             let i = self.inner.borrow();
-            let list: Vec<(String, f32, f32)> =
-                i.entries.iter().map(|e| (e.route.to_string(), e.scroll.x, e.scroll.y)).collect();
+            let list: Vec<(String, f32, f32, String)> = i
+                .entries
+                .iter()
+                .map(|e| (e.route.to_string(), e.scroll.x, e.scroll.y, e.state.clone()))
+                .collect();
             if let Some((route, ..)) = list.get(index) {
                 history::write(route, index as u32, &list, replace);
             }
@@ -704,5 +775,24 @@ mod tests {
         assert_eq!(r.title(), "Home");
         r.push("/settings/x");
         assert_eq!(r.title(), "Settings");
+    }
+
+    #[test]
+    fn entries_carry_the_apps_state_through_back_and_forward() {
+        let r = Router::new("/list");
+        r.push_with("/item/7", "from=3");
+        assert_eq!(r.state(), "from=3");
+        r.set_state("from=3;draft=hello");
+        r.push("/other");
+        assert_eq!(r.state(), "");
+        assert!(r.back());
+        assert_eq!(
+            (r.route().path().to_owned(), r.state()),
+            ("/item/7".to_owned(), "from=3;draft=hello".to_owned())
+        );
+        // The same route again is a new entry when it carries a state.
+        r.push_with("/item/7", "again");
+        assert_eq!(r.position(), (2, 3));
+        assert_eq!(r.href("/item/7"), "#/item/7");
     }
 }

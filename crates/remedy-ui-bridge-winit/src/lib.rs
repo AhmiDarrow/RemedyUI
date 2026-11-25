@@ -33,7 +33,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::window::{Window, WindowAttributes, WindowLevel};
+use winit::window::{CursorIcon, Window, WindowAttributes, WindowLevel};
 
 pub use winit;
 
@@ -710,6 +710,12 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         let Some((_, w)) = self.state.windows.get(wid) else { return };
         w.window.set_cursor_visible(!hidden);
         self.hooks.set_cursor_hidden(&w.window, hidden);
+    }
+
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+        let Some(wid) = self.state.ids.get(&window) else { return };
+        let Some((_, w)) = self.state.windows.get(wid) else { return };
+        w.window.set_cursor(cursor_icon(cursor));
     }
 
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
@@ -1506,4 +1512,47 @@ pub fn run<A: App, H: PlatformHooks>(app: A, hooks: H) -> Result<(), RunError> {
     }
     let event_loop = builder.build().map_err(|e| RunError::new(e.to_string()))?;
     run_on(event_loop, app, hooks)
+}
+
+/// winit's name for a pointer shape (both follow CSS).
+fn cursor_icon(cursor: remedy_ui_host::Cursor) -> CursorIcon {
+    use remedy_ui_host::Cursor;
+    match cursor {
+        Cursor::Default => CursorIcon::Default,
+        Cursor::Pointer => CursorIcon::Pointer,
+        Cursor::Text => CursorIcon::Text,
+        Cursor::VerticalText => CursorIcon::VerticalText,
+        Cursor::Crosshair => CursorIcon::Crosshair,
+        Cursor::Move => CursorIcon::Move,
+        Cursor::Grab => CursorIcon::Grab,
+        Cursor::Grabbing => CursorIcon::Grabbing,
+        Cursor::NotAllowed => CursorIcon::NotAllowed,
+        Cursor::NoDrop => CursorIcon::NoDrop,
+        Cursor::Wait => CursorIcon::Wait,
+        Cursor::Progress => CursorIcon::Progress,
+        Cursor::Help => CursorIcon::Help,
+        Cursor::ContextMenu => CursorIcon::ContextMenu,
+        Cursor::Cell => CursorIcon::Cell,
+        Cursor::Alias => CursorIcon::Alias,
+        Cursor::Copy => CursorIcon::Copy,
+        Cursor::AllScroll => CursorIcon::AllScroll,
+        Cursor::ZoomIn => CursorIcon::ZoomIn,
+        Cursor::ZoomOut => CursorIcon::ZoomOut,
+        Cursor::ColResize => CursorIcon::ColResize,
+        Cursor::RowResize => CursorIcon::RowResize,
+        Cursor::EwResize => CursorIcon::EwResize,
+        Cursor::NsResize => CursorIcon::NsResize,
+        Cursor::NeswResize => CursorIcon::NeswResize,
+        Cursor::NwseResize => CursorIcon::NwseResize,
+        Cursor::NResize => CursorIcon::NResize,
+        Cursor::EResize => CursorIcon::EResize,
+        Cursor::SResize => CursorIcon::SResize,
+        Cursor::WResize => CursorIcon::WResize,
+        Cursor::NeResize => CursorIcon::NeResize,
+        Cursor::NwResize => CursorIcon::NwResize,
+        Cursor::SeResize => CursorIcon::SeResize,
+        Cursor::SwResize => CursorIcon::SwResize,
+        // A shape added later that this bridge does not know yet: the arrow.
+        _ => CursorIcon::Default,
+    }
 }

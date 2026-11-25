@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] 楕円
     [line] 直線
     [arrow] 矢印
+    [image] 画像
    *[annotation] 注釈
 }
 annotation-quoting = { $what }:「{ $text }」
@@ -35,6 +36,7 @@ undo-add = { $kind ->
     [ellipse] 楕円を追加
     [line] 直線を追加
     [arrow] 矢印を追加
+    [image] 画像を追加
    *[annotation] 注釈を追加
 }
 undo-change = { $kind ->
@@ -49,6 +51,7 @@ undo-change = { $kind ->
     [ellipse] 楕円を変更
     [line] 直線を変更
     [arrow] 矢印を変更
+    [image] 画像を変更
    *[annotation] 注釈を変更
 }
 undo-delete = { $kind ->
@@ -63,6 +66,7 @@ undo-delete = { $kind ->
     [ellipse] 楕円を削除
     [line] 直線を削除
     [arrow] 矢印を削除
+    [image] 画像を削除
    *[annotation] 注釈を削除
 }
 undo-move = { $kind ->
@@ -77,5 +81,6 @@ undo-move = { $kind ->
     [ellipse] 楕円を移動
     [line] 直線を移動
     [arrow] 矢印を移動
+    [image] 画像を移動
    *[annotation] 注釈を移動
 }

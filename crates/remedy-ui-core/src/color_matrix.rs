@@ -147,6 +147,37 @@ impl ColorMatrix {
         ColorMatrix::linear(1.0 - 2.0 * a, a)
     }
 
+    /// A warmer picture (a reading light): blue, and a little green, taken down by `amount`,
+    /// 0 unchanged to 1.
+    pub fn warm(amount: f32) -> ColorMatrix {
+        let a = finite(amount, 0.0).clamp(0.0, 1.0);
+        ColorMatrix::rgb([[1.0, 0.0, 0.0], [0.0, 1.0 - 0.08 * a, 0.0], [0.0, 0.0, 1.0 - 0.3 * a]])
+    }
+
+    /// A cooler picture: red, and a little green, taken down by `amount`, 0 unchanged to 1.
+    pub fn cool(amount: f32) -> ColorMatrix {
+        let a = finite(amount, 0.0).clamp(0.0, 1.0);
+        ColorMatrix::rgb([[1.0 - 0.3 * a, 0.0, 0.0], [0.0, 1.0 - 0.08 * a, 0.0], [0.0, 0.0, 1.0]])
+    }
+
+    /// Black becomes `ink`, white becomes `paper` and everything between lies on the line
+    /// from one to the other by its brightness: a document read as light text on a dark
+    /// page, or dark brown on cream. Alpha is left alone.
+    pub fn ink_paper(ink: crate::Color, paper: crate::Color) -> ColorMatrix {
+        const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+        let row = |from: f32, to: f32| {
+            let d = finite(to, 1.0) - finite(from, 0.0);
+            [d * LUMA[0], d * LUMA[1], d * LUMA[2], 0.0, finite(from, 0.0)]
+        };
+        let (r, g, b) = (row(ink.r, paper.r), row(ink.g, paper.g), row(ink.b, paper.b));
+        ColorMatrix([
+            r[0], r[1], r[2], r[3], r[4], //
+            g[0], g[1], g[2], g[3], g[4], //
+            b[0], b[1], b[2], b[3], b[4], //
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ])
+    }
+
     /// CSS `opacity(amount)` as a matrix: alpha scaled by `amount`, 0 to 1.
     pub fn opacity(amount: f32) -> ColorMatrix {
         let mut m = ColorMatrix::IDENTITY;
@@ -357,5 +388,19 @@ mod tests {
         let mut px = vec![128, 128, 128, 128, 0, 0, 0, 0, 7];
         ColorMatrix::invert(1.0).apply_to_pixels(&mut px);
         assert_eq!(px, vec![0, 0, 0, 128, 0, 0, 0, 0, 7]);
+    }
+
+    #[test]
+    fn ink_and_paper_replace_black_and_white_and_warm_takes_blue_down() {
+        let (ink, paper) = (crate::Color::rgba8(230, 220, 200, 255), crate::Color::rgba8(20, 24, 28, 255));
+        let m = ColorMatrix::ink_paper(ink, paper);
+        let near = |a: [f32; 4], c: crate::Color| {
+            (a[0] - c.r).abs() < 1e-3 && (a[1] - c.g).abs() < 1e-3 && (a[2] - c.b).abs() < 1e-3 && a[3] == 1.0
+        };
+        assert!(near(m.apply([0.0, 0.0, 0.0, 1.0]), ink));
+        assert!(near(m.apply([1.0, 1.0, 1.0, 1.0]), paper));
+        let w = ColorMatrix::warm(1.0).apply([1.0, 1.0, 1.0, 1.0]);
+        assert!(w[0] == 1.0 && w[2] < w[1] && w[1] < 1.0);
+        assert!(ColorMatrix::cool(0.0).is_identity());
     }
 }

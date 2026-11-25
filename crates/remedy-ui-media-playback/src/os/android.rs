@@ -149,6 +149,7 @@ struct AAudio {
     /// Android 9 and later.
     builder_set_input_preset: Option<unsafe extern "C" fn(Ptr, i32)>,
     stream_get_buffer_size_in_frames: unsafe extern "C" fn(Ptr) -> i32,
+    stream_set_buffer_size_in_frames: unsafe extern "C" fn(Ptr, i32) -> i32,
     stream_get_frames_written: unsafe extern "C" fn(Ptr) -> i64,
     stream_get_frames_read: unsafe extern "C" fn(Ptr) -> i64,
     stream_get_timestamp: unsafe extern "C" fn(Ptr, i32, *mut i64, *mut i64) -> i32,
@@ -292,6 +293,7 @@ impl AAudio {
                 .ok()
                 .map(|f| *f),
             stream_get_buffer_size_in_frames: sym!(l, "AAudioStream_getBufferSizeInFrames"),
+            stream_set_buffer_size_in_frames: sym!(l, "AAudioStream_setBufferSizeInFrames"),
             stream_get_frames_written: sym!(l, "AAudioStream_getFramesWritten"),
             stream_get_frames_read: sym!(l, "AAudioStream_getFramesRead"),
             stream_get_timestamp: sym!(l, "AAudioStream_getTimestamp"),
@@ -430,11 +432,23 @@ impl MediaHost for AndroidHost {
     }
 
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
-        Ok(Box::new(AAudioIn::open(aaudio()?, format)?))
+        Ok(Box::new(AAudioIn::open(aaudio()?, format, true)?))
+    }
+
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(AAudioIn::open(aaudio()?, format, raw)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
-        Ok(Box::new(AAudioOut::open(aaudio()?, format)?))
+        Ok(Box::new(AAudioOut::open(aaudio()?, format, crate::host::Latency::Playback)?))
+    }
+
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Ok(Box::new(AAudioOut::open(aaudio()?, format, latency)?))
     }
 }
 
@@ -580,6 +594,11 @@ impl NdkDecoder {
                 (Some(f), p.to_string_lossy().into_owned())
             }
             MediaSource::Url(u) => (None, u.clone()),
+            MediaSource::Bytes(_) => {
+                return Err(MediaError::Unsupported(
+                    "bytes in memory are opened through `open_source`".into(),
+                ));
+            }
         };
         let location = CString::new(location).map_err(|e| MediaError::NotFound(e.to_string()))?;
         // SAFETY: NDK calls on objects made here, released in `Drop` (or below on failure).
@@ -1170,7 +1189,12 @@ struct AAudioOut {
 unsafe impl Send for AAudioOut {}
 
 impl AAudioOut {
-    fn open(aa: &'static AAudio, format: AudioFormat) -> Result<AAudioOut, MediaError> {
+    fn open(
+        aa: &'static AAudio,
+        format: AudioFormat,
+        latency: crate::host::Latency,
+    ) -> Result<AAudioOut, MediaError> {
+        let interactive = latency == crate::host::Latency::Interactive;
         // SAFETY: building and opening a stream; the builder is deleted after.
         unsafe {
             let mut builder: Ptr = std::ptr::null_mut();
@@ -1182,11 +1206,23 @@ impl AAudioOut {
             (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
             (aa.builder_set_channel_count)(builder, i32::from(format.channels));
             (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
+            if interactive {
+                // The device's fast path: small bursts straight to the mixer.
+                (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+            }
             let mut stream: Ptr = std::ptr::null_mut();
             let r = (aa.builder_open_stream)(builder, &mut stream);
             (aa.builder_delete)(builder);
             if r != AAUDIO_OK || stream.is_null() {
                 return Err(aa.error("the sound output would not open", r));
+            }
+            if interactive {
+                // Two bursts in the buffer: as little as plays without gaps (the device
+                // gives what it can; a refusal leaves its own size).
+                let burst = (aa.stream_get_frames_per_burst)(stream);
+                if burst > 0 {
+                    let _ = (aa.stream_set_buffer_size_in_frames)(stream, burst.saturating_mul(2));
+                }
             }
             Ok(AAudioOut { aa, stream, format, base: 0, _live: super::Live::new() })
         }
@@ -1293,36 +1329,57 @@ struct AAudioIn {
 unsafe impl Send for AAudioIn {}
 
 impl AAudioIn {
-    fn open(aa: &'static AAudio, format: AudioFormat) -> Result<AAudioIn, MediaError> {
+    fn open(aa: &'static AAudio, format: AudioFormat, raw: bool) -> Result<AAudioIn, MediaError> {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
         // SAFETY: building, opening and starting a stream; the builder is deleted after, and
         // a stream that fails to start is closed.
         unsafe {
-            let mut builder: Ptr = std::ptr::null_mut();
-            let r = (aa.create_stream_builder)(&mut builder);
-            if r != AAUDIO_OK {
-                return Err(aa.error("no stream builder", r));
-            }
-            (aa.builder_set_direction)(builder, AAUDIO_DIRECTION_INPUT);
-            (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
-            (aa.builder_set_channel_count)(builder, i32::from(format.channels));
-            (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
-            (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-            if let Some(preset) = aa.builder_set_input_preset {
-                preset(builder, AAUDIO_INPUT_PRESET_UNPROCESSED);
-            }
-            let mut stream: Ptr = std::ptr::null_mut();
-            let r = (aa.builder_open_stream)(builder, &mut stream);
-            (aa.builder_delete)(builder);
-            if r != AAUDIO_OK || stream.is_null() {
-                // Without RECORD_AUDIO the open is refused.
-                return Err(MediaError::Denied(format!(
-                    "the microphone would not open ({}); the app needs the microphone permission",
-                    aa.error("AAudio", r)
-                )));
-            }
+            // Raw sound is the UNPROCESSED preset (Android 9 on). A device that has no such
+            // path refuses the open: it is asked again with its own preset.
+            let try_open = |preset: Option<i32>| -> Result<Ptr, i32> {
+                let mut builder: Ptr = std::ptr::null_mut();
+                let r = (aa.create_stream_builder)(&mut builder);
+                if r != AAUDIO_OK {
+                    return Err(r);
+                }
+                (aa.builder_set_direction)(builder, AAUDIO_DIRECTION_INPUT);
+                (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
+                (aa.builder_set_channel_count)(builder, i32::from(format.channels));
+                (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
+                (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+                if let (Some(set), Some(preset)) = (aa.builder_set_input_preset, preset) {
+                    set(builder, preset);
+                }
+                let mut stream: Ptr = std::ptr::null_mut();
+                let r = (aa.builder_open_stream)(builder, &mut stream);
+                (aa.builder_delete)(builder);
+                if r != AAUDIO_OK || stream.is_null() { Err(r) } else { Ok(stream) }
+            };
+            let wants_preset = raw && aa.builder_set_input_preset.is_some();
+            let first = try_open(wants_preset.then_some(AAUDIO_INPUT_PRESET_UNPROCESSED));
+            let stream = match (first, wants_preset) {
+                (Ok(stream), _) => stream,
+                (Err(with_preset), true) => match try_open(None) {
+                    Ok(stream) => stream,
+                    // Refused both ways, so not for the preset. Without RECORD_AUDIO every
+                    // open is refused, which is the usual reason; the code says which.
+                    Err(r) => {
+                        return Err(MediaError::Denied(format!(
+                            "the microphone would not open ({}; with the unprocessed preset: {});                              the usual cause is that the app has not been given the microphone permission",
+                            aa.error("AAudio", r),
+                            aa.error("AAudio", with_preset)
+                        )));
+                    }
+                },
+                (Err(r), false) => {
+                    return Err(MediaError::Denied(format!(
+                        "the microphone would not open ({}); the app needs the microphone permission",
+                        aa.error("AAudio", r)
+                    )));
+                }
+            };
             // AAudio converts to the asked-for rate on most devices; where it gives the
             // device's own instead, the microphone converts (see `capture`).
             let rate = (aa.stream_get_sample_rate)(stream);

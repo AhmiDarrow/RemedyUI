@@ -610,7 +610,7 @@ impl Presenter {
         self.wake = Some(wake);
         self.own = Some(own);
         self.local = source.local_path().is_some();
-        match crate::hls::opening_until(stop, after, || self.host.open(source)) {
+        match crate::hls::opening_until(stop, after, || crate::host::open_source(&*self.host, source)) {
             Ok(dec) => {
                 // Timed text inside an MP4, and text subtitles inside Matroska and WebM, are
                 // read from the file, whole, on every platform: Media Foundation,

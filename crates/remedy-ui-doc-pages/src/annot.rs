@@ -6,7 +6,7 @@
 //! the app what changed.
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
-use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
+use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke, StrokeCap, StrokeJoin};
 
 /// What an annotation is.
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +63,15 @@ pub enum AnnotationKind {
         to: Point,
         /// Line width, points.
         width: f32,
+    },
+    /// A picture placed on the page (a signature, a stamp, a scan). The app places it with
+    /// [`PageView::add_annotation`](crate::PageView::add_annotation); selected, it is dragged
+    /// to move it and by a corner to resize it, keeping its shape.
+    Image {
+        /// Where it lies, page points.
+        rect: Rect,
+        /// Its pixels.
+        image: Image,
     },
 }
 
@@ -131,6 +140,7 @@ impl Annotation {
             AnnotationKind::Shape { shape: Shape::Ellipse, .. } => "Ellipse",
             AnnotationKind::Shape { shape: Shape::Line, .. } => "Line",
             AnnotationKind::Shape { shape: Shape::Arrow, .. } => "Arrow",
+            AnnotationKind::Image { .. } => "Image",
         }
     }
 
@@ -153,6 +163,7 @@ impl Annotation {
             AnnotationKind::Shape { shape: Shape::Ellipse, .. } => "ellipse",
             AnnotationKind::Shape { shape: Shape::Line, .. } => "line",
             AnnotationKind::Shape { shape: Shape::Arrow, .. } => "arrow",
+            AnnotationKind::Image { .. } => "image",
         }
     }
 
@@ -200,7 +211,7 @@ impl Annotation {
                 grow(bounds_of(pts).unwrap_or(Rect::ZERO), width / 2.0)
             }
             AnnotationKind::Note { at } => Rect::from_origin_size(*at, remedy_ui_core::Size::new(NOTE, NOTE)),
-            AnnotationKind::FreeText { rect, .. } => *rect,
+            AnnotationKind::FreeText { rect, .. } | AnnotationKind::Image { rect, .. } => *rect,
             AnnotationKind::Shape { from, to, width, .. } => {
                 grow(box_of(*from, *to), width / 2.0 + ARROW_HEAD)
             }
@@ -227,7 +238,9 @@ impl Annotation {
                     }),
                 }
             }),
-            AnnotationKind::Note { .. } | AnnotationKind::FreeText { .. } => inside(&self.bounds()),
+            AnnotationKind::Note { .. } | AnnotationKind::FreeText { .. } | AnnotationKind::Image { .. } => {
+                inside(&self.bounds())
+            }
             AnnotationKind::Shape { shape, from, to, width } => {
                 let reach = width / 2.0 + slop;
                 match shape {
@@ -271,13 +284,72 @@ impl Annotation {
             }
             AnnotationKind::Ink { strokes, .. } => strokes.iter_mut().flatten().for_each(mv),
             AnnotationKind::Note { at } => mv(at),
-            AnnotationKind::FreeText { rect, .. } => *rect = rect.translate(d),
+            AnnotationKind::FreeText { rect, .. } | AnnotationKind::Image { rect, .. } => {
+                *rect = rect.translate(d);
+            }
             AnnotationKind::Shape { from, to, .. } => {
                 mv(from);
                 mv(to);
             }
         }
     }
+}
+
+impl Annotation {
+    /// The box of an annotation that has one of its own (an image, a text box).
+    pub fn rect(&self) -> Option<Rect> {
+        match &self.kind {
+            AnnotationKind::FreeText { rect, .. } | AnnotationKind::Image { rect, .. } => Some(*rect),
+            _ => None,
+        }
+    }
+
+    /// Gives such an annotation another box. `false` for the kinds without one.
+    pub fn set_rect(&mut self, to: Rect) -> bool {
+        match &mut self.kind {
+            AnnotationKind::FreeText { rect, .. } | AnnotationKind::Image { rect, .. } => {
+                *rect = to;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The edge of a resize handle at a selected image's corner, points.
+pub(crate) const HANDLE: f32 = 7.0;
+/// The smallest an image is resized to, points.
+const SMALLEST: f32 = 4.0;
+
+/// The corners of a box, clockwise from the top left.
+fn corners(r: Rect) -> [Point; 4] {
+    [r.min, Point::new(r.max.x, r.min.y), r.max, Point::new(r.min.x, r.max.y)]
+}
+
+/// The corner of a resizable annotation (an image) within `reach` points of `p`: 0 to 3,
+/// clockwise from the top left.
+pub(crate) fn corner_at(a: &Annotation, p: Point, reach: f32) -> Option<usize> {
+    let AnnotationKind::Image { rect, .. } = &a.kind else { return None };
+    corners(*rect).iter().position(|c| (c.x - p.x).abs() <= reach && (c.y - p.y).abs() <= reach)
+}
+
+/// `rect` with `corner` dragged to `to`: the opposite corner stays, and the box keeps its
+/// shape (the larger of the two pulls decides its size).
+pub(crate) fn drag_corner(rect: Rect, corner: usize, to: Point) -> Rect {
+    let (w, h) = (rect.width().max(f32::MIN_POSITIVE), rect.height().max(f32::MIN_POSITIVE));
+    let (left, top) = (corner == 0 || corner == 3, corner == 0 || corner == 1);
+    let fixed =
+        Point::new(if left { rect.max.x } else { rect.min.x }, if top { rect.max.y } else { rect.min.y });
+    let pull_x = if left { fixed.x - to.x } else { to.x - fixed.x };
+    let pull_y = if top { fixed.y - to.y } else { to.y - fixed.y };
+    let scale = (pull_x / w).max(pull_y / h).max(SMALLEST / w.min(h));
+    let (nw, nh) = (w * scale, h * scale);
+    Rect::new(
+        if left { fixed.x - nw } else { fixed.x },
+        if top { fixed.y - nh } else { fixed.y },
+        if left { fixed.x } else { fixed.x + nw },
+        if top { fixed.y } else { fixed.y + nh },
+    )
 }
 
 /// A note's icon edge, points.
@@ -447,6 +519,14 @@ pub(crate) fn paint(list: &mut remedy_ui_paint::DisplayList, a: &Annotation, sel
         AnnotationKind::FreeText { rect, .. } => {
             list.border(*rect, CornerRadii::ZERO, 0.75, color);
         }
+        AnnotationKind::Image { rect, image } => {
+            list.push(Item::Image {
+                image: image.clone(),
+                rect: *rect,
+                radii: CornerRadii::ZERO,
+                sampling: Sampling::Linear,
+            });
+        }
         AnnotationKind::Shape { shape, from, to, width } => {
             let stroke = round_stroke(*width);
             let brush = Brush::Solid(color);
@@ -521,6 +601,15 @@ pub(crate) fn paint(list: &mut remedy_ui_paint::DisplayList, a: &Annotation, sel
         path.line_to(Point::new(r.min.x, r.max.y));
         path.close();
         list.push(Item::StrokePath { path, stroke: s, brush: Brush::Solid(accent) });
+        // An image is resized by its corners.
+        if let AnnotationKind::Image { rect, .. } = &a.kind {
+            let half = HANDLE / 2.0;
+            for c in corners(*rect) {
+                let knob = Rect::new(c.x - half, c.y - half, c.x + half, c.y + half);
+                list.fill_rect(knob, Brush::Solid(Color::WHITE));
+                list.border(knob, CornerRadii::ZERO, 1.0, accent);
+            }
+        }
     }
 }
 

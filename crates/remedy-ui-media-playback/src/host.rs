@@ -21,6 +21,25 @@ pub enum MediaSource {
     File(PathBuf),
     /// A URL the platform's decoder can open (`https:`, `http:`, `rtsp:`, `file:` …).
     Url(String),
+    /// A whole file held in memory: a clip built into the app (`include_bytes!`), read from
+    /// its bundled data or fetched by the app itself.
+    Bytes(MediaBytes),
+}
+
+/// A media file's bytes, shared without copying, with the file name they would have: its
+/// extension tells the platform's decoder what they are.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct MediaBytes {
+    /// The file's content.
+    pub data: std::sync::Arc<[u8]>,
+    /// A file name with its extension (`"hello.wav"`).
+    pub name: String,
+}
+
+impl std::fmt::Debug for MediaBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MediaBytes({:?}, {} bytes)", self.name, self.data.len())
+    }
 }
 
 impl MediaSource {
@@ -34,11 +53,16 @@ impl MediaSource {
         MediaSource::Url(url.into())
     }
 
+    /// A file held in memory, named `name` (its extension says what it is: `"hello.wav"`).
+    pub fn bytes(name: impl Into<String>, data: impl Into<std::sync::Arc<[u8]>>) -> Self {
+        MediaSource::Bytes(MediaBytes { data: data.into(), name: name.into() })
+    }
+
     /// The file's path, for a local file.
     pub fn local_path(&self) -> Option<&Path> {
         match self {
             MediaSource::File(p) => Some(p),
-            MediaSource::Url(_) => None,
+            MediaSource::Url(_) | MediaSource::Bytes(_) => None,
         }
     }
 
@@ -46,6 +70,8 @@ impl MediaSource {
     pub fn to_url(&self) -> String {
         match self {
             MediaSource::Url(u) => u.clone(),
+            // Bytes have no address: a name that says what they are.
+            MediaSource::Bytes(b) => format!("memory:{}", b.name),
             MediaSource::File(p) => {
                 let abs = std::path::absolute(p).unwrap_or_else(|_| p.clone());
                 let s = abs.to_string_lossy().replace('\\', "/");
@@ -341,6 +367,20 @@ pub fn merge_ranges(
     out
 }
 
+/// How soon sound written to an output should be heard ([`MediaHost::audio_output_with`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Latency {
+    /// A deep buffer that rides out a busy machine: for playing media, where a fifth of a
+    /// second between writing and hearing does not matter.
+    #[default]
+    Playback,
+    /// As short a buffer as the device gives, for sound that answers a person (a tapped
+    /// note, a metronome): heard within a few hundredths of a second, and to be kept fed
+    /// that often ([`AudioFeed`](crate::AudioFeed) does).
+    Interactive,
+}
+
 /// The platform's sound output for one stream: samples written are queued in the device's
 /// buffer and played in order. It starts paused.
 pub trait AudioOutput: Send {
@@ -375,13 +415,36 @@ pub trait MediaHost: Send + Sync {
     fn name(&self) -> &str;
     /// Opens `source` for decoding.
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError>;
+    /// Whether [`MediaHost::open`] takes [`MediaSource::Bytes`] itself. A host that opens
+    /// files and URLs only (the default) is handed a private temporary file instead
+    /// ([`open_source`]).
+    fn opens_bytes(&self) -> bool {
+        false
+    }
     /// Opens the default sound output for samples in `format`.
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError>;
+    /// Opens the default sound output with the buffering `latency` asks for. A host that has
+    /// only one kind gives that.
+    fn audio_output_with(
+        &self,
+        format: AudioFormat,
+        latency: Latency,
+    ) -> Result<Box<dyn AudioOutput>, MediaError> {
+        let _ = latency;
+        self.audio_output(format)
+    }
     /// Opens the default sound input (the microphone the person chose in the system's
     /// settings), asking for samples in `format`. A platform that cannot convert from the
     /// device's own rate and channels gives those instead, as [`AudioInput::format`] reports;
     /// [`Microphone`](crate::Microphone) converts them. It is capturing when this returns.
+    /// `raw` asks for sound without the system's voice processing (automatic gain, noise
+    /// suppression, echo cancellation), where the device has such a mode.
     /// Hosts without one say [`MediaError::Unsupported`].
+    fn audio_input_with(&self, format: AudioFormat, raw: bool) -> Result<Box<dyn AudioInput>, MediaError> {
+        let _ = raw;
+        self.audio_input(format)
+    }
+    /// Opens the default sound input as [`MediaHost::audio_input_with`] does, raw.
     fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
         let _ = format;
         Err(MediaError::Unsupported(format!("{} has no sound input", self.name())))
@@ -594,4 +657,101 @@ pub trait AudioInput: Send {
     /// how many frames it appended: 0 when nothing new has arrived. Never waits for sound.
     /// A device that stopped (unplugged, access withdrawn) is an error.
     fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError>;
+}
+
+/// A temporary file holding a source's bytes, removed when the decoder reading it goes.
+struct Spill {
+    path: PathBuf,
+}
+
+impl Spill {
+    fn write(bytes: &MediaBytes) -> Result<Spill, MediaError> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        // The name keeps only what a file name may hold, and its extension.
+        let name: String = bytes
+            .name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("remedy-media-{}-{n}-{name}", std::process::id()));
+        std::fs::write(&path, &bytes.data)
+            .map_err(|e| MediaError::Device(format!("could not put the media in a temporary file: {e}")))?;
+        Ok(Spill { path })
+    }
+}
+
+impl Drop for Spill {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// A decoder reading a [`Spill`], which lives as long as it does.
+struct Spilled {
+    // Declared first: the decoder closes the file before the file is removed.
+    inner: Box<dyn Decoder>,
+    _file: Spill,
+}
+
+impl Decoder for Spilled {
+    fn info(&self) -> &MediaInfo {
+        self.inner.info()
+    }
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), MediaError>> {
+        self.inner.poll_ready(cx)
+    }
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        self.inner.read()
+    }
+    fn poll_read(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<Option<Sample>, MediaError>> {
+        self.inner.poll_read(cx)
+    }
+    fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        self.inner.seek(to)
+    }
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        self.inner.buffered()
+    }
+    fn playout(&mut self) -> Option<Box<dyn Playout>> {
+        self.inner.playout()
+    }
+}
+
+/// Opens `source` on `host`: as [`MediaHost::open`] does, with bytes in memory put in a
+/// private temporary file (removed when the decoder goes) for a host that opens only files
+/// and URLs. The player opens its sources this way.
+pub fn open_source(host: &dyn MediaHost, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+    match source {
+        MediaSource::Bytes(bytes) if !host.opens_bytes() => {
+            let file = Spill::write(bytes)?;
+            let inner = host.open(&MediaSource::File(file.path.clone()))?;
+            Ok(Box::new(Spilled { inner, _file: file }))
+        }
+        _ => host.open(source),
+    }
+}
+
+#[cfg(test)]
+mod bytes_tests {
+    use super::*;
+
+    #[test]
+    fn bytes_are_spilled_to_a_named_file_that_goes_with_its_guard() -> Result<(), MediaError> {
+        let source = MediaSource::bytes("a b/c.wav", vec![1u8, 2, 3]);
+        assert_eq!(source.to_url(), "memory:a b/c.wav");
+        assert!(source.local_path().is_none());
+        let MediaSource::Bytes(bytes) = &source else { return Err(MediaError::Format("not bytes".into())) };
+        assert_eq!(format!("{bytes:?}"), "MediaBytes(\"a b/c.wav\", 3 bytes)");
+        let spill = Spill::write(bytes)?;
+        let path = spill.path.clone();
+        assert!(path.to_string_lossy().ends_with("a_b_c.wav"), "{}", path.display());
+        assert_eq!(std::fs::read(&path).ok(), Some(vec![1u8, 2, 3]));
+        drop(spill);
+        assert!(!path.exists());
+        Ok(())
+    }
 }

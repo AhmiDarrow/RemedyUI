@@ -15,6 +15,7 @@ annotation-kind = { $kind ->
     [ellipse] 椭圆
     [line] 直线
     [arrow] 箭头
+    [image] 图片
    *[annotation] 批注
 }
 annotation-quoting = { $what }：“{ $text }”
@@ -35,6 +36,7 @@ undo-add = { $kind ->
     [ellipse] 添加椭圆
     [line] 添加直线
     [arrow] 添加箭头
+    [image] 添加图片
    *[annotation] 添加批注
 }
 undo-change = { $kind ->
@@ -49,6 +51,7 @@ undo-change = { $kind ->
     [ellipse] 更改椭圆
     [line] 更改直线
     [arrow] 更改箭头
+    [image] 更改图片
    *[annotation] 更改批注
 }
 undo-delete = { $kind ->
@@ -63,6 +66,7 @@ undo-delete = { $kind ->
     [ellipse] 删除椭圆
     [line] 删除直线
     [arrow] 删除箭头
+    [image] 删除图片
    *[annotation] 删除批注
 }
 undo-move = { $kind ->
@@ -77,5 +81,6 @@ undo-move = { $kind ->
     [ellipse] 移动椭圆
     [line] 移动直线
     [arrow] 移动箭头
+    [image] 移动图片
    *[annotation] 移动批注
 }

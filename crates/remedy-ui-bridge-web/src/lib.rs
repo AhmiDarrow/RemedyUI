@@ -254,9 +254,17 @@ const NOT_A_PAGE: &str = "this runs only in a browser page (wasm32-unknown-unkno
 pub mod history {
     use crate::web::history as h;
 
-    /// The address's fragment, without the `#`.
+    /// The route in the address: its fragment without the `#`, or after [`use_paths`] its
+    /// path under the base, with the query.
     pub fn fragment() -> String {
         h::fragment()
+    }
+
+    /// Keeps routes in the address's path under `base` (`Some("/app")` makes
+    /// `/app/settings/2`), not in its fragment; `None` goes back to the fragment. The server
+    /// must answer every such path with the page.
+    pub fn use_paths(base: Option<&str>) {
+        h::use_paths(base);
     }
 
     /// The index [`write`] gave the current entry, if it gave one.
@@ -264,15 +272,17 @@ pub mod history {
         h::index()
     }
 
-    /// The app's entries (route, horizontal and vertical scroll) that [`write`] stored in the
-    /// current entry, if it stored them: after a reload, the list as it was.
-    pub fn entries() -> Option<Vec<(String, f32, f32)>> {
+    /// The app's entries (route, horizontal and vertical scroll, and the app's own state for
+    /// the entry) that [`write`] stored in the current entry, if it stored them: after a
+    /// reload, the list as it was.
+    pub fn entries() -> Option<Vec<(String, f32, f32, String)>> {
         h::entries()
     }
 
-    /// Adds a history entry at `#fragment`, numbered `index`, carrying the app's `entries`;
-    /// with `replace`, rewrites the current one instead.
-    pub fn write(fragment: &str, index: u32, entries: &[(String, f32, f32)], replace: bool) {
+    /// Adds a history entry at `#fragment` (after [`use_paths`], at that path), numbered
+    /// `index`, carrying the app's `entries`; with `replace`, rewrites the current one
+    /// instead.
+    pub fn write(fragment: &str, index: u32, entries: &[(String, f32, f32, String)], replace: bool) {
         h::write(fragment, index, entries, replace);
     }
 

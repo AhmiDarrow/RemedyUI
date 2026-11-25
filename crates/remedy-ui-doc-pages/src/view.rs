@@ -1,7 +1,7 @@
 //! The page view: a document's pages laid out virtually, drawn from tiles rendered off the UI
 //! thread at the zoom shown, zoomed and scrolled by pointer, touch, wheel and keyboard.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
@@ -10,15 +10,17 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_input::{
-    Buttons, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
+    Buttons, Chord, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase,
+    WheelEvent,
 };
-use remedy_ui_paint::{Affine, Brush, Item, Sampling};
+use remedy_ui_paint::{Affine, Brush, Filter, Item, Sampling};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{ElementId, PaintCx, WeakUi};
 
 use crate::annot::{self, Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
+use crate::input::{PageCommand, PageHit, PageInput, PageMode, Swipe};
 use crate::layout::{Fit, PageLayout, Rotation, Spread};
 use crate::raster::{
     self, Done, Draw, FrameCx, PageStats, TileId, Tiles, Visible, class, level_of, scale_of,
@@ -43,10 +45,23 @@ const ZOOM_STEPS: [f32; 27] = [
 pub const SETTLE: Duration = Duration::from_millis(150);
 
 /// One wheel notch (48 logical pixels on desktop bridges) zooms by 10%.
-const WHEEL_ZOOM_PER_PIXEL: f32 = 0.001_985_6; // ln(1.1) / 48
+const WHEEL_NOTCH: f32 = 48.0;
 
 /// Arrow keys scroll by one wheel notch.
 const KEY_SCROLL: f32 = 48.0;
+/// After a wheel turned the page, how long the wheel is ignored: a trackpad's glide would
+/// otherwise run through several pages.
+const TURN_REST: Duration = Duration::from_millis(250);
+/// How long a finger rests for a long press, and how far it may wander for a tap.
+const LONG_PRESS: Duration = Duration::from_millis(450);
+const TOUCH_SLOP: f32 = 12.0;
+const MOUSE_SLOP: f32 = 3.0;
+/// The longest gap, and the farthest apart, for two taps to be a double tap.
+const DOUBLE_TAP: Duration = Duration::from_millis(300);
+const DOUBLE_TAP_REACH: f32 = 24.0;
+/// A swipe: at least this far sideways, within this long.
+const SWIPE_REACH: f32 = 56.0;
+const SWIPE_TIME: Duration = Duration::from_millis(400);
 
 /// Scroll bars: width, and the shortest thumb (a target a pointer can hold).
 const BAR: f32 = 8.0;
@@ -81,13 +96,59 @@ enum Gesture {
     Annotate,
 }
 
+/// A press that may turn out to be a tap, a double tap, a long press or a swipe.
+#[derive(Clone, Copy, Debug)]
+struct Press {
+    at: Point,
+    since: Instant,
+    /// The scroll when it began (a swipe turns the page only from the page's edge).
+    scroll: Vec2,
+    moved: bool,
+    /// It was held long enough for a long press, which has been told.
+    held: bool,
+    /// The second press of a double click.
+    double: bool,
+    seq: u64,
+}
+
+/// What a touch leaves to do once the state is free again.
+enum After {
+    Nothing,
+    Arm(u64),
+    Lifted(Press, Point),
+}
+
 /// An annotation being made or moved by a drag, in its page's points.
 #[derive(Clone, Debug)]
 enum Drawing {
-    Ink { page: usize, points: Vec<Point> },
-    Shape { page: usize, shape: Shape, from: Point, to: Point },
-    Text { page: usize, from: Point, to: Point },
-    Move { id: u64, last: Point, before: Vec<Annotation>, moved: bool },
+    Ink {
+        page: usize,
+        points: Vec<Point>,
+    },
+    Shape {
+        page: usize,
+        shape: Shape,
+        from: Point,
+        to: Point,
+    },
+    Text {
+        page: usize,
+        from: Point,
+        to: Point,
+    },
+    Move {
+        id: u64,
+        last: Point,
+        before: Vec<Annotation>,
+        moved: bool,
+    },
+    /// An image pulled by a corner (0 to 3, clockwise from the top left).
+    Resize {
+        id: u64,
+        corner: usize,
+        before: Vec<Annotation>,
+        moved: bool,
+    },
 }
 
 /// While a scroll or zoom moves, the view keeps its last picture and the compositor moves
@@ -132,15 +193,31 @@ struct State {
     style: AnnotationStyle,
     picked: Option<u64>,
     drawing: Option<Drawing>,
+    mode: PageMode,
+    /// The row of pages shown in [`PageMode::Paged`].
+    row: usize,
+    /// Wheel travel gathered against the edge of the row, towards a page turn.
+    turn_pull: f32,
+    turned_at: Option<Instant>,
+    press: Option<Press>,
+    press_seq: u64,
+    last_tap: Option<(Instant, Point)>,
+    /// Counts the times pages changed: text read before the latest change is not taken.
+    epoch: u64,
+    /// The colour change on the pages' own pixels ([`PageView::set_page_filter`]).
+    filter: Option<ColorMatrix>,
 }
 
 /// The app's handler for opening an annotation (to read or edit its comment).
 type OpenHandler = Rc<dyn Fn(Annotation)>;
+type HitHandler = Rc<dyn Fn(PageHit)>;
+type SwipeHandler = Rc<dyn Fn(Swipe) -> bool>;
 
 struct Shared {
     viewer: u64,
-    source: Arc<dyn PageSource>,
-    sizes: Rc<Vec<Size>>,
+    source: RefCell<Arc<dyn PageSource>>,
+    sizes: RefCell<Rc<Vec<Size>>>,
+    count: Signal<usize>,
     st: RefCell<State>,
     zoom: Signal<f32>,
     fit: Signal<Fit>,
@@ -153,6 +230,13 @@ struct Shared {
     tool: Signal<Tool>,
     picked: Signal<Option<u64>>,
     on_open: RefCell<Option<OpenHandler>>,
+    input: Cell<PageInput>,
+    /// The shortcuts the app gave commands, over their defaults.
+    keys: RefCell<HashMap<PageCommand, Vec<Chord>>>,
+    on_tap: RefCell<Option<HitHandler>>,
+    on_double_tap: RefCell<Option<HitHandler>>,
+    on_long_press: RefCell<Option<HitHandler>>,
+    on_swipe: RefCell<Option<SwipeHandler>>,
 }
 
 impl Drop for Shared {
@@ -207,8 +291,9 @@ impl PageView {
             });
             Shared {
                 viewer,
-                source,
-                sizes: Rc::new(sizes),
+                source: RefCell::new(source),
+                count: Signal::new(sizes.len()),
+                sizes: RefCell::new(Rc::new(sizes)),
                 st: RefCell::new(State {
                     frozen: None,
                     drawn: Rect::ZERO,
@@ -237,6 +322,15 @@ impl PageView {
                     style: AnnotationStyle::default(),
                     picked: None,
                     drawing: None,
+                    mode: PageMode::Continuous,
+                    row: 0,
+                    turn_pull: 0.0,
+                    turned_at: None,
+                    press: None,
+                    press_seq: 0,
+                    last_tap: None,
+                    epoch: 0,
+                    filter: None,
                 }),
                 zoom: Signal::new(1.0),
                 fit: Signal::new(Fit::Width),
@@ -249,6 +343,12 @@ impl PageView {
                 tool: Signal::new(Tool::Select),
                 picked: Signal::new(None),
                 on_open: RefCell::new(None),
+                input: Cell::new(PageInput::default()),
+                keys: RefCell::new(HashMap::new()),
+                on_tap: RefCell::new(None),
+                on_double_tap: RefCell::new(None),
+                on_long_press: RefCell::new(None),
+                on_swipe: RefCell::new(None),
             }
         });
         PageView(shared)
@@ -256,7 +356,7 @@ impl PageView {
 
     /// Number of pages.
     pub fn page_count(&self) -> usize {
-        self.0.sizes.len()
+        self.0.sizes.borrow().len()
     }
 
     /// The zoom (logical pixels per point; 1.0 is 100%). Read it in bindings; change it
@@ -447,13 +547,27 @@ impl PageView {
         }
     }
 
+    /// Fits the zoom to the current page (or its spread) once: `fit` is measured on that
+    /// row alone, not on the document's widest page, and the view does not go on fitting,
+    /// so a later resize leaves the zoom where this put it. [`Fit::Free`] does nothing.
+    pub fn fit_once(&self, fit: Fit) {
+        let z = {
+            let st = self.0.st.borrow();
+            st.layout.fit_row_zoom(fit, st.viewport, self.0.page.get_untracked().unwrap_or(0))
+        };
+        if let Some(z) = z {
+            let top = Point::new(self.0.st.borrow().viewport.width / 2.0, 0.0);
+            self.zoom_to(z, Some(top), Fit::Free);
+        }
+    }
+
     /// Sets how pages sit side by side, keeping the current page in view.
     pub fn set_spread(&self, spread: Spread) {
         let page = self.0.page.get_untracked().unwrap_or(0);
         {
             let mut st = self.0.st.borrow_mut();
             st.spread = spread;
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.go_to_page(page);
@@ -465,7 +579,7 @@ impl PageView {
         {
             let mut st = self.0.st.borrow_mut();
             st.rotation = rotation;
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.go_to_page(page);
@@ -487,7 +601,7 @@ impl PageView {
             let mut st = self.0.st.borrow_mut();
             st.gap = gap.max(0.0);
             st.margin = margin.max(0.0);
-            st.relayout(&self.0.sizes);
+            st.relayout(&self.0.sizes.borrow());
         }
         self.refit();
         self.changed();
@@ -507,6 +621,7 @@ impl PageView {
         {
             let mut st = self.0.st.borrow_mut();
             let page = page.min(st.layout.len().saturating_sub(1));
+            st.row = st.layout.row_of(page);
             let z = st.eff_zoom();
             let r = st.layout.page_rect(page, z, st.viewport.width);
             let row_top = st.layout.row_top(st.layout.row_of(page), z);
@@ -520,6 +635,244 @@ impl PageView {
             st.clamp();
         }
         self.changed();
+    }
+
+    /// How pages follow one another.
+    pub fn page_mode(&self) -> PageMode {
+        self.0.st.borrow().mode
+    }
+
+    /// Shows one long scroll of pages, or one row of pages at a time (see [`PageMode`]). The
+    /// current page stays the current page.
+    pub fn set_page_mode(&self, mode: PageMode) {
+        if self.0.st.borrow().mode == mode {
+            return;
+        }
+        let page = self.0.page.get_untracked().unwrap_or(0);
+        self.0.st.borrow_mut().mode = mode;
+        self.go_to_page(page);
+    }
+
+    /// Goes to the next page: in paged mode the next row of pages (the next spread). `false`
+    /// at the end of the document.
+    pub fn next_page(&self) -> bool {
+        self.turn(true, false)
+    }
+
+    /// Goes to the previous page, or row of pages. `false` at the start of the document.
+    pub fn previous_page(&self) -> bool {
+        self.turn(false, false)
+    }
+
+    /// Turns a row on or back; `at_end` lands at the bottom of the row turned to (what
+    /// scrolling back up into it expects).
+    fn turn(&self, forward: bool, at_end: bool) -> bool {
+        self.thaw();
+        {
+            let mut st = self.0.st.borrow_mut();
+            let rows = st.layout.rows();
+            let now = if st.mode == PageMode::Paged {
+                st.row
+            } else {
+                st.layout.row_of(self.0.page.get_untracked().unwrap_or(0))
+            };
+            let to = if forward { now + 1 } else { now.wrapping_sub(1) };
+            if to >= rows {
+                return false;
+            }
+            st.row = to;
+            let (lo, hi) = st.y_range_of(to);
+            st.scroll.y = if at_end { hi } else { lo };
+            st.turned_at = Some(Instant::now());
+            st.turn_pull = 0.0;
+            st.clamp();
+        }
+        self.changed();
+        true
+    }
+
+    /// Scrolls, and in paged mode turns the page when the scroll is already at that edge.
+    fn scroll_or_turn(&self, d: Vec2) -> bool {
+        let before = self.0.st.borrow().scroll;
+        self.scroll_by(d);
+        let st = self.0.st.borrow();
+        if st.scroll != before {
+            return true;
+        }
+        let paged = st.mode == PageMode::Paged;
+        drop(st);
+        paged && self.turn(d.x + d.y > 0.0, d.y < 0.0)
+    }
+
+    /// How the view zooms from the wheel and the keyboard.
+    pub fn input(&self) -> PageInput {
+        self.0.input.get()
+    }
+
+    /// Changes how the view zooms from the wheel and the keyboard.
+    pub fn set_input(&self, input: PageInput) {
+        self.0.input.set(input);
+    }
+
+    /// The shortcuts of `command` now: what [`PageView::rebind`] gave it, or its defaults.
+    pub fn chords(&self, command: PageCommand) -> Vec<Chord> {
+        let platform = self.host().map(|el| el.ui().platform()).unwrap_or_default();
+        self.0.keys.borrow().get(&command).cloned().unwrap_or_else(|| command.default_chords(platform))
+    }
+
+    /// Gives `command` these shortcuts in place of its defaults (none: no shortcut, for an
+    /// app that answers the keys itself and calls [`PageView::run`]).
+    pub fn rebind(&self, command: PageCommand, chords: Vec<Chord>) {
+        self.0.keys.borrow_mut().insert(command, chords);
+    }
+
+    /// Gives `command` its default shortcuts back.
+    pub fn reset_binding(&self, command: PageCommand) {
+        self.0.keys.borrow_mut().remove(&command);
+    }
+
+    /// Does what `command` does. `false` when there was nothing to do (no selection to copy
+    /// or clear, no page to turn to).
+    pub fn run(&self, command: PageCommand) -> bool {
+        let vh = self.0.st.borrow().viewport.height;
+        let input = self.0.input.get();
+        let zoom = self.0.st.borrow().zoom;
+        match command {
+            PageCommand::ZoomIn => match input.key_zoom {
+                Some(step) => self.set_zoom(step.apply(zoom, 1.0), self.caret_anchor()),
+                None => self.zoom_in(),
+            },
+            PageCommand::ZoomOut => match input.key_zoom {
+                Some(step) => self.set_zoom(step.apply(zoom, -1.0), self.caret_anchor()),
+                None => self.zoom_out(),
+            },
+            PageCommand::ResetZoom => self.set_zoom(input.reset_zoom, self.caret_anchor()),
+            PageCommand::NextPage => return self.next_page(),
+            PageCommand::PreviousPage => return self.previous_page(),
+            PageCommand::FirstPage => self.go_to_page(0),
+            PageCommand::LastPage => self.go_to_page(self.page_count().saturating_sub(1)),
+            PageCommand::ScrollUp => return self.scroll_or_turn(Vec2::new(0.0, -KEY_SCROLL)),
+            PageCommand::ScrollDown => return self.scroll_or_turn(Vec2::new(0.0, KEY_SCROLL)),
+            PageCommand::ScrollLeft => return self.scroll_or_turn(Vec2::new(-KEY_SCROLL, 0.0)),
+            PageCommand::ScrollRight => return self.scroll_or_turn(Vec2::new(KEY_SCROLL, 0.0)),
+            PageCommand::PageUp => return self.scroll_or_turn(Vec2::new(0.0, -vh * 0.9)),
+            PageCommand::PageDown => return self.scroll_or_turn(Vec2::new(0.0, vh * 0.9)),
+            PageCommand::SelectPage => self.select_page(),
+            PageCommand::Copy => return self.copy(),
+            PageCommand::ClearSelection => {
+                if self.0.st.borrow().text.selection.is_none() {
+                    return false;
+                }
+                self.clear_selection();
+            }
+        }
+        true
+    }
+
+    /// The command a key press asks for.
+    fn command_for(&self, e: &KeyEvent) -> Option<PageCommand> {
+        // The key as typed, then the key in its place on a US keyboard (Ctrl+C on a Russian
+        // layout), as the command table does.
+        let typed = Chord::new(e.modifiers, e.key.clone());
+        let placed = Chord::new(e.modifiers, e.shortcut_key());
+        PageCommand::ALL.into_iter().find(|c| {
+            let chords = self.chords(*c);
+            chords.contains(&typed) || chords.contains(&placed)
+        })
+    }
+
+    /// Hears a tap or a click that did not drag (and was not the second of a double tap).
+    pub fn on_tap(&self, f: impl Fn(PageHit) + 'static) {
+        *self.0.on_tap.borrow_mut() = Some(Rc::new(f));
+    }
+
+    /// Hears a double tap or a double click, unless it opened an annotation.
+    pub fn on_double_tap(&self, f: impl Fn(PageHit) + 'static) {
+        *self.0.on_double_tap.borrow_mut() = Some(Rc::new(f));
+    }
+
+    /// Hears a long press: a finger held still on the view (450 ms, within 12 pixels; on a
+    /// touch screen the window's own long press, which arrives as the secondary button), and
+    /// the mouse's right button.
+    pub fn on_long_press(&self, f: impl Fn(PageHit) + 'static) {
+        *self.0.on_long_press.borrow_mut() = Some(Rc::new(f));
+    }
+
+    /// Hears a quick sideways flick of one finger. Answer `true` when it was used; otherwise
+    /// in paged mode it turns the page, when the page is at that side's edge.
+    pub fn on_swipe(&self, f: impl Fn(Swipe) -> bool + 'static) {
+        *self.0.on_swipe.borrow_mut() = Some(Rc::new(f));
+    }
+
+    fn tell(&self, handler: &RefCell<Option<HitHandler>>, at: Point) {
+        let f = handler.borrow().clone();
+        if let Some(f) = f {
+            f(PageHit { at, page: self.page_under(at) });
+        }
+    }
+
+    /// A press ended at `p` without being cancelled: a tap, a double tap or a swipe.
+    fn lifted(&self, press: Press, p: Point) {
+        if press.held {
+            return;
+        }
+        if !press.moved {
+            let again = self.0.st.borrow().last_tap.is_some_and(|(t, at)| {
+                t.elapsed() <= DOUBLE_TAP && (at.x - p.x).hypot(at.y - p.y) <= DOUBLE_TAP_REACH
+            });
+            if press.double || again {
+                self.0.st.borrow_mut().last_tap = None;
+                self.tell(&self.0.on_double_tap, p);
+            } else {
+                self.0.st.borrow_mut().last_tap = Some((Instant::now(), p));
+                self.tell(&self.0.on_tap, p);
+            }
+            return;
+        }
+        let (dx, dy) = (p.x - press.at.x, p.y - press.at.y);
+        if press.since.elapsed() > SWIPE_TIME || dx.abs() < SWIPE_REACH || dx.abs() < 2.0 * dy.abs() {
+            return;
+        }
+        let swipe = if dx < 0.0 { Swipe::Left } else { Swipe::Right };
+        let f = self.0.on_swipe.borrow().clone();
+        if f.is_some_and(|f| f(swipe)) {
+            return;
+        }
+        let at_edge = {
+            let st = self.0.st.borrow();
+            let max_x = (st.layout.content_size(st.eff_zoom()).width - st.viewport.width).max(0.0);
+            st.mode == PageMode::Paged
+                && match swipe {
+                    Swipe::Left => press.scroll.x >= max_x - 0.5,
+                    Swipe::Right => press.scroll.x <= 0.5,
+                }
+        };
+        if at_edge {
+            self.turn(swipe == Swipe::Left, false);
+        }
+    }
+
+    fn arm_long_press(&self, seq: u64) {
+        let Some(el) = self.host() else { return };
+        if self.0.on_long_press.borrow().is_none() {
+            return;
+        }
+        let me = Rc::downgrade(&self.0);
+        // Never cancelled: a press that ended or moved no longer has this number.
+        let _ = el.ui().after(LONG_PRESS, move || {
+            let Some(s) = me.upgrade() else { return };
+            let v = PageView(s);
+            let at = match v.0.st.borrow_mut().press.as_mut() {
+                Some(pr) if pr.seq == seq && !pr.moved => {
+                    pr.held = true;
+                    Some(pr.at)
+                }
+                _ => None,
+            };
+            if let Some(at) = at {
+                v.tell(&v.0.on_long_press, at);
+            }
+        });
     }
 
     /// Scrolls by `delta` logical pixels.
@@ -539,7 +892,11 @@ impl PageView {
         let (zoom, fit, page) = {
             let st = self.0.st.borrow();
             let c = Point::new(st.scroll.x + st.viewport.width / 2.0, st.scroll.y + st.viewport.height / 2.0);
-            let page = st.layout.page_at(c, st.eff_zoom(), st.viewport.width).map_or(0, |(p, _)| p);
+            let page = if st.mode == PageMode::Paged {
+                st.layout.row_pages(st.row).start
+            } else {
+                st.layout.page_at(c, st.eff_zoom(), st.viewport.width).map_or(0, |(p, _)| p)
+            };
             (st.zoom, st.fit, page)
         };
         let _ = self.0.zoom.try_set(zoom);
@@ -622,10 +979,11 @@ impl PageView {
         if st.text.pages.contains_key(&page) || !st.text.pending.insert(page) {
             return;
         }
+        let epoch = st.epoch;
         drop(st);
-        let source = self.0.source.clone();
+        let source = self.0.source.borrow().clone();
         let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::TEXT, page as f32)));
-        raster::run(self.0.viewer, Cancel::new(), p, move |_| Done::Text(page, source.text(page)));
+        raster::run(self.0.viewer, Cancel::new(), p, move |_| Done::Text(page, epoch, source.text(page)));
     }
 
     /// The caret's place in the view, when there is a selection showing; zooms by keyboard
@@ -645,12 +1003,12 @@ impl PageView {
 
     fn deliver(&self, done: Done) {
         match done {
-            Done::Tile(id, result) => {
+            Done::Tile(id, epoch, result) => {
                 {
                     let mut st = self.0.st.borrow_mut();
-                    let size = self.0.sizes.get(id.page).copied().unwrap_or(Size::ZERO);
+                    let size = self.0.sizes.borrow().get(id.page).copied().unwrap_or(Size::ZERO);
                     let tile = st.tile_edge();
-                    st.tiles.adopt(id, result, tile, size);
+                    st.tiles.adopt(id, epoch, result, tile, size);
                     st.thumb_flight.remove(&id.page);
                 }
                 // A moving picture is redrawn when it settles, with what arrived meanwhile.
@@ -664,9 +1022,13 @@ impl PageView {
                     ui.element(el).repaint();
                 }
             }
-            Done::Text(page, t) => {
+            Done::Text(page, epoch, t) => {
                 {
                     let mut st = self.0.st.borrow_mut();
+                    if epoch != st.epoch {
+                        // Read before the page changed; it has been asked for again since.
+                        return;
+                    }
                     st.text.pending.remove(&page);
                     st.text.pages.insert(page, t.map(Arc::new));
                 }
@@ -968,6 +1330,7 @@ impl PageView {
     fn reveal(&self, page: usize, bounds: Rect) {
         {
             let mut st = self.0.st.borrow_mut();
+            st.row = st.layout.row_of(page);
             let a = st.to_content(page, bounds.min);
             let b = st.to_content(page, bounds.max);
             let r = annot::box_of(a, b);
@@ -996,7 +1359,7 @@ impl PageView {
     fn page_under(&self, p: Point) -> Option<(usize, Point)> {
         let st = self.0.st.borrow();
         let c = Point::new(p.x + st.scroll.x, p.y + st.scroll.y);
-        st.layout.page_at(c, st.eff_zoom(), st.viewport.width)
+        st.hit(c)
     }
 
     /// The topmost annotation under a point of the view.
@@ -1014,6 +1377,19 @@ impl PageView {
         let tool = self.0.st.borrow().tool;
         match tool {
             Tool::Select => {
+                // A corner of the selected image resizes it.
+                let picked = self.0.st.borrow().picked.and_then(|id| self.annotation(id));
+                let reach = (6.0 / self.0.st.borrow().eff_zoom().max(MIN_ZOOM)).max(annot::HANDLE);
+                let corner = picked.as_ref().and_then(|a| {
+                    let q = self.page_point(a.page, p)?;
+                    annot::corner_at(a, q, reach).map(|c| (a.id, c))
+                });
+                if let Some((id, corner)) = corner {
+                    let before = self.0.st.borrow().annots.clone();
+                    self.0.st.borrow_mut().drawing =
+                        Some(Drawing::Resize { id, corner, before, moved: false });
+                    return true;
+                }
                 let Some(id) = self.annotation_at(p) else {
                     if self.0.st.borrow().picked.is_some() {
                         self.select_annotation(None);
@@ -1090,6 +1466,21 @@ impl PageView {
                     None => Some(Drawing::Move { id, last, before, moved }),
                 }
             }
+            Some(Drawing::Resize { id, corner, before, moved }) => {
+                let page = self.annotation(id).map(|a| a.page);
+                let q = page.and_then(|pg| self.page_point(pg, p));
+                let mut st = self.0.st.borrow_mut();
+                let a = st.annots.iter_mut().find(|a| a.id == id);
+                match (a, q) {
+                    (Some(a), Some(q)) => {
+                        if let Some(r) = a.rect() {
+                            a.set_rect(annot::drag_corner(r, corner, q));
+                        }
+                        Some(Drawing::Resize { id, corner, before, moved: true })
+                    }
+                    _ => Some(Drawing::Resize { id, corner, before, moved }),
+                }
+            }
             None => None,
         };
         self.0.st.borrow_mut().drawing = next;
@@ -1139,6 +1530,13 @@ impl PageView {
             Some(Drawing::Move { id, before, moved, .. }) => {
                 if moved {
                     let label = self.undo_name("undo-move", self.annotation(id).as_ref());
+                    self.commit(label, before);
+                }
+                None
+            }
+            Some(Drawing::Resize { id, before, moved, .. }) => {
+                if moved {
+                    let label = self.undo_name("undo-change", self.annotation(id).as_ref());
                     self.commit(label, before);
                 }
                 None
@@ -1246,7 +1644,7 @@ impl PageView {
     /// Searches one page on a worker, from the current page on, wrapping; the next page goes
     /// when it comes back, so a search never floods the workers and stops when cancelled.
     fn search_page(&self, generation: u64, page: usize, cancel: Cancel) {
-        let source = self.0.source.clone();
+        let source = self.0.source.borrow().clone();
         let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::SEARCH, 0.0)));
         raster::run(self.0.viewer, cancel, p, move |_| Done::Found(generation, page, source.text(page)));
     }
@@ -1351,6 +1749,7 @@ impl PageView {
         {
             let mut st = self.0.st.borrow_mut();
             st.text.selection = Some((m.start, m.end));
+            st.row = st.layout.row_of(m.page());
             st.scroll = Vec2::new(c.x - st.viewport.width / 2.0, c.y - st.viewport.height / 2.0);
             st.clamp();
         }
@@ -1368,16 +1767,42 @@ impl PageView {
         let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_input::Platform::Apple);
         let zoom_key = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
         if zoom_key {
+            let input = self.0.input.get();
+            let step = if e.modifiers.shift {
+                input.wheel_zoom_shift.or(input.wheel_zoom)
+            } else {
+                input.wheel_zoom
+            };
+            let Some(step) = step else { return false };
+            // Some platforms turn a wheel with Shift held sideways.
+            let dy = if e.delta.y != 0.0 { e.delta.y } else { e.delta.x };
             let z = self.0.st.borrow().zoom;
-            let factor = (-e.delta.y * WHEEL_ZOOM_PER_PIXEL).exp();
-            self.set_zoom(z * factor, Some(self.local(e.position)));
+            self.set_zoom(step.apply(z, -dy / WHEEL_NOTCH), Some(self.local(e.position)));
             return true;
         }
         let d = if e.modifiers.shift && e.delta.x == 0.0 { Vec2::new(e.delta.y, 0.0) } else { e.delta };
         let before = self.0.st.borrow().scroll;
         self.scroll_by(d);
-        // A scroll that moved nothing goes on to what is around the view.
-        self.0.st.borrow().scroll != before
+        let mut st = self.0.st.borrow_mut();
+        if st.scroll != before {
+            st.turn_pull = 0.0;
+            return true;
+        }
+        if st.mode != PageMode::Paged {
+            // A scroll that moved nothing goes on to what is around the view.
+            return false;
+        }
+        if st.turned_at.is_some_and(|t| t.elapsed() < TURN_REST) {
+            return true;
+        }
+        // Against the edge of the page: a notch's worth of wheel turns it.
+        let pull = d.x + d.y;
+        st.turn_pull = if pull * st.turn_pull < 0.0 { pull } else { st.turn_pull + pull };
+        if st.turn_pull.abs() < WHEEL_NOTCH {
+            return true;
+        }
+        drop(st);
+        self.turn(pull > 0.0, d.y < 0.0)
     }
 
     pub(crate) fn pinch(&self, e: &PinchEvent) -> bool {
@@ -1397,7 +1822,14 @@ impl PageView {
             PointerPhase::Down => {
                 let middle = e.buttons.contains(Buttons::MIDDLE);
                 if !middle && !e.buttons.contains(Buttons::PRIMARY) {
-                    return false;
+                    // The secondary button: the mouse's right click, and what a long press
+                    // on a touch screen arrives as.
+                    let heard =
+                        e.buttons.contains(Buttons::SECONDARY) && self.0.on_long_press.borrow().is_some();
+                    if heard {
+                        self.tell(&self.0.on_long_press, p);
+                    }
+                    return heard;
                 }
                 let bar = self.0.st.borrow().bar_at(p);
                 let tool = self.0.st.borrow().tool;
@@ -1421,11 +1853,31 @@ impl PageView {
                     self.0.st.borrow_mut().text.selection = None;
                     Gesture::Pan { last: p }
                 };
-                self.0.st.borrow_mut().gesture = gesture;
+                let double = self.host().is_some_and(|el| el.ui().click_count() >= 2);
+                {
+                    let mut st = self.0.st.borrow_mut();
+                    st.gesture = gesture;
+                    // A press on the pages themselves may be a click for the app.
+                    let scroll = st.scroll;
+                    st.press = matches!(gesture, Gesture::Pan { .. } | Gesture::Select).then_some(Press {
+                        at: p,
+                        since: Instant::now(),
+                        scroll,
+                        moved: false,
+                        held: false,
+                        double,
+                        seq: 0,
+                    });
+                }
                 self.repaint();
                 true
             }
             PointerPhase::Move => {
+                if let Some(pr) = self.0.st.borrow_mut().press.as_mut()
+                    && (pr.at.x - p.x).hypot(pr.at.y - p.y) > MOUSE_SLOP
+                {
+                    pr.moved = true;
+                }
                 let g = self.0.st.borrow().gesture;
                 match g {
                     Gesture::Pan { last } => {
@@ -1461,7 +1913,7 @@ impl PageView {
                     Gesture::Annotate if e.phase == PointerPhase::Cancel => {
                         // A cancelled drag makes nothing; a cancelled move goes back.
                         let d = self.0.st.borrow_mut().drawing.take();
-                        if let Some(Drawing::Move { before, .. }) = d {
+                        if let Some(Drawing::Move { before, .. } | Drawing::Resize { before, .. }) = d {
                             self.restore(before);
                         }
                         self.repaint();
@@ -1473,6 +1925,10 @@ impl PageView {
                         self.mark_selection(tool);
                     }
                     _ => {}
+                }
+                let press = self.0.st.borrow_mut().press.take();
+                if let Some(press) = press.filter(|pr| e.phase == PointerPhase::Up && !pr.moved) {
+                    self.lifted(press, p);
                 }
                 !matches!(was, Gesture::None)
             }
@@ -1488,6 +1944,37 @@ impl PageView {
             PointerPhase::Up | PointerPhase::Cancel => {
                 st.touches.remove(&e.id);
             }
+        }
+        let mut after = After::Nothing;
+        match (e.phase, st.touches.len()) {
+            (PointerPhase::Down, 1) => {
+                st.press_seq += 1;
+                let seq = st.press_seq;
+                st.press = Some(Press {
+                    at: p,
+                    since: Instant::now(),
+                    scroll: st.scroll,
+                    moved: false,
+                    held: false,
+                    double: false,
+                    seq,
+                });
+                after = After::Arm(seq);
+            }
+            (PointerPhase::Move, 1) => {
+                if let Some(pr) = st.press.as_mut()
+                    && (pr.at.x - p.x).hypot(pr.at.y - p.y) > TOUCH_SLOP
+                {
+                    pr.moved = true;
+                }
+            }
+            (PointerPhase::Up, 0) => {
+                if let Some(pr) = st.press.take() {
+                    after = After::Lifted(pr, p);
+                }
+            }
+            // A second finger, or a cancelled touch: not a tap.
+            _ => st.press = None,
         }
         let pts: Vec<Point> = st.touches.values().copied().collect();
         match (pts.as_slice(), st.gesture) {
@@ -1506,6 +1993,7 @@ impl PageView {
                 let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt();
                 let m = Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
                 st.gesture = Gesture::Pinch { distance: d, zoom: st.zoom, mid: m };
+                drop(st);
             }
             ([one], Gesture::Pan { last }) => {
                 let one = *one;
@@ -1513,8 +2001,19 @@ impl PageView {
                 drop(st);
                 self.scroll_by(Vec2::new(last.x - one.x, last.y - one.y));
             }
-            ([one], _) => st.gesture = Gesture::Pan { last: *one },
-            _ => st.gesture = Gesture::None,
+            ([one], _) => {
+                st.gesture = Gesture::Pan { last: *one };
+                drop(st);
+            }
+            _ => {
+                st.gesture = Gesture::None;
+                drop(st);
+            }
+        }
+        match after {
+            After::Nothing => {}
+            After::Arm(seq) => self.arm_long_press(seq),
+            After::Lifted(press, p) => self.lifted(press, p),
         }
         true
     }
@@ -1524,7 +2023,7 @@ impl PageView {
         let (page, at) = {
             let st = self.0.st.borrow();
             let c = Point::new(p.x + st.scroll.x, p.y + st.scroll.y);
-            st.layout.page_at(c, st.eff_zoom(), st.viewport.width)?
+            st.hit(c)?
         };
         let st = self.0.st.borrow();
         match st.text.pages.get(&page) {
@@ -1542,10 +2041,6 @@ impl PageView {
         let ch = match &e.key {
             Key::Character(c) => Some(c.as_str()),
             _ => None,
-        };
-        let (vw, vh) = {
-            let st = self.0.st.borrow();
-            (st.viewport.width, st.viewport.height)
         };
         let picked = self.0.st.borrow().picked;
         if !cmd && !e.modifiers.alt {
@@ -1580,36 +2075,7 @@ impl PageView {
                 _ => {}
             }
         }
-        match (&e.key, ch) {
-            (_, Some("+" | "=")) if cmd => self.zoom_in(),
-            (_, Some("-" | "_")) if cmd => self.zoom_out(),
-            (_, Some("0")) if cmd => self.set_zoom(1.0, self.caret_anchor()),
-            (_, Some("a")) if cmd => self.select_page(),
-            (_, Some("c")) if cmd => return self.copy(),
-            (Key::Escape, _) => {
-                if self.0.st.borrow().text.selection.is_none() {
-                    return false;
-                }
-                self.clear_selection();
-            }
-            (Key::ArrowDown, _) => self.scroll_by(Vec2::new(0.0, KEY_SCROLL)),
-            (Key::ArrowUp, _) => self.scroll_by(Vec2::new(0.0, -KEY_SCROLL)),
-            (Key::ArrowRight, _) => self.scroll_by(Vec2::new(KEY_SCROLL, 0.0)),
-            (Key::ArrowLeft, _) => self.scroll_by(Vec2::new(-KEY_SCROLL, 0.0)),
-            (Key::PageDown, _) => self.scroll_by(Vec2::new(0.0, vh * 0.9)),
-            (Key::PageUp, _) => self.scroll_by(Vec2::new(0.0, -vh * 0.9)),
-            (Key::Space, _) => {
-                let d = if e.modifiers.shift { -vh * 0.9 } else { vh * 0.9 };
-                self.scroll_by(Vec2::new(0.0, d));
-            }
-            (Key::Home, _) => self.go_to_page(0),
-            (Key::End, _) => self.go_to_page(self.page_count().saturating_sub(1)),
-            _ => {
-                let _ = vw;
-                return false;
-            }
-        }
-        true
+        self.command_for(e).is_some_and(|c| self.run(c))
     }
 
     pub(crate) fn resized(&self, size: Size) {
@@ -1669,7 +2135,11 @@ impl PageView {
         let around = Rect::new(view.min.x - w, view.min.y - h, view.max.x + w, view.max.y + h);
         st.drawn = Rect::new(-w, -h, 2.0 * w, 2.0 * h);
         let mid = view.center();
-        let pages = st.layout.pages_between(around.min.y, around.max.y, z);
+        let pages = if st.mode == PageMode::Paged {
+            st.layout.row_pages(st.row)
+        } else {
+            st.layout.pages_between(around.min.y, around.max.y, z)
+        };
         let mut visible = Vec::new();
         let mut shown = Vec::new();
         for page in pages {
@@ -1680,7 +2150,7 @@ impl PageView {
             };
             let t = st.page_to_view(page);
             let Some(inv) = t.inverse() else { continue };
-            let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+            let size = self.0.sizes.borrow().get(page).copied().unwrap_or(Size::ZERO);
             let whole = Rect::new(0.0, 0.0, size.width, size.height);
             let local = seen.translate(Vec2::new(-scroll.x, -scroll.y));
             let Some(region) = inv.apply_rect(local).intersect(whole).filter(|r| !r.is_empty()) else {
@@ -1701,23 +2171,17 @@ impl PageView {
                 spread: 0.0,
                 color: Color::rgba8(0, 0, 0, 60),
             });
-            cx.list.fill_rect(*r, Brush::Solid(Color::WHITE));
+            cx.list.fill_rect(*r, Brush::Solid(st.paper()));
         }
         let level = level_of(z * dpr);
         let settled = st.frozen.is_none() && st.moved_at.is_none_or(|t| t.elapsed() >= SETTLE);
         let budget = st.cache_budget();
         let tile = st.tile_edge();
-        let sizes = self.0.sizes.clone();
+        let sizes = self.0.sizes.borrow().clone();
+        let source = self.0.source.borrow().clone();
         let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
-        let fcx = FrameCx {
-            viewer: self.0.viewer,
-            source: &self.0.source,
-            sizes: &size_of,
-            level,
-            tile,
-            settled,
-            budget,
-        };
+        let fcx =
+            FrameCx { viewer: self.0.viewer, source: &source, sizes: &size_of, level, tile, settled, budget };
         let draws = st.tiles.frame(&fcx, &visible);
         let mut by_page: HashMap<usize, Vec<Draw>> = HashMap::new();
         for d in draws {
@@ -1725,7 +2189,13 @@ impl PageView {
         }
         for (page, t, r) in &shown {
             cx.list.push(Item::PushTransform(*t));
-            for d in by_page.remove(page).unwrap_or_default() {
+            let tiles = by_page.remove(page).unwrap_or_default();
+            // The filter is on the page's pixels alone: what is drawn over them comes after.
+            let filtered = st.filter.filter(|_| !tiles.is_empty());
+            if let Some(matrix) = filtered {
+                cx.list.push(Item::PushFilter(Filter::ColorMatrix { matrix }));
+            }
+            for d in tiles {
                 if let Some(c) = d.clip {
                     cx.list.push_clip(c, CornerRadii::ZERO);
                 }
@@ -1739,9 +2209,12 @@ impl PageView {
                     cx.list.pop_clip();
                 }
             }
+            if filtered.is_some() {
+                cx.list.push(Item::PopFilter);
+            }
             // A page the source could not draw says so with the theme's danger color.
             if st.tiles.errors.contains_key(page) {
-                let size = self.0.sizes.get(*page).copied().unwrap_or(Size::ZERO);
+                let size = self.0.sizes.borrow().get(*page).copied().unwrap_or(Size::ZERO);
                 let mut c = colors.danger;
                 c.a = 0.25;
                 cx.list.fill_rect(Rect::new(0.0, 0.0, size.width, size.height), Brush::Solid(c));
@@ -1844,7 +2317,7 @@ impl PageView {
     /// with the page view.
     pub(crate) fn paint_thumb(&self, cx: &mut PaintCx<'_>, page: usize) {
         let mut st = self.0.st.borrow_mut();
-        let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+        let size = self.0.sizes.borrow().get(page).copied().unwrap_or(Size::ZERO);
         if size.is_empty() {
             return;
         }
@@ -1853,7 +2326,8 @@ impl PageView {
         let (w, h) = (shown.width * fit, shown.height * fit);
         let at = Point::new((cx.size.width - w) / 2.0, (cx.size.height - h) / 2.0);
         let r = Rect::new(at.x, at.y, at.x + w, at.y + h);
-        cx.list.fill_rect(r, Brush::Solid(Color::WHITE));
+        cx.list.fill_rect(r, Brush::Solid(st.paper()));
+        let filter = st.filter;
         let level = level_of(raster::PREVIEW_PIXELS / size.width.max(size.height));
         let id = TileId { page, level, col: 0, row: 0 };
         let tile = st.tile_edge();
@@ -1865,22 +2339,29 @@ impl PageView {
                     .then(Affine::scale(fit, fit))
                     .then(Affine::translate(at.to_vec2()));
                 cx.list.push(Item::PushTransform(t));
+                if let Some(matrix) = filter {
+                    cx.list.push(Item::PushFilter(Filter::ColorMatrix { matrix }));
+                }
                 cx.list.push(Item::Image {
                     image,
                     rect: Rect::new(0.0, 0.0, size.width, size.height),
                     radii: CornerRadii::ZERO,
                     sampling: Sampling::Linear,
                 });
+                if filter.is_some() {
+                    cx.list.push(Item::PopFilter);
+                }
                 cx.list.push(Item::PopTransform);
             }
             None if !st.thumb_flight.contains_key(&page) => {
                 let cancel = Cancel::new();
                 st.thumb_flight.insert(page, cancel.clone());
-                let sizes = self.0.sizes.clone();
+                let sizes = self.0.sizes.borrow().clone();
+                let source = self.0.source.borrow().clone();
                 let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
                 let fcx = FrameCx {
                     viewer: self.0.viewer,
-                    source: &self.0.source,
+                    source: &source,
                     sizes: &size_of,
                     level,
                     tile: tile.max(raster::PREVIEW_PIXELS as u32),
@@ -1920,6 +2401,104 @@ impl PageView {
         self.0.st.borrow().tiles.errors.get(&page).cloned()
     }
 
+    /// The colour change on the pages.
+    pub fn page_filter(&self) -> Option<ColorMatrix> {
+        self.0.st.borrow().filter
+    }
+
+    /// Changes the colours of the pages themselves (their paper and what the source draws on
+    /// it, here and in the thumbnails) and of nothing else: the panel behind them, their
+    /// shadows, annotations, the selection, search hits and the scroll bars keep theirs.
+    /// [`ColorMatrix`] has the usual ones (invert, sepia, grayscale, warm, cool, brightness,
+    /// contrast, and ink and paper colours of your own), and
+    /// [`ColorMatrix::then`] joins them. `None`, or a matrix that changes nothing: the pages
+    /// as the source draws them.
+    pub fn set_page_filter(&self, filter: Option<ColorMatrix>) {
+        self.0.st.borrow_mut().filter = filter.map(|m| m.limited()).filter(|m| !m.is_identity());
+        self.thaw();
+        self.repaint();
+        self.repaint_thumbs();
+    }
+
+    /// The number of pages, as a signal: it changes when the document does
+    /// ([`PageView::document_changed`], [`PageView::set_source`]).
+    pub fn page_count_signal(&self) -> Signal<usize> {
+        self.0.count
+    }
+
+    /// Tells the view these pages of its source now draw or read differently (an edit, a
+    /// filled form field, a rotation saved into the file). They are rendered and read again;
+    /// zoom, scroll and the current page stay as they are.
+    pub fn pages_changed(&self, pages: &[usize]) {
+        self.reload(Some(pages));
+    }
+
+    /// Tells the view its source is a different document now, or has pages added, removed or
+    /// resized: everything is laid out, rendered and read again. Zoom and scroll stay (as far
+    /// as the new pages allow), and so does the current page.
+    pub fn document_changed(&self) {
+        self.reload(None);
+    }
+
+    /// Shows another source in this view, as [`PageView::document_changed`] does.
+    pub fn set_source(&self, source: Arc<dyn PageSource>) {
+        *self.0.source.borrow_mut() = source;
+        self.reload(None);
+    }
+
+    fn reload(&self, pages: Option<&[usize]>) {
+        self.thaw();
+        let source = self.0.source.borrow().clone();
+        let sizes: Vec<Size> = (0..source.page_count()).map(|p| source.page_size(p)).collect();
+        let resized = **self.0.sizes.borrow() != sizes;
+        let query = {
+            let mut st = self.0.st.borrow_mut();
+            st.tiles.invalidate(pages);
+            for (_, c) in st.thumb_flight.drain() {
+                c.cancel();
+            }
+            st.epoch += 1;
+            // Whatever was being read is asked for again; what was read of changed pages is
+            // forgotten, with a selection on them.
+            st.text.pending.clear();
+            match pages {
+                Some(pages) => {
+                    for p in pages {
+                        st.text.pages.remove(p);
+                    }
+                    if st
+                        .text
+                        .selection
+                        .is_some_and(|(a, b)| pages.contains(&a.page) || pages.contains(&b.page))
+                    {
+                        st.text.selection = None;
+                    }
+                }
+                None => {
+                    st.text.pages.clear();
+                    st.text.selection = None;
+                }
+            }
+            if resized {
+                *self.0.sizes.borrow_mut() = Rc::new(sizes.clone());
+                st.relayout(&sizes);
+            }
+            st.text.search.text.clone()
+        };
+        if resized {
+            let _ = self.0.count.try_set(sizes.len());
+            self.refit();
+        }
+        // The hits were places in the old text.
+        if !query.is_empty() {
+            self.find(&query);
+        }
+        self.update_page_text();
+        self.changed();
+        self.repaint();
+        self.repaint_thumbs();
+    }
+
     /// Lets go of every tile not on screen now, as memory pressure does.
     pub fn release_memory(&self) {
         self.0.st.borrow_mut().tiles.release_unused();
@@ -1927,6 +2506,13 @@ impl PageView {
 }
 
 impl State {
+    /// The colour of a page before its source has drawn on it: white, through the filter.
+    fn paper(&self) -> Color {
+        let Some(m) = self.filter else { return Color::WHITE };
+        let [r, g, b, a] = m.apply([1.0, 1.0, 1.0, 1.0]);
+        Color { r, g, b, a }
+    }
+
     /// The zoom drawn: the set zoom moved onto the nearest render level, so tiles land on
     /// whole device pixels (at most 0.14% away).
     fn eff_zoom(&self) -> f32 {
@@ -1960,17 +2546,56 @@ impl State {
     }
 
     fn relayout(&mut self, sizes: &[Size]) {
+        let page = self.layout.row_pages(self.row).start;
         self.layout = PageLayout::new(sizes.to_vec(), self.spread, self.rotation, self.gap, self.margin);
+        self.row = self.layout.row_of(page);
         self.clamp();
+    }
+
+    /// The page under a point of the content, and the point in its points: in paged mode
+    /// only a page of the row shown.
+    fn hit(&self, c: Point) -> Option<(usize, Point)> {
+        let hit = self.layout.page_at(c, self.eff_zoom(), self.viewport.width)?;
+        (self.mode != PageMode::Paged || self.layout.row_of(hit.0) == self.row).then_some(hit)
+    }
+
+    /// The vertical scrolls the view may have: all of the content, or in paged mode the row
+    /// shown.
+    fn y_range(&self) -> (f32, f32) {
+        if self.mode == PageMode::Paged && self.layout.rows() > 0 {
+            return self.y_range_of(self.row.min(self.layout.rows() - 1));
+        }
+        (0.0, (self.layout.content_size(self.eff_zoom()).height - self.viewport.height).max(0.0))
+    }
+
+    /// The scrolls that show `row`: in paged mode from its top to its bottom (one place,
+    /// centring it, when it is shorter than the view); otherwise its top alone.
+    fn y_range_of(&self, row: usize) -> (f32, f32) {
+        let z = self.eff_zoom();
+        let top = self.layout.row_top(row, z) - self.margin;
+        if self.mode != PageMode::Paged {
+            return (top, top);
+        }
+        let bottom = self.layout.row_bottom(row, z) + self.margin;
+        let vh = self.viewport.height;
+        if bottom - top <= vh {
+            let y = top - (vh - (bottom - top)) / 2.0;
+            (y, y)
+        } else {
+            (top, bottom - vh)
+        }
     }
 
     fn clamp(&mut self) {
         let c = self.layout.content_size(self.eff_zoom());
         let max_x = (c.width - self.viewport.width).max(0.0);
-        let max_y = (c.height - self.viewport.height).max(0.0);
+        if self.layout.rows() > 0 {
+            self.row = self.row.min(self.layout.rows() - 1);
+        }
+        let (lo, hi) = self.y_range();
         let x = if self.scroll.x.is_finite() { self.scroll.x } else { 0.0 };
-        let y = if self.scroll.y.is_finite() { self.scroll.y } else { 0.0 };
-        self.scroll = Vec2::new(x.clamp(0.0, max_x), y.clamp(0.0, max_y));
+        let y = if self.scroll.y.is_finite() { self.scroll.y } else { lo };
+        self.scroll = Vec2::new(x.clamp(0.0, max_x), y.clamp(lo, hi));
     }
 
     /// The zoom (as drawn) and scroll of the picture: the frozen ones during a gesture.
@@ -2054,10 +2679,11 @@ impl State {
         // horizontal one runs beside it.
         let (bar_x, run) =
             if self.rtl { (2.0, (BAR + 4.0, vw - 2.0)) } else { (vw - BAR - 2.0, (2.0, vw - BAR - 4.0)) };
-        if c.height > vh && vh > 0.0 {
+        let (lo, hi) = self.y_range();
+        if hi > lo && vh > 0.0 {
             let track = Rect::new(bar_x, 2.0, bar_x + BAR, vh - 2.0);
-            let len = (track.height() * vh / c.height).max(BAR_MIN).min(track.height());
-            let y = track.min.y + (track.height() - len) * self.scroll.y / (c.height - vh);
+            let len = (track.height() * vh / (hi - lo + vh)).max(BAR_MIN).min(track.height());
+            let y = track.min.y + (track.height() - len) * (self.scroll.y - lo) / (hi - lo);
             out.push((track, Rect::new(track.min.x, y, track.max.x, y + len)));
         }
         if c.width > vw && vw > 0.0 {
@@ -2096,7 +2722,8 @@ impl State {
             if vertical {
                 let room = (track.height() - thumb.height()).max(1.0);
                 let t = ((p.y - grab - track.min.y) / room).clamp(0.0, 1.0);
-                self.scroll.y = t * (c.height - self.viewport.height);
+                let (lo, hi) = self.y_range();
+                self.scroll.y = lo + t * (hi - lo);
             } else {
                 let room = (track.width() - thumb.width()).max(1.0);
                 let t = ((p.x - grab - track.min.x) / room).clamp(0.0, 1.0);

@@ -180,8 +180,10 @@ pub(crate) mod class {
 
 /// What a worker finished.
 pub(crate) enum Done {
-    Tile(TileId, Result<Image, RenderError>),
-    Text(usize, Option<PageText>),
+    /// A tile, and the tiles' epoch it was asked for in ([`Tiles::invalidate`]).
+    Tile(TileId, u64, Result<Image, RenderError>),
+    /// A page's text, and the view's epoch it was asked for in.
+    Text(usize, u64, Option<PageText>),
     Found(u64, usize, Option<PageText>),
 }
 
@@ -304,6 +306,9 @@ pub(crate) struct Tiles {
     pub(crate) errors: HashMap<usize, String>,
     frame: u64,
     bytes: usize,
+    /// Counts the times pages changed under the cache: a render asked for before the latest
+    /// change shows what the page was, and is not taken.
+    epoch: u64,
     pub(crate) stats: PageStats,
 }
 
@@ -329,6 +334,7 @@ impl Tiles {
             errors: HashMap::new(),
             frame: 0,
             bytes: 0,
+            epoch: 0,
             stats: PageStats::default(),
         }
     }
@@ -496,10 +502,11 @@ impl Tiles {
         self.flying.insert(id, Flight { cancel: cancel.clone(), priority: priority.clone() });
         self.stats.requested += 1;
         let source = cx.source.clone();
+        let epoch = self.epoch;
         run(cx.viewer, cancel, priority, move |c| {
             let result =
                 if c.is_cancelled() { Err(RenderError::Cancelled) } else { source.render(&request, c) };
-            Done::Tile(id, result)
+            Done::Tile(id, epoch, result)
         });
     }
 
@@ -507,10 +514,16 @@ impl Tiles {
     pub(crate) fn adopt(
         &mut self,
         id: TileId,
+        epoch: u64,
         result: Result<Image, RenderError>,
         tile: u32,
         size: remedy_ui_core::Size,
     ) {
+        if epoch != self.epoch {
+            // Drawn from what the page was: whatever is asked for under this id now is a
+            // newer render, still on its way.
+            return;
+        }
         self.flying.remove(&id);
         match result {
             Ok(image) => {
@@ -593,13 +606,35 @@ impl Tiles {
 
     /// Forgets everything (the document changed), stopping what is rendering.
     pub(crate) fn clear(&mut self) {
+        self.invalidate(None);
+    }
+
+    /// Forgets the tiles of `pages` (`None`: of every page), whose content changed, and stops
+    /// everything rendering: what is still wanted is asked for again by the next frame, and
+    /// what comes back from before the change is not taken.
+    pub(crate) fn invalidate(&mut self, pages: Option<&[usize]>) {
+        self.epoch += 1;
         for (_, f) in self.flying.drain() {
             f.cancel.cancel();
         }
-        self.done.clear();
-        self.levels.clear();
-        self.errors.clear();
-        self.bytes = 0;
+        match pages {
+            None => {
+                self.done.clear();
+                self.levels.clear();
+                self.errors.clear();
+                self.bytes = 0;
+            }
+            Some(pages) => {
+                let gone: Vec<TileId> =
+                    self.done.keys().filter(|id| pages.contains(&id.page)).copied().collect();
+                for id in gone {
+                    self.remove(&id);
+                }
+                for page in pages {
+                    self.errors.remove(page);
+                }
+            }
+        }
         self.sync_stats();
     }
 
@@ -632,10 +667,11 @@ impl Tiles {
         let source = cx.source.clone();
         self.stats.requested += 1;
         let p = Arc::new(AtomicU64::new(priority(class, id.page as f32)));
+        let epoch = self.epoch;
         run(cx.viewer, cancel, p, move |c| {
             let result =
                 if c.is_cancelled() { Err(RenderError::Cancelled) } else { source.render(&request, c) };
-            Done::Tile(id, result)
+            Done::Tile(id, epoch, result)
         });
     }
 }
