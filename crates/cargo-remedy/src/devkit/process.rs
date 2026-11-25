@@ -163,4 +163,26 @@ mod tests {
         assert!(ran.is_ok_and(|r| r.ok && r.stdout.starts_with("cargo")));
         assert!(run(Command::new("remedy-tools-no-such-program"), Path::new("."), None).is_err());
     }
+
+    #[test]
+    fn a_program_past_its_time_is_stopped() {
+        // Something that outlives the test by itself: it must be stopped, not waited for.
+        #[cfg(windows)]
+        let slow = {
+            let mut c = Command::new("ping");
+            c.args(["-n", "30", "127.0.0.1"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let slow = {
+            let mut c = Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let Ok(ran) = run(slow, Path::new("."), Some(Duration::from_millis(100))) else {
+            unreachable!("the program starts")
+        };
+        assert!(ran.timed_out && !ran.ok, "{ran:?}");
+        assert!(ran.took < Duration::from_secs(10), "{ran:?}");
+    }
 }

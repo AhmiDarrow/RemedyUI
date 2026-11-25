@@ -212,6 +212,12 @@ fn set_reference(doc: &mut Map<String, Value>, path: &[String], reference: &str)
     cur.insert(last.clone(), json!({ "$type": kind, "$value": reference }));
 }
 
+/// The reference to the file called `name` in the folder references are relative to. Said
+/// as a path, so a name with a colon in it ("a:b.png") is not read as a link or inline data.
+fn file_reference(name: &str) -> String {
+    format!("./{name}")
+}
+
 /// A free name in `dir` for a file called `name`: the name itself, or with a number added,
 /// unless a file with the same bytes is already there.
 fn free_name(dir: &Path, name: &str, bytes: &[u8]) -> String {
@@ -282,8 +288,13 @@ impl Customizations {
                 check_image(&file).map_err(&fail)?;
             }
             if let Located::File(p) = &at {
-                let name =
-                    p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "asset".into());
+                // Without leading dots: a dot file is taken for a temporary one, so it would
+                // be neither part of the undo nor pruned.
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().trim_start_matches('.').to_owned())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "asset".into());
                 let name = free_name(&dir, &name, &file);
                 files::write_atomic(&dir.join(&name), &file)
                     .map_err(|e| CustomizeError::io(&dir.join(&name), &e))?;
@@ -429,7 +440,7 @@ impl Customizations {
             Some(p) => {
                 let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 let dir = p.parent().map(Path::to_path_buf).unwrap_or_default();
-                set_reference(&mut doc, &path, &name);
+                set_reference(&mut doc, &path, &file_reference(&name));
                 let label = tr_now(ui, "history-change-background", &[]);
                 return self.write_with_assets(ui, label, doc, Some((dir, path)));
             }
@@ -455,7 +466,7 @@ impl Customizations {
         let (theme, mut doc) = self.theme_doc()?;
         let name = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let at = vec!["asset".to_owned(), "font".to_owned(), family.to_owned()];
-        set_reference(&mut doc, &at, &name);
+        set_reference(&mut doc, &at, &file_reference(&name));
         if use_for_text {
             let mut families = theme.font_families.clone();
             families.retain(|f| f != family);
@@ -537,5 +548,11 @@ mod tests {
         assert!(data_uri("data:;base64,@@@").is_err());
         assert!(!is_link("data:image/png;base64,AAAA") && is_link("https://x/y.png") && !is_link("C:/x.png"));
         assert!(contained("fonts/a.ttf") && !contained("../a.ttf") && !contained("/etc/a.ttf"));
+        // A chosen file's name is a file whatever is in it.
+        for name in ["a:b.png", "data:x.png", "plain.png"] {
+            let r = file_reference(name);
+            assert!(contained(&r) && !is_link(&r), "{r}");
+            assert!(matches!(locate(&r, Path::new("base")), Ok(Located::File(_))), "{r}");
+        }
     }
 }

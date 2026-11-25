@@ -804,3 +804,42 @@ fn what_is_fetched_ahead_is_bounded_in_bytes() {
     while hls.next_unit().is_some() {}
     assert!(hls.wanted().is_some(), "nothing held: the next is fetched");
 }
+
+/// A live playlist's window slides: what was played and is no longer listed is forgotten
+/// (indices re-based, media times kept), what was never fetched and is gone is skipped, an
+/// older copy changes nothing, and a server numbering from the start again is read on.
+#[test]
+fn a_live_playlist_slides_and_a_restarted_one_is_read_on() {
+    let index = Want { url: format!("{ROOT}index.m3u8"), kind: WantKind::Playlist, after: Duration::ZERO };
+    let live = |from: u64, count: u64, name: &str| {
+        let segs: String = (from..from + count).map(|i| format!("#EXTINF:1,\n{name}{i}.ts\n")).collect();
+        format!("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:{from}\n{segs}").into_bytes()
+    };
+    let seqs = |h: &Hls| h.segments.iter().map(|s| s.sequence).collect::<Vec<_>>();
+    let mut hls = Hls::new(&index.url);
+    assert!(hls.deliver(&index, Ok(live(0, 4, "a"))).is_ok());
+    // As if three segments were read and the third were playing.
+    (hls.next, hls.current) = (3, 2);
+    assert!(hls.deliver(&index, Ok(live(2, 4, "a"))).is_ok());
+    assert_eq!(seqs(&hls), [2, 3, 4, 5]);
+    assert_eq!((hls.next, hls.current), (1, 0));
+    assert_eq!(hls.segments[0].start, ms(2000), "media times stay");
+    assert_eq!(hls.info().duration, Some(ms(6000)));
+    assert!(hls.deliver(&index, Ok(live(1, 4, "a"))).is_ok());
+    assert_eq!(seqs(&hls), [2, 3, 4, 5], "an older copy of the playlist");
+    // The reader fell behind the window: what it never fetched cannot be fetched any more.
+    assert!(hls.deliver(&index, Ok(live(10, 3, "a"))).is_ok());
+    assert_eq!(seqs(&hls), [2, 10, 11, 12]);
+    assert_eq!(hls.wanted().map(|w| w.kind), Some(WantKind::Segment(10)));
+    assert!(hls.deliver(&index, Ok(live(0, 2, "b"))).is_ok());
+    assert_eq!(seqs(&hls), [2, 0, 1]);
+    assert!(hls.segments[1].discontinuity && !hls.segments[2].discontinuity);
+    assert_eq!(hls.wanted().map(|w| w.url), Some(format!("{ROOT}b0.ts")));
+    // A day of a stream holds no more than its window and what plays.
+    for from in 1..2000 {
+        hls.next = hls.segments.len();
+        hls.current = hls.next - 1;
+        assert!(hls.deliver(&index, Ok(live(from, 3, "b"))).is_ok());
+    }
+    assert!(hls.segments.len() <= 4, "{} segments held", hls.segments.len());
+}

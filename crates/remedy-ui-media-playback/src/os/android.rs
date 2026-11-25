@@ -1268,14 +1268,29 @@ impl AudioOutput for AAudioOut {
     }
 
     fn write(&mut self, samples: &[f32]) -> Result<(), MediaError> {
-        let frames = samples.len() / usize::from(self.format.channels.max(1));
-        let n = i32::try_from(frames).map_err(|_| MediaError::Device("too many frames at once".into()))?;
+        let ch = usize::from(self.format.channels.max(1));
+        let n = i32::try_from(samples.len() / ch)
+            .map_err(|_| MediaError::Device("too many frames at once".into()))?;
         // SAFETY: writing `n` whole frames from a live slice, without waiting.
         let r = unsafe { (self.aa.stream_write)(self.stream, samples.as_ptr().cast(), n, 0) };
         if r < 0 {
             return Err(self.aa.error("writing sound failed", r));
         }
-        Ok(())
+        if r >= n {
+            return Ok(());
+        }
+        // The device took a part (it had less room than it said): the rest is waited for, as
+        // long as it takes to play out, so nothing counted as written is dropped.
+        let rest = samples.get(r as usize * ch..n as usize * ch).unwrap_or_default();
+        let wait = self.format.duration_of(u64::from((n - r).unsigned_abs())) + Duration::from_millis(20);
+        let nanos = i64::try_from(wait.min(Duration::from_millis(250)).as_nanos()).unwrap_or(0);
+        // SAFETY: writing the `n - r` whole frames left, from the same live slice.
+        let more = unsafe { (self.aa.stream_write)(self.stream, rest.as_ptr().cast(), n - r, nanos) };
+        match more {
+            m if m < 0 => Err(self.aa.error("writing sound failed", m)),
+            m if m < n - r => Err(MediaError::Device("the sound output took only part of the sound".into())),
+            _ => Ok(()),
+        }
     }
 
     fn played(&mut self) -> Result<u64, MediaError> {

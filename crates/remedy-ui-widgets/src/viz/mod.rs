@@ -26,7 +26,7 @@
 //! ```
 
 /// The pack's own words (screen reader values: levels, zones, states) in every language the
-/// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// engine ships, from `i18n/viz/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_engine::view::strings::add_messages`] under the name `viz`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings = remedy_ui_engine::engine_strings!("viz");
 

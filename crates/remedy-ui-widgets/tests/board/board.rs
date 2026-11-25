@@ -706,3 +706,34 @@ fn a_board_speaks_the_windows_language_with_its_plurals() {
     frame(&ui);
     assert!(has_text(&ui, "Nobody home") && has_text(&ui, "Empty board"));
 }
+
+#[test]
+fn toggling_a_reaction_keeps_its_button_and_the_keyboards_focus() {
+    use remedy_ui_core::reactive::Signal;
+    let ui = ui();
+    let shown = Signal::new(vec![Reaction { emoji: "👍".into(), count: 2, mine: false }]);
+    let offered = vec!["👍".to_owned(), "❤️".to_owned(), "🎉".to_owned()];
+    ui.root().child(reactions(&ui, shown, offered, move |e| shown.update(|v| reactions::toggle(v, e))));
+    frame(&ui);
+    let thumb = named(&ui, "👍, 2 reactions");
+    thumb.focus();
+    key(&ui, Key::Enter, Modifiers::default());
+    assert_eq!(named(&ui, "👍, 3 reactions, including yours").id(), thumb.id(), "the same button");
+    assert!(thumb.is_focused());
+    // A first reaction moves its button before the ones nobody chose: it stays focused.
+    let party = named(&ui, "🎉, 0 reactions");
+    party.focus();
+    key(&ui, Key::Enter, Modifiers::default());
+    assert_eq!(named(&ui, "🎉, 1 reaction, including yours").id(), party.id());
+    assert!(party.is_focused());
+    let left = |e: &El| e.bounds().unwrap_or_default().min.x;
+    assert!(left(&thumb) < left(&party) && left(&party) < left(&named(&ui, "❤️, 0 reactions")));
+    assert_eq!(widgets(&ui, "button").len(), 3);
+    // Taken back, an emoji nobody offered goes with its button.
+    shown.set(vec![Reaction { emoji: "🦊".into(), count: 1, mine: false }]);
+    frame(&ui);
+    assert_eq!(widgets(&ui, "button").len(), 4);
+    shown.set(Vec::new());
+    frame(&ui);
+    assert_eq!(widgets(&ui, "button").len(), 3);
+}

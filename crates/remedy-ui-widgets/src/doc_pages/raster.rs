@@ -180,8 +180,9 @@ pub(crate) mod class {
 
 /// What a worker finished.
 pub(crate) enum Done {
-    /// A tile, and the tiles' epoch it was asked for in ([`Tiles::invalidate`]).
-    Tile(TileId, u64, Result<Image, RenderError>),
+    /// A tile, the tiles' epoch it was asked for in ([`Tiles::invalidate`]) and its flight
+    /// (0 for a tile asked for outside the frame plan).
+    Tile(TileId, u64, u64, Result<Image, RenderError>),
     /// A page's text, and the view's epoch it was asked for in.
     Text(usize, u64, Option<PageText>),
     Found(u64, usize, Option<PageText>),
@@ -295,6 +296,8 @@ pub struct PageStats {
 struct Flight {
     cancel: Cancel,
     priority: Arc<AtomicU64>,
+    /// Which request for the tile this is: a tile dropped and wanted again is a new one.
+    serial: u64,
 }
 
 /// Everything a viewer knows about its tiles.
@@ -303,6 +306,8 @@ pub(crate) struct Tiles {
     /// Tiles held per page and level, so stand-ins are found without scanning the cache.
     levels: HashMap<usize, BTreeMap<i32, usize>>,
     flying: HashMap<TileId, Flight>,
+    /// The last flight's serial.
+    flights: u64,
     pub(crate) errors: HashMap<usize, String>,
     frame: u64,
     bytes: usize,
@@ -331,6 +336,7 @@ impl Tiles {
             done: HashMap::new(),
             levels: HashMap::new(),
             flying: HashMap::new(),
+            flights: 0,
             errors: HashMap::new(),
             frame: 0,
             bytes: 0,
@@ -499,22 +505,25 @@ impl Tiles {
         let request = RenderRequest { page: id.page, region, scale: grid.scale, width, height };
         let cancel = Cancel::new();
         let priority = Arc::new(AtomicU64::new(p));
-        self.flying.insert(id, Flight { cancel: cancel.clone(), priority: priority.clone() });
+        self.flights += 1;
+        let serial = self.flights;
+        self.flying.insert(id, Flight { cancel: cancel.clone(), priority: priority.clone(), serial });
         self.stats.requested += 1;
         let source = cx.source.clone();
         let epoch = self.epoch;
         run(cx.viewer, cancel, priority, move |c| {
             let result =
                 if c.is_cancelled() { Err(RenderError::Cancelled) } else { source.render(&request, c) };
-            Done::Tile(id, epoch, result)
+            Done::Tile(id, epoch, serial, result)
         });
     }
 
-    /// Takes a finished render.
+    /// Takes a finished render of flight `flight`.
     pub(crate) fn adopt(
         &mut self,
         id: TileId,
         epoch: u64,
+        flight: u64,
         result: Result<Image, RenderError>,
         tile: u32,
         size: remedy_ui_core::Size,
@@ -524,7 +533,10 @@ impl Tiles {
             // newer render, still on its way.
             return;
         }
-        self.flying.remove(&id);
+        // A withdrawn render's late answer leaves the newer flight for the same tile alone.
+        if self.flying.get(&id).is_some_and(|f| f.serial == flight) {
+            self.flying.remove(&id);
+        }
         match result {
             Ok(image) => {
                 let (w, h, _) = Grid::new(size, id.level, tile).cell((id.col, id.row));
@@ -671,7 +683,7 @@ impl Tiles {
         run(cx.viewer, cancel, p, move |c| {
             let result =
                 if c.is_cancelled() { Err(RenderError::Cancelled) } else { source.render(&request, c) };
-            Done::Tile(id, epoch, result)
+            Done::Tile(id, epoch, 0, result)
         });
     }
 }
@@ -701,6 +713,52 @@ mod tests {
         assert_eq!(g.cells_in(Rect::new(0.0, 0.0, 10.0, 10.0)), vec![(0, 0)]);
         assert_eq!(g.cells_in(Rect::new(250.0, 250.0, 300.0, 300.0)).len(), 4);
         assert_eq!(g.cells_in(Rect::new(-50.0, -50.0, 2000.0, 2000.0)).len(), 12);
+    }
+
+    struct Blank;
+
+    impl PageSource for Blank {
+        fn page_count(&self) -> usize {
+            1
+        }
+
+        fn page_size(&self, _page: usize) -> Size {
+            Size::new(100.0, 100.0)
+        }
+
+        fn render(&self, _request: &RenderRequest, _cancel: &Cancel) -> Result<Image, RenderError> {
+            Err(RenderError::Cancelled)
+        }
+    }
+
+    #[test]
+    fn a_withdrawn_render_s_late_answer_leaves_the_newer_flight_flying() {
+        let source: Arc<dyn PageSource> = Arc::new(Blank);
+        let sizes = |_: usize| Size::new(100.0, 100.0);
+        // Viewer 0 is nobody: results are handed over by hand below.
+        let cx = FrameCx {
+            viewer: 0,
+            source: &source,
+            sizes: &sizes,
+            level: 0,
+            tile: 256,
+            settled: true,
+            budget: 0,
+        };
+        let id = TileId { page: 0, level: 0, col: 0, row: 0 };
+        let mut tiles = Tiles::new();
+        tiles.start(&cx, id, 0);
+        // Scrolled away, then back: the first flight is withdrawn and a second one starts.
+        assert!(tiles.frame(&cx, &[]).is_empty());
+        assert!(!tiles.busy());
+        tiles.start(&cx, id, 0);
+        let size = Size::new(100.0, 100.0);
+        tiles.adopt(id, 0, 1, Err(RenderError::Cancelled), 256, size);
+        assert!(tiles.busy(), "the second flight is still on its way");
+        tiles.adopt(id, 0, 0, Err(RenderError::Cancelled), 256, size);
+        assert!(tiles.busy(), "a thumbnail's answer is not the frame's flight either");
+        tiles.adopt(id, 0, 2, Err(RenderError::Cancelled), 256, size);
+        assert!(!tiles.busy());
     }
 
     #[test]

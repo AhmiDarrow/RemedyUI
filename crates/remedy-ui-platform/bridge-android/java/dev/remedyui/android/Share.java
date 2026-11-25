@@ -158,14 +158,6 @@ public final class Share extends Fragment {
         }
     }
 
-    private static long parse(String name) {
-        try {
-            return Long.parseLong(name);
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
     private static void delete(File f) {
         File[] children = f.listFiles();
         if (children != null) {

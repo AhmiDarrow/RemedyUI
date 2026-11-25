@@ -220,7 +220,7 @@ impl HeadlessHost {
 
     /// Sets the scale new windows get.
     pub fn with_scale(mut self, scale: f32) -> Self {
-        self.scale = if scale > 0.0 { scale } else { 1.0 };
+        self.scale = if scale > 0.0 && scale.is_finite() { scale } else { 1.0 };
         self
     }
 
@@ -302,9 +302,18 @@ impl HeadlessHost {
     }
 
     fn apply_size(w: &mut HeadlessWindow, size: Size) {
+        // A size or scale that is huge, infinite or not a number still gives a surface memory
+        // can hold: each side at most 2^20 pixels and the whole at most 2^28 (1 GiB of RGBA8).
+        const MAX_SIDE: f32 = 1_048_576.0;
+        const MAX_PIXELS: u32 = 1 << 28;
+        let scale = w.scale;
+        let side = |logical: f32| {
+            let px = (logical * scale).round();
+            if px.is_nan() { 1 } else { px.clamp(1.0, MAX_SIDE) as u32 }
+        };
         w.options.size = size;
-        w.width = (size.width * w.scale).round().max(1.0) as u32;
-        w.height = (size.height * w.scale).round().max(1.0) as u32;
+        w.width = side(size.width);
+        w.height = side(size.height).min(MAX_PIXELS / w.width).max(1);
         w.surface = vec![0; w.width as usize * w.height as usize * 4];
     }
 
@@ -322,7 +331,7 @@ impl HeadlessHost {
 
     /// Moves the clock forward.
     pub fn advance(&mut self, by: Duration) {
-        self.clock += by;
+        self.clock = self.clock.saturating_add(by);
     }
 
     /// A window, for inspection.
@@ -382,7 +391,8 @@ impl HeadlessHost {
     /// Sets the wall clock (now) and the UTC offset; it then moves with the host clock.
     pub fn set_local_time(&mut self, unix_seconds: i64, utc_offset: i32) {
         self.wall = remedy_ui_core::host::LocalTime {
-            unix_seconds: unix_seconds - self.clock.as_secs() as i64,
+            unix_seconds: unix_seconds
+                .saturating_sub(i64::try_from(self.clock.as_secs()).unwrap_or(i64::MAX)),
             utc_offset,
         };
     }
@@ -531,7 +541,13 @@ impl HeadlessHost {
             } else if self.woken.swap(false, Ordering::SeqCst) {
                 Some(HostEvent::Wake)
             } else {
-                let due = self.timers.iter().find(|(_, at)| **at <= self.clock).map(|(id, _)| *id);
+                // The earliest first, whatever order they were set in.
+                let due = self
+                    .timers
+                    .iter()
+                    .filter(|(_, at)| **at <= self.clock)
+                    .min_by_key(|(id, at)| (**at, **id))
+                    .map(|(id, _)| *id);
                 due.map(|id| {
                     self.timers.remove(&id);
                     HostEvent::Timer(id)
@@ -587,7 +603,10 @@ impl Host for HeadlessHost {
 
     fn local_time(&self) -> remedy_ui_core::host::LocalTime {
         remedy_ui_core::host::LocalTime {
-            unix_seconds: self.wall.unix_seconds + self.clock.as_secs() as i64,
+            unix_seconds: self
+                .wall
+                .unix_seconds
+                .saturating_add(i64::try_from(self.clock.as_secs()).unwrap_or(i64::MAX)),
             utc_offset: self.wall.utc_offset,
         }
     }

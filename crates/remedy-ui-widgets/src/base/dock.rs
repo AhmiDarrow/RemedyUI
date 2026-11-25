@@ -86,9 +86,10 @@ impl DockSpec {
 /// chevron, and drag-to-the-other-edge to redock.
 ///
 /// `state` is the caller's to persist. Dragging the divider past the midpoint
-/// of the row docks the pane on the other side and keeps its width. The
-/// chevron (and Enter/Space on the strip) collapses the pane to a slim strip;
-/// the strip's tooltip names the pane.
+/// of the row, further than the pane can grow, docks the pane on the other
+/// side with the width it had before the drag; so does dragging the grip, or
+/// Enter or Space on it. The chevron collapses the pane to a slim strip; the
+/// strip's tooltip names the pane.
 #[track_caller]
 pub fn dock(ui: &Ui, state: Signal<DockState>, spec: DockSpec, docked: El, main: El) -> El {
     let label = if spec.label.is_empty() { crate::base::tr(ui, "resize-panes") } else { spec.label.clone() };
@@ -213,10 +214,17 @@ fn dock_pane(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, bo
     });
     let st_s = state;
     let label_s = label.to_string();
+    let ui_s = ui.clone();
     col.semantics(move || {
-        let name = if st_s.get().collapsed { format!("{label_s} (collapsed)") } else { label_s.clone() };
+        let name =
+            if st_s.get().collapsed { named(&ui_s, "dock-collapsed", &label_s) } else { label_s.clone() };
         Semantics::new(Role::Region).label(name)
     })
+}
+
+/// Message `id` of the pack about the pane called `label`, in the window's language.
+fn named(ui: &Ui, id: &'static str, label: &str) -> String {
+    crate::base::STRINGS.format(ui, id, &[("label", label.into())])
 }
 
 fn strip_chrome(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
@@ -298,7 +306,19 @@ fn header_grip(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
             l.height = Length::Px(16.0);
             l.shrink = 0.0;
         })
-        .semantics(Semantics::new(Role::Button).label(format!("Move {label}")))
+        .focusable(true)
+        .semantics({
+            let (ui, label) = (ui.clone(), label.to_string());
+            move || Semantics::new(Role::Button).label(named(&ui, "dock-move", &label))
+        })
+        // The keyboard's way to redock: the drag below has none.
+        .on_key(move |e| {
+            let flip = e.pressed && !e.repeat && matches!(e.key, Key::Enter | Key::Space);
+            if flip {
+                st.update(|s| s.side = s.side.flip());
+            }
+            flip
+        })
         .on_pointer(move |e| {
             if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::PRIMARY) {
                 start_x.set(e.position.x);
@@ -318,13 +338,15 @@ fn header_grip(ui: &Ui, state: Signal<DockState>, label: &str) -> El {
             }
             false
         });
-    crate::base::tooltip(&grip, format!("Drag to dock {label} on the other side"));
+    let (ui_t, label_t) = (ui.clone(), label.to_string());
+    crate::base::tooltip(&grip, move || named(&ui_t, "dock-move-hint", &label_t));
     grip
 }
 
 fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str, row: El) -> El {
     let spec = spec.clone();
     let dragging = Signal::new(false);
+    let start_width = Signal::new(0.0f32);
     let u = ui.clone();
     let handle = ui
         .el("dock-handle")
@@ -352,6 +374,7 @@ fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str
             move |e| {
                 if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::PRIMARY) {
                     dragging.set(true);
+                    start_width.set(st.get().width);
                     apply_resize(&st, &spec, &row, e.position.x);
                     return true;
                 }
@@ -375,8 +398,13 @@ fn resize_handle(ui: &Ui, state: Signal<DockState>, spec: &DockSpec, label: &str
                         } else {
                             cur.side
                         };
-                        if want != cur.side {
-                            st.set(DockState { side: want, ..cur });
+                        // Within the widths the pane can take in this row, the drag was a resize.
+                        let from_left = (want == DockSide::End) != row.is_rtl();
+                        let from_edge =
+                            if from_left { e.position.x - b.min.x } else { b.max.x - e.position.x };
+                        let widest = spec.max_width.min((b.width() - 80.0).max(spec.min_width));
+                        if want != cur.side && from_edge > widest {
+                            st.set(DockState { side: want, width: start_width.get(), ..cur });
                         }
                     }
                     return true;

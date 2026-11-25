@@ -363,6 +363,37 @@ fn hostile_input_stays_bounded() {
     }
     let last = (0..2).filter_map(|r| e.cell(r, 0)).map(|c| c.link).max().unwrap_or(0);
     assert!(last < 1_000, "links are renumbered as old ones go: {last}");
+    // A few links as long as a string may be are swept by what they hold, not their number.
+    let mut e = Emulator::new(20, 2);
+    e.set_string_limit(64 * 1024);
+    for i in 0..32 {
+        e.feed(format!("\x1b]8;;https://e.com/{i}/{}\x07\rx", "a".repeat(30_000)).as_bytes());
+    }
+    let last = e.cell(0, 0).map_or(0, |c| c.link);
+    assert!((1..8).contains(&last), "long links no cell shows are forgotten: {last}");
+    // Bytes a sequence ignores are no string: more of them than a string may hold lose
+    // nothing of what follows.
+    let mut e = Emulator::new(80, 24);
+    e.set_string_limit(64 * 1024);
+    e.feed(b"\x1b[");
+    let chunk = vec![0x7fu8; 1 << 16];
+    for _ in 0..4 {
+        e.feed(&chunk);
+    }
+    e.feed(b"31mafter");
+    assert_eq!(e.line(0).map(Line::text).as_deref(), Some("after"));
+    assert_eq!(cell(&e, 0, 0).fg, TermColor::Indexed(1));
+    // An OSC opened after controls the escape runs on the way is still cut at the limit.
+    let mut e = Emulator::new(80, 24);
+    e.set_string_limit(64 * 1024);
+    e.feed(b"\x1b\x00\x7f]2;");
+    let chunk = vec![b'A'; 1 << 16];
+    for _ in 0..4 {
+        e.feed(&chunk);
+    }
+    e.feed(b"\x07after");
+    assert_eq!(e.title(), "");
+    assert_eq!(e.line(0).map(Line::text).as_deref(), Some("after"));
     // Random bytes never panic and leave a valid screen.
     let mut seed = 0x2545_f491_4f6c_dd1du64;
     let mut e = Emulator::new(50, 20);

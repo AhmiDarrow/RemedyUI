@@ -357,6 +357,8 @@ struct Session {
     pending: usize,
     /// Their outcomes, heard while doing something else.
     heard: Vec<String>,
+    /// A request went unanswered: its late answer would be taken for the next request's.
+    lost: bool,
 }
 
 /// The connections to running apps, by name.
@@ -384,10 +386,13 @@ impl Session {
     fn read(&mut self) -> Result<Value> {
         match self.client.recv(self.answer_timeout)? {
             Some(l) => parse(&l),
-            None => Err(ToolError::new(format!(
-                "the app did not answer within {} s (is its window's loop running?)",
-                self.answer_timeout.as_secs()
-            ))),
+            None => {
+                self.lost = true;
+                Err(ToolError::new(format!(
+                    "the app did not answer within {} s (is its window's loop running?): connect again",
+                    self.answer_timeout.as_secs()
+                )))
+            }
         }
     }
 
@@ -507,6 +512,16 @@ impl Live {
         })
     }
 
+    /// Runs `f` on a connection, and closes the connection when a request went unanswered.
+    fn with<T>(&mut self, c: &Option<String>, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
+        let s = self.session(c)?;
+        let result = f(s);
+        if s.lost {
+            self.sessions.remove(&name(c));
+        }
+        result
+    }
+
     /// Connects and takes a first snapshot, which also proves the token.
     pub fn connect(&mut self, input: &ConnectInput) -> Result<Connected> {
         let token = input.token.trim().to_owned();
@@ -517,7 +532,8 @@ impl Live {
         let mut client = LineClient::connect(&input.address, timeout)?;
         client.send(&token)?;
         let address = client.addr().to_string();
-        let mut session = Session { client, token, answer_timeout: timeout, pending: 0, heard: Vec::new() };
+        let mut session =
+            Session { client, token, answer_timeout: timeout, pending: 0, heard: Vec::new(), lost: false };
         let snapshot = session.snapshot()?;
         let connection = name(&input.connection);
         self.sessions.insert(connection.clone(), session);
@@ -526,7 +542,7 @@ impl Live {
 
     /// What the window shows and offers now.
     pub fn snapshot(&mut self, input: &ConnectionInput) -> Result<Snapshot> {
-        self.session(&input.connection)?.snapshot()
+        self.with(&input.connection, Session::snapshot)
     }
 
     /// Acts on an element.
@@ -545,23 +561,26 @@ impl Live {
         } else {
             json!({"do": action})
         };
-        let s = self.session(&input.connection)?;
-        let req = json!({"request": "act", "token": s.token, "node": input.node, "action": what});
-        s.change(req, Duration::from_secs(input.wait_seconds.unwrap_or(60)))
+        self.with(&input.connection, |s| {
+            let req = json!({"request": "act", "token": s.token, "node": input.node, "action": what});
+            s.change(req, Duration::from_secs(input.wait_seconds.unwrap_or(60)))
+        })
     }
 
     /// Runs one of the app's commands.
     pub fn command(&mut self, input: &CommandInput) -> Result<Outcome> {
-        let s = self.session(&input.connection)?;
-        let req = json!({"request": "command", "token": s.token, "id": input.id});
-        s.change(req, Duration::from_secs(input.wait_seconds.unwrap_or(60)))
+        self.with(&input.connection, |s| {
+            let req = json!({"request": "command", "token": s.token, "id": input.id});
+            s.change(req, Duration::from_secs(input.wait_seconds.unwrap_or(60)))
+        })
     }
 
     /// Undoes the latest change in the window.
     pub fn undo(&mut self, input: &ConnectionInput) -> Result<Outcome> {
-        let s = self.session(&input.connection)?;
-        let req = json!({"request": "undo", "token": s.token});
-        s.change(req, Duration::ZERO)
+        self.with(&input.connection, |s| {
+            let req = json!({"request": "undo", "token": s.token});
+            s.change(req, Duration::ZERO)
+        })
     }
 
     /// Waits for the person's answer to an earlier request.
@@ -613,6 +632,38 @@ mod tests {
         assert!(d.message.contains("declined") && d.asked_the_person);
         let bad = outcome(&json!({"answer": "refused", "refused": "bad_request", "detail": "eof"}), false);
         assert!(bad.message.contains("eof"));
+    }
+
+    #[test]
+    fn an_unanswered_request_closes_the_connection() {
+        let Ok(server) = std::net::TcpListener::bind("127.0.0.1:0") else { unreachable!("a loopback port") };
+        let Ok(addr) = server.local_addr() else { unreachable!("bound") };
+        // An app that accepts and never answers; it lets go when the test's end closes the channel.
+        let (done, wait) = std::sync::mpsc::channel::<()>();
+        let silent = std::thread::spawn(move || {
+            let held = server.accept();
+            let _ = wait.recv_timeout(Duration::from_secs(5));
+            drop(held);
+        });
+        let Ok(client) = LineClient::connect(&addr.to_string(), Duration::from_secs(5)) else {
+            unreachable!("connects")
+        };
+        let mut live = Live::new();
+        live.sessions.insert(
+            "app".into(),
+            Session {
+                client,
+                token: "t".into(),
+                answer_timeout: Duration::from_millis(50),
+                pending: 0,
+                heard: Vec::new(),
+                lost: false,
+            },
+        );
+        assert!(live.undo(&ConnectionInput::default()).is_err());
+        assert!(live.connections().is_empty(), "a late answer must not meet the next request");
+        drop(done);
+        let _ = silent.join();
     }
 
     #[test]

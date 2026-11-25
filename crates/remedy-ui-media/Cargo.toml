@@ -30,8 +30,9 @@ media-image-svg-text = ["media-image-svg", "resvg?/system-fonts", "resvg?/text"]
 media-image-svgz = ["media-image-svg", "resvg?/svgz"]
 media-image-tiff = ["image/tiff"]
 media-image-webp = ["image/webp"]
-media-isolated = ["dep:image", "dep:jni", "dep:libc", "dep:ndk-context", "dep:remedy-ui-engine", "dep:windows-sys", "media-image", "media-isolated-anim", "remedy-ui-engine/paint"]
-media-isolated-anim = ["media-anim"]
+media-isolated = ["dep:image", "dep:jni", "dep:libc", "dep:ndk-context", "dep:remedy-ui-engine", "dep:windows-sys", "media-image", "remedy-ui-engine/paint"]
+# Animations decoded in the helper too; without it they decode in the app.
+media-isolated-anim = ["media-anim", "media-isolated"]
 media-video = ["dep:remedy-ui-core", "dep:remedy-ui-engine", "remedy-ui-engine/paint", "remedy-ui-engine/view"]
 
 [dependencies]

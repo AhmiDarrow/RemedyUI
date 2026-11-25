@@ -415,7 +415,8 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 let Some(caret) = f.caret_rect() else { return };
                 let unit = ui.theme().spacing.unit;
                 let (u, count) = (ui.clone(), items.len());
-                let list = ui.el("menu").column().semantics(move || {
+                // A press on a suggestion picks it with the keyboard still in the field.
+                let list = ui.el("menu").column().keeps_focus_on_press(true).semantics(move || {
                     Semantics::new(Role::List).label(crate::doc_rich::trf(
                         &u,
                         "mention-count",
@@ -459,6 +460,14 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
         };
         let s2 = show.clone();
         field.observe_caret(move || s2());
+        // The list belongs to the caret: it goes when the field loses the keyboard.
+        let blurred = open.clone();
+        let _ = field.el().on_focus_change(move |focused| {
+            let left = if focused { None } else { blurred.borrow_mut().take() };
+            if let Some(s) = left {
+                s.list.remove();
+            }
+        });
         let (open2, insert2, show2, dismissed2) = (open.clone(), insert, show, dismissed);
         field.intercept_keys(move |e| {
             if !e.pressed || open2.borrow().is_none() {

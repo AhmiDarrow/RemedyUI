@@ -355,8 +355,10 @@ impl VideoFrame {
     /// Row `y` of plane `i`, `len` bytes long.
     fn row(&self, i: usize, y: u32, len: usize) -> &[u8] {
         let p = self.planes.get(i).copied().unwrap_or_default();
-        let start = p.offset + p.stride * y as usize;
-        self.data.get(start..start + len).unwrap_or_default()
+        // Checked: a plane described past what a usize holds has no such row.
+        let start = p.stride.checked_mul(y as usize).and_then(|v| v.checked_add(p.offset));
+        let range = start.and_then(|s| Some(s..s.checked_add(len)?));
+        range.and_then(|r| self.data.get(r)).unwrap_or_default()
     }
 
     /// The frame with its pixels in CPU memory: itself, or read back from the GPU.

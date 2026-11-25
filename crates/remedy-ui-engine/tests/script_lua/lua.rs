@@ -819,3 +819,26 @@ fn animated_values_take_only_finite_numbers() {
     let mut w = load(src).must("loads");
     assert_eq!(text_of(&render(&mut w).must("renders")), "false false false 1");
 }
+
+/// A computed value an element shows is worked out inside the render's call, not while the
+/// host describes the tree afterwards: what it sets off (here an effect) runs with that call.
+#[test]
+fn computed_values_shown_are_worked_out_inside_the_render_call() {
+    let src = r#"
+        local a = ui.animated(0)
+        this.runs = 0
+        ui.effect(function() local _ = a:get() this.runs = this.runs + 1 end)
+        local c = ui.computed(function() a:set(1) return "c" end)
+        return { name = "Inside", render = function()
+          return ui.column{ ui.text(c), ui.text(tostring(this.runs)) }
+        end }"#;
+    let mut w = load(src).must("loads");
+    let n = render(&mut w).must("renders");
+    assert_eq!(children(&n).first().map(text_of).as_deref(), Some("c"));
+    let n = render(&mut w).must("renders again");
+    assert_eq!(
+        children(&n).get(1).map(text_of).as_deref(),
+        Some("2"),
+        "the effect ran with the first render"
+    );
+}

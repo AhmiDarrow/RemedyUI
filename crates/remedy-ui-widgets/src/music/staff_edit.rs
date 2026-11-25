@@ -41,7 +41,12 @@ fn transpose(ms: &mut [StaffMeasure], c: StaffCursor, f: impl Fn(Pitch) -> Pitch
     if e.pitches.is_empty() {
         return false;
     }
-    e.pitches = e.pitches.iter().map(|p| f(*p)).collect();
+    let moved: Vec<Pitch> = e.pitches.iter().map(|p| f(*p)).collect();
+    // At the end of a range (a double sharp sharpened) nothing changes: no step to undo.
+    if moved == e.pitches {
+        return false;
+    }
+    e.pitches = moved;
     true
 }
 
@@ -284,8 +289,10 @@ impl StaffEditor {
         if m.meta || e.composing {
             return false;
         }
+        // The key in a letter's place on a layout that types no Latin letters (Cyrillic, Greek).
+        let pressed = e.shortcut_key();
         let (clef, key) = (self.options.clef, self.options.key);
-        match &e.key {
+        match &pressed {
             Key::ArrowUp | Key::ArrowDown => {
                 let up = e.key == Key::ArrowUp;
                 let d = if up { 1 } else { -1 };

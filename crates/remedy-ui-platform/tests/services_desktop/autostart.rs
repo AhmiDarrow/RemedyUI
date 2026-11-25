@@ -50,6 +50,25 @@ fn launch_agents_and_desktop_entries_quote_their_arguments() {
     // A percent sign is doubled, or the launcher reads a field code.
     e.args = vec!["--zoom=50%".into()];
     assert!(desktop_entry(&e).contains("Exec=/opt/hearth/hearth \"--zoom=50%%\"\n"));
+    // A launcher undoes a string value's escapes before the quoting: the quoting's
+    // backslashes are doubled, a literal one is four, and a line break never ends the key.
+    e.args = vec![r#"C:\My "$x" `y`"#.into(), "two\nlines".into()];
+    let exec = r#"Exec=/opt/hearth/hearth "C:\\\\My \\"\\$x\\" \\`y\\`" "two\nlines""#;
+    assert!(desktop_entry(&e).contains(&format!("{exec}\n")), "{}", desktop_entry(&e));
+}
+
+/// A Run value longer than the first buffer still reads as there.
+#[cfg(windows)]
+#[test]
+fn a_long_run_value_is_read() {
+    let key = TestRunKey(format!(r"Software\RemedyUI-autostart-long-{}\Run", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("remedy-autostart-long-{}", std::process::id()));
+    let mut run = entry().windows_run_key(true);
+    run.args.push("x".repeat(5000));
+    set_at(&dir, &key.0, &run, true).unwrap_or_else(|err| unreachable!("{err}"));
+    assert!(enabled_at(&dir, &key.0, &run));
+    set_at(&dir, &key.0, &run, false).unwrap_or_else(|err| unreachable!("{err}"));
+    assert!(!enabled_at(&dir, &key.0, &run));
 }
 
 /// On Windows the shortcut is a real .lnk that points at the program.

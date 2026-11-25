@@ -38,7 +38,7 @@ pub fn min_target(el: El) -> El {
 use remedy_ui_engine::view::El;
 
 /// The pack's own words (labels, screen reader names, keyboard hints) in every language the
-/// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// engine ships, from `i18n/widgets-core/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-core`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings =
     remedy_ui_engine::engine_strings!("widgets-core");

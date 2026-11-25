@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// The format this crate writes; older formats are read and brought up to date.
+/// The format boards are written in; older formats are read and brought up to date.
 pub const FORMAT: u32 = 1;
 
 /// A widget placed in an area: its kind (a registry id) and its settings.
@@ -117,7 +117,7 @@ impl Board {
         if version > u64::from(FORMAT) {
             return Err(BoardError::TooNew(u32::try_from(version).unwrap_or(u32::MAX)));
         }
-        // Format 0 (drafts before this crate) had no version and called areas "sections".
+        // Format 0 (the first drafts) had no version and called areas "sections".
         if version == 0
             && let Some(o) = v.as_object_mut()
         {
@@ -198,7 +198,8 @@ impl Board {
     /// Adds an area at the first free place of its size, below what is there if nothing
     /// above fits; returns the new board and the area's id.
     pub fn add_area(&self, title: &str, cols: u32, rows: u32) -> Result<(Board, String), BoardError> {
-        let cols = cols.clamp(1, self.columns);
+        // Not `clamp`: a board with no columns is refused below, not a panic here.
+        let cols = cols.max(1).min(self.columns);
         let rows = rows.max(1);
         let id = fresh(self, "area");
         for row in 0..=self.rows() {
@@ -357,6 +358,8 @@ mod tests {
         assert_eq!(b.place_area("area2", 6, 0, 4, 1), Err(BoardError::Overlap("area1".into())));
         assert_eq!(b.place_area("area2", 10, 0, 4, 1), Err(BoardError::OutsideGrid));
         assert!(b.place_area("area2", 8, 3, 4, 1).is_ok());
+        let none = Board { columns: 0, ..Board::default() };
+        assert!(none.add_area("Nowhere", 1, 1).is_err(), "refused, not a panic");
     }
 
     #[test]

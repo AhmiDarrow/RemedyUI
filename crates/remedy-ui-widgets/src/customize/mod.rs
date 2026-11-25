@@ -438,6 +438,20 @@ pub(crate) struct Inner {
     toolbars: RefCell<Option<toolbars::ToolbarArea>>,
     text: RefCell<Option<text::TextArea>>,
     layouts: RefCell<Option<layouts::LayoutArea>>,
+    /// The run of merged changes the latest change belongs to, if it has a merge key.
+    run: RefCell<Option<Run>>,
+}
+
+/// A run of changes the history folds into one entry: the entry undoes with the first
+/// change's files and redoes with the last one's, so both sets are shared with it and grow
+/// to every file the run touched.
+struct Run {
+    ui: WeakUi,
+    key: String,
+    /// What the run's files held before it, as the entry's undo puts them back.
+    before: Rc<RefCell<files::FileSet>>,
+    /// What they hold now, as the entry's redo puts them back.
+    after: Rc<RefCell<files::FileSet>>,
 }
 
 impl Drop for Inner {
@@ -476,6 +490,7 @@ impl Customizations {
             toolbars: RefCell::new(None),
             text: RefCell::new(None),
             layouts: RefCell::new(None),
+            run: RefCell::new(None),
         }))
     }
 
@@ -663,24 +678,60 @@ impl Customizations {
             ));
             return Err(e);
         }
-        if before == after {
+        // Only the files the change touched are kept and put back: the rest of the area (a
+        // theme's images and fonts) is neither held in the history nor rewritten on undo.
+        let (before, after): (files::FileSet, files::FileSet) =
+            before.into_iter().zip(after).filter(|(b, a)| b != a).unzip();
+        if before.is_empty() {
             return Ok(());
         }
         let areas: Rc<[Area]> = areas.into();
+        let (before, after) = (Rc::new(RefCell::new(before)), Rc::new(RefCell::new(after)));
         let (me1, me2, a1, a2) = (Rc::downgrade(&self.0), Rc::downgrade(&self.0), areas.clone(), areas);
+        let (b1, b2) = (before.clone(), after.clone());
         let undo = move || {
             if let Some(inner) = me1.upgrade() {
-                Customizations(inner).put_back(&before, &a1);
+                let set = b1.borrow().clone();
+                Customizations(inner).put_back(&set, &a1);
             }
         };
         let redo = move || {
             if let Some(inner) = me2.upgrade() {
-                Customizations(inner).put_back(&after, &a2);
+                let set = b2.borrow().clone();
+                Customizations(inner).put_back(&set, &a2);
             }
         };
-        match merge {
-            Some(key) => ui.record_merged_change(label, None, key, undo, redo),
-            None => ui.record_change(label, None, undo, redo),
+        let Some(key) = merge else {
+            *self.0.run.borrow_mut() = None;
+            ui.record_change(label, None, undo, redo);
+            return Ok(());
+        };
+        let entries = ui.history().len();
+        ui.record_merged_change(label, None, key.clone(), undo, redo);
+        let folded = ui.history().len() == entries;
+        let mut run = self.0.run.borrow_mut();
+        match run.as_mut().filter(|r| folded && r.key == key && r.ui.upgrade().is_some_and(|u| u.is_same(ui)))
+        {
+            // The history kept the run's first undo and took this redo, so the first undo
+            // gains the files only this change touched and this redo those of the run so far.
+            Some(r) => {
+                let mut first = r.before.borrow_mut();
+                for (p, bytes) in before.borrow().iter() {
+                    if !first.iter().any(|(q, _)| q == p) {
+                        first.push((p.clone(), bytes.clone()));
+                    }
+                }
+                drop(first);
+                let mut last = after.borrow_mut();
+                for (p, bytes) in r.after.borrow().iter() {
+                    if !last.iter().any(|(q, _)| q == p) {
+                        last.push((p.clone(), bytes.clone()));
+                    }
+                }
+                drop(last);
+                r.after = after;
+            }
+            None => *run = Some(Run { ui: ui.downgrade(), key, before, after }),
         }
         Ok(())
     }

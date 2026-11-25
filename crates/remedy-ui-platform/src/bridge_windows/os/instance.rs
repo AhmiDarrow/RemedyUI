@@ -15,7 +15,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeW,
+    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, PeekNamedPipe, WaitNamedPipeW,
 };
 use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcessId};
@@ -68,6 +68,12 @@ const REPLY_MARK: u8 = 0x01;
 /// The flag asking the first instance to hold the connection until its process exits.
 const FLAG_EXIT: u8 = 1;
 
+/// How long the first instance waits for a connected launch's bytes: one that connects and
+/// never sends, or never closes, must not keep the others out.
+const RECEIVE_WAIT: Duration = Duration::from_secs(5);
+/// The most bytes one launch may carry (a Windows command line holds 32 767 characters).
+const MAX_LAUNCH: usize = 1024 * 1024;
+
 /// Hands the running instance's reply code to a launch that waits for one.
 pub type Replier = Sender<i32>;
 
@@ -113,7 +119,7 @@ pub(crate) fn claim_replying(
         .name("remedy-ui single instance".into())
         .spawn(move || {
             loop {
-                match receive(&pipe) {
+                match receive(&pipe, RECEIVE_WAIT) {
                     Some((launch, None)) => on_launch(launch, None),
                     Some((launch, Some((conn, hold)))) => {
                         let (tx, rx) = channel();
@@ -178,6 +184,39 @@ unsafe fn read_some(h: HANDLE, bytes: &mut Vec<u8>) -> bool {
     true
 }
 
+/// [`read_some`] that waits for bytes only until `deadline`, and takes no more than
+/// [`MAX_LAUNCH`] in all; false also when either ran out.
+///
+/// # Safety
+/// `h` is an open pipe handle.
+unsafe fn read_by(h: HANDLE, bytes: &mut Vec<u8>, deadline: Instant) -> bool {
+    loop {
+        let mut waiting = 0u32;
+        // SAFETY: asking how many bytes wait in the caller's open pipe; nothing is read.
+        let open = unsafe {
+            PeekNamedPipe(
+                h,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                &raw mut waiting,
+                std::ptr::null_mut(),
+            )
+        } != 0;
+        if !open || bytes.len() > MAX_LAUNCH {
+            return false;
+        }
+        if waiting > 0 {
+            // SAFETY: the caller's open handle; bytes wait, so this read returns at once.
+            return unsafe { read_some(h, bytes) };
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
 /// A launch that waits for a reply, once all of it arrived (`None` while more is to come):
 /// its arguments, and whether it waits for the exit too.
 fn framed(bytes: &[u8]) -> Option<(Vec<String>, bool)> {
@@ -191,8 +230,8 @@ fn framed(bytes: &[u8]) -> Option<(Vec<String>, bool)> {
 /// that until this process exits.
 type Received = (Vec<String>, Option<(Conn, bool)>);
 
-/// Waits for one launch on the pipe.
-fn receive(pipe: &[u16]) -> Option<Received> {
+/// Waits for one launch on the pipe; once it connected, its bytes have `wait` to arrive.
+fn receive(pipe: &[u16], wait: Duration) -> Option<Received> {
     // SAFETY: one duplex, local-only pipe instance; connected, read, then closed or handed on.
     unsafe {
         let h: HANDLE = CreateNamedPipeW(
@@ -211,13 +250,15 @@ fn receive(pipe: &[u16]) -> Option<Received> {
         }
         let connected =
             ConnectNamedPipe(h, std::ptr::null_mut()) != 0 || GetLastError() == ERROR_PIPE_CONNECTED;
+        let deadline = Instant::now().checked_add(wait);
+        let read = |bytes: &mut Vec<u8>| deadline.is_some_and(|d| read_by(h, bytes, d));
         let mut bytes = Vec::new();
-        if connected && read_some(h, &mut bytes) && bytes.first() == Some(&REPLY_MARK) {
+        if connected && read(&mut bytes) && bytes.first() == Some(&REPLY_MARK) {
             loop {
                 if let Some((launch, hold)) = framed(&bytes) {
                     return Some((launch, Some((Conn(h), hold))));
                 }
-                if !read_some(h, &mut bytes) {
+                if !read(&mut bytes) {
                     break;
                 }
             }
@@ -226,10 +267,23 @@ fn receive(pipe: &[u16]) -> Option<Received> {
             CloseHandle(h);
             return None;
         }
-        while connected && read_some(h, &mut bytes) {}
+        while connected && read(&mut bytes) {}
+        // Whole only when the launch closed its end: one cut off by the wait or the limit
+        // would be delivered with arguments missing.
+        let mut waiting = 0u32;
+        let whole = connected
+            && bytes.len() <= MAX_LAUNCH
+            && PeekNamedPipe(
+                h,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                &raw mut waiting,
+                std::ptr::null_mut(),
+            ) == 0;
         DisconnectNamedPipe(h);
         CloseHandle(h);
-        connected.then(|| (decode(&bytes), None))
+        whole.then(|| (decode(&bytes), None))
     }
 }
 
@@ -260,6 +314,9 @@ fn send(pipe_name: &str, args: &[String], wait: Option<ReplyWait>) -> Result<Opt
     let payload = encode(args, wait);
     let start = Instant::now();
     let fail = |why: String| Unsupported::new("single instance", why);
+    if payload.len() > MAX_LAUNCH {
+        return Err(fail(format!("the arguments are longer than {MAX_LAUNCH} bytes")));
+    }
     loop {
         // SAFETY: opening the pipe; the handle is checked, and closed or handed on.
         let h = unsafe {
@@ -280,19 +337,21 @@ fn send(pipe_name: &str, args: &[String], wait: Option<ReplyWait>) -> Result<Opt
                 WriteFile(h, payload.as_ptr(), payload.len() as u32, &raw mut written, std::ptr::null_mut())
                     != 0
             };
+            let e = std::io::Error::last_os_error().to_string();
             let Some(w) = wait.filter(|_| ok) else {
-                let e = std::io::Error::last_os_error().to_string();
                 // SAFETY: closing our handle once.
                 unsafe { CloseHandle(h) };
                 return if ok { Ok(None) } else { Err(fail(e)) };
             };
             return await_reply(Conn(h), w).map(Some).map_err(fail);
         }
+        // SAFETY: the failed open's error, read before any other call can replace it.
+        let busy = unsafe { GetLastError() } == ERROR_PIPE_BUSY;
         if start.elapsed() > *WAIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
             return Err(fail("the running instance did not answer".into()));
         }
-        // SAFETY: waiting for a free pipe instance, or briefly for the first to create one.
-        if unsafe { GetLastError() } == ERROR_PIPE_BUSY {
+        if busy {
+            // SAFETY: waiting for a free pipe instance; the name is a NUL-terminated string.
             unsafe { WaitNamedPipeW(pipe.as_ptr(), 1000) };
         } else {
             std::thread::sleep(Duration::from_millis(50));
@@ -347,6 +406,41 @@ mod tests {
         set_instance_wait(INSTANCE_WAIT);
         assert!(sent.is_err());
         assert!(start.elapsed() < INSTANCE_WAIT, "gave up after the app's wait: {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn a_launch_that_connects_and_never_sends_does_not_hold_the_pipe() {
+        let name = format!(r"\\.\pipe\remedy-ui-test-silent-{}", std::process::id());
+        let pipe = wide(&name);
+        let server = pipe.clone();
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(receive(&server, Duration::from_millis(50)).is_none());
+        });
+        let mut client = INVALID_HANDLE_VALUE;
+        for _ in 0..200 {
+            // SAFETY: opening the test's own pipe; the handle is checked and closed below.
+            client = unsafe {
+                CreateFileW(
+                    pipe.as_ptr(),
+                    GENERIC_WRITE,
+                    0,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                )
+            };
+            if client != INVALID_HANDLE_VALUE {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_ne!(client, INVALID_HANDLE_VALUE, "the pipe was created");
+        let gave_up = rx.recv_timeout(Duration::from_secs(3));
+        // SAFETY: closing the test's handle once.
+        unsafe { CloseHandle(client) };
+        assert_eq!(gave_up, Ok(true), "the silent launch is dropped after the wait");
     }
 
     #[test]

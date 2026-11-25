@@ -458,7 +458,9 @@ impl Win {
         pixels: Pixels<'_>,
         damage: &[remedy_ui_core::Rect],
     ) -> Result<(), Unsupported> {
-        if pixels.data.len() != pixels.width as usize * pixels.height as usize * 4 {
+        // Checked: a size too large for the page's 32-bit lengths matches no data.
+        let (w, h) = (pixels.width as usize, pixels.height as usize);
+        if w.checked_mul(h).and_then(|n| n.checked_mul(4)) != Some(pixels.data.len()) {
             return Err(Unsupported::new("present", "the pixel data does not match its size"));
         }
         if self.cpu.width() != pixels.width || self.cpu.height() != pixels.height {

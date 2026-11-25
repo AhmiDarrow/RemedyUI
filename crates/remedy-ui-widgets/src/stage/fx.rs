@@ -412,29 +412,48 @@ pub fn light_cone(list: &mut DisplayList, apex: Point, angle: f32, length: f32, 
     list.pop_layer();
 }
 
+/// Most image draws one [`scroll_tiled`] makes.
+const MAX_TILES: usize = 1 << 16;
+
 /// Draws `image` tiled over `rect`, shifted by `offset` (wrapped, so any offset works): a
-/// texture that moves without being made again. At most a handful of image draws.
+/// texture that moves without being made again. At most a handful of image draws for a tile
+/// near the size of `rect`, and never more than 65 536: tiles too small for that are drawn
+/// larger (twice the size, or four times, and so on) until they are few enough. Nothing is
+/// drawn for an empty `rect` or `tile`, or for numbers that are not finite.
 pub fn scroll_tiled(list: &mut DisplayList, image: &Image, rect: Rect, offset: Vec2, tile: Vec2) {
-    let (tw, th) = (tile.x, tile.y);
-    if tw <= 0.0 || th <= 0.0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
+    let (w, h) = (rect.width(), rect.height());
+    let numbers = [tile.x, tile.y, offset.x, offset.y, rect.min.x, rect.min.y, w, h];
+    let finite = numbers.iter().all(|v| v.is_finite());
+    if !finite || tile.x <= 0.0 || tile.y <= 0.0 || w <= 0.0 || h <= 0.0 {
         return;
     }
-    let ox = offset.x.rem_euclid(tw);
-    let oy = offset.y.rem_euclid(th);
+    // One tile more than fits each way covers any shift.
+    let count = |scale: f32| ((w / (tile.x * scale)).ceil() + 1.0) * ((h / (tile.y * scale)).ceil() + 1.0);
+    let mut scale = 1.0f32;
+    while count(scale) > MAX_TILES as f32 {
+        scale *= 2.0;
+    }
+    let (tw, th) = (tile.x * scale, tile.y * scale);
+    if !tw.is_finite() || !th.is_finite() {
+        return;
+    }
+    let x0 = rect.min.x + offset.x.rem_euclid(tw) - tw;
+    let y0 = rect.min.y + offset.y.rem_euclid(th) - th;
+    // Counted, not stepped: far from the origin a small step would not move a float at all.
+    let cols = (((rect.max.x - x0) / tw).ceil() as usize).min(MAX_TILES);
+    let rows = (((rect.max.y - y0) / th).ceil() as usize).min(MAX_TILES / cols.max(1));
     list.push_clip(rect, CornerRadii::ZERO);
-    let mut y = rect.min.y + oy - th;
-    while y < rect.max.y {
-        let mut x = rect.min.x + ox - tw;
-        while x < rect.max.x {
+    for row in 0..rows {
+        let y = y0 + row as f32 * th;
+        for col in 0..cols {
+            let x = x0 + col as f32 * tw;
             list.push(Item::Image {
                 image: image.clone(),
                 rect: Rect::new(x, y, x + tw, y + th),
                 radii: CornerRadii::ZERO,
                 sampling: Sampling::Linear,
             });
-            x += tw;
         }
-        y += th;
     }
     list.pop_clip();
 }
@@ -551,5 +570,26 @@ mod tests {
         assert_eq!(pushes, pops);
         glow(&mut l, Point::ZERO, 0.0, Color::WHITE, 1.0);
         assert_eq!(l.items().iter().filter(|i| matches!(i, Item::PushLayer { .. })).count(), pushes);
+    }
+
+    #[test]
+    fn tiling_is_bounded_for_tiny_tiles_far_rects_and_bad_numbers() {
+        let img = Image::new(2, 2, Arc::from(vec![255u8; 16]));
+        let images = |rect: Rect, tile: Vec2| {
+            let mut l = DisplayList::new();
+            scroll_tiled(&mut l, &img, rect, Vec2::new(3.0, 5.0), tile);
+            l.items().iter().filter(|i| matches!(i, Item::Image { .. })).count()
+        };
+        let area = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let tiny = images(area, Vec2::new(0.001, 0.001));
+        assert!(tiny > 0 && tiny <= MAX_TILES, "{tiny}");
+        let strip = images(Rect::new(0.0, 0.0, 1.0e6, 1.0), Vec2::new(0.5, 8.0));
+        assert!(strip > 0 && strip <= MAX_TILES, "{strip}");
+        // A step of 10 does not move a coordinate near 1e9: the tiles are counted instead.
+        let far = images(Rect::new(1.0e9, 0.0, 1.0e9 + 128.0, 20.0), Vec2::new(10.0, 10.0));
+        assert!(far <= 64, "{far}");
+        assert_eq!(images(area, Vec2::new(f32::NAN, 4.0)), 0);
+        assert_eq!(images(Rect::new(0.0, 0.0, f32::INFINITY, 10.0), Vec2::new(4.0, 4.0)), 0);
+        assert_eq!(images(area, Vec2::new(16.0, 16.0)), 121 * 69, "a tile that fits keeps its size");
     }
 }

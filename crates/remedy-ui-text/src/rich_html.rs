@@ -225,56 +225,125 @@ enum Ctx {
     Heading(u8),
 }
 
+/// An open block context with what it and everything around it add up to, so the block of a
+/// line is read from the innermost one however deep a page nests.
+struct Level {
+    tag: String,
+    ctx: Ctx,
+    /// How deep the innermost list is nested.
+    level: u8,
+    /// The innermost list or item: whether it is ordered, and the item (its place among the
+    /// contexts) whose checkbox makes the line a task.
+    item: Option<(bool, Option<usize>)>,
+    /// The innermost quote, code block or heading; a paragraph outside them all.
+    out: Block,
+}
+
+/// How many of each tag are open, so an end tag that closes nothing costs no search.
+#[derive(Default)]
+struct Counts(std::collections::HashMap<String, usize>);
+
+impl Counts {
+    fn add(&mut self, tag: &str) {
+        match self.0.get_mut(tag) {
+            Some(n) => *n += 1,
+            None => {
+                self.0.insert(tag.to_owned(), 1);
+            }
+        }
+    }
+
+    fn remove(&mut self, tag: &str) {
+        if let Some(n) = self.0.get_mut(tag) {
+            *n = n.saturating_sub(1);
+        }
+    }
+
+    fn has(&self, tag: &str) -> bool {
+        self.0.get(tag).is_some_and(|n| *n > 0)
+    }
+}
+
 struct Reader {
     text: String,
     marks: Vec<(Range<usize>, Mark)>,
     blocks: Vec<Block>,
     open: Vec<Open>,
-    ctx: Vec<(String, Ctx)>,
+    open_tags: Counts,
+    ctx: Vec<Level>,
+    ctx_tags: Counts,
+    /// How many of the contexts are code blocks.
+    pre: usize,
+    /// Where the list items are among the contexts, innermost last.
+    items: Vec<usize>,
     /// The current line has text.
     line_has_text: bool,
 }
 
 impl Reader {
     fn block(&self) -> Block {
-        let mut level: u8 = 0;
-        let mut item: Option<(bool, Option<bool>)> = None;
-        let mut out = Block::Paragraph;
-        for (_, c) in &self.ctx {
-            match c {
-                Ctx::List { ordered } => {
-                    if item.is_some() {
-                        level = level.saturating_add(1);
-                    }
-                    item = Some((*ordered, None));
-                }
-                Ctx::Item { task } => {
-                    if let Some((o, _)) = item {
-                        item = Some((o, *task));
-                    } else {
-                        item = Some((false, *task));
-                    }
-                }
-                Ctx::Quote => out = Block::Quote,
-                Ctx::Pre => out = Block::Code,
-                Ctx::Heading(n) => out = Block::Heading(*n),
-            }
+        let Some(top) = self.ctx.last() else { return Block::Paragraph };
+        if top.out == Block::Code || matches!(top.out, Block::Heading(_)) {
+            return top.out;
         }
-        if out == Block::Code || matches!(out, Block::Heading(_)) {
-            return out;
-        }
-        match item {
-            Some((_, Some(done))) => {
-                Block::Task { done, level: level.min(crate::rich_edit::max_list_level()) }
-            }
-            Some((true, None)) => Block::Numbered(level.min(crate::rich_edit::max_list_level())),
-            Some((false, None)) => Block::Bullet(level.min(crate::rich_edit::max_list_level())),
-            None => out,
+        let Some((ordered, from)) = top.item else { return top.out };
+        let level = top.level.min(crate::rich_edit::max_list_level());
+        let task = from.and_then(|i| self.ctx.get(i)).and_then(|l| match l.ctx {
+            Ctx::Item { task } => task,
+            _ => None,
+        });
+        match task {
+            Some(done) => Block::Task { done, level },
+            None if ordered => Block::Numbered(level),
+            None => Block::Bullet(level),
         }
     }
 
     fn in_pre(&self) -> bool {
-        self.ctx.iter().any(|(_, c)| *c == Ctx::Pre)
+        self.pre > 0
+    }
+
+    /// Opens block context `c` for `tag`, inside those already open.
+    fn open_ctx(&mut self, tag: &str, c: Ctx) {
+        let (mut level, mut item, mut out) =
+            self.ctx.last().map_or((0, None, Block::Paragraph), |l| (l.level, l.item, l.out));
+        match c {
+            Ctx::List { ordered } => {
+                if item.is_some() {
+                    level = level.saturating_add(1);
+                }
+                item = Some((ordered, None));
+            }
+            Ctx::Item { .. } => {
+                item = Some((item.is_some_and(|(ordered, _)| ordered), Some(self.ctx.len())));
+                self.items.push(self.ctx.len());
+            }
+            Ctx::Quote => out = Block::Quote,
+            Ctx::Pre => {
+                out = Block::Code;
+                self.pre += 1;
+            }
+            Ctx::Heading(n) => out = Block::Heading(n),
+        }
+        self.ctx_tags.add(tag);
+        self.ctx.push(Level { tag: tag.to_owned(), ctx: c, level, item, out });
+    }
+
+    /// Closes the innermost block context of `tag` and those inside it.
+    fn close_ctx(&mut self, tag: &str) {
+        if !self.ctx_tags.has(tag) {
+            return;
+        }
+        let Some(i) = self.ctx.iter().rposition(|l| l.tag == tag) else { return };
+        for l in self.ctx.drain(i..) {
+            self.ctx_tags.remove(&l.tag);
+            if l.ctx == Ctx::Pre {
+                self.pre = self.pre.saturating_sub(1);
+            }
+        }
+        while self.items.last().is_some_and(|at| *at >= i) {
+            self.items.pop();
+        }
     }
 
     /// Starts a new line if the current one has text.
@@ -318,10 +387,15 @@ impl Reader {
     }
 
     fn close(&mut self, tag: &str) {
+        if !self.open_tags.has(tag) {
+            return;
+        }
         let Some(i) = self.open.iter().rposition(|o| o.tag == tag) else { return };
-        for o in self.open.drain(i..).collect::<Vec<_>>().into_iter().rev() {
+        let end = self.text.len();
+        for o in self.open.drain(i..).rev() {
+            self.open_tags.remove(&o.tag);
             for m in o.marks {
-                self.marks.push((o.start..self.text.len(), m));
+                self.marks.push((o.start..end, m));
             }
         }
     }
@@ -339,7 +413,11 @@ pub fn from_html(html: &str) -> RichDoc {
         marks: Vec::new(),
         blocks: vec![Block::Paragraph],
         open: Vec::new(),
+        open_tags: Counts::default(),
         ctx: Vec::new(),
+        ctx_tags: Counts::default(),
+        pre: 0,
+        items: Vec::new(),
         line_has_text: false,
     };
     let mut rest = html;
@@ -383,9 +461,7 @@ pub fn from_html(html: &str) -> RichDoc {
             if BLOCKS.contains(&tag.as_str()) {
                 r.break_line();
             }
-            if let Some(i) = r.ctx.iter().rposition(|(t, _)| *t == tag) {
-                r.ctx.truncate(i);
-            }
+            r.close_ctx(&tag);
             r.close(&tag);
             continue;
         }
@@ -408,7 +484,7 @@ pub fn from_html(html: &str) -> RichDoc {
         }
         match tag.as_str() {
             "br" => {
-                if r.ctx.iter().any(|(_, c)| matches!(c, Ctx::Item { .. })) {
+                if !r.items.is_empty() {
                     r.put(SOFT_BREAK);
                 } else {
                     r.line_has_text = true;
@@ -424,8 +500,8 @@ pub fn from_html(html: &str) -> RichDoc {
             }
             "input" => {
                 if attr(&attrs, "type").is_some_and(|t| t.eq_ignore_ascii_case("checkbox"))
-                    && let Some((_, Ctx::Item { task })) =
-                        r.ctx.iter_mut().rev().find(|(_, c)| matches!(c, Ctx::Item { .. }))
+                    && let Some(Level { ctx: Ctx::Item { task }, .. }) =
+                        r.items.last().copied().and_then(|at| r.ctx.get_mut(at))
                 {
                     *task = Some(attr(&attrs, "checked").is_some());
                 }
@@ -453,7 +529,7 @@ pub fn from_html(html: &str) -> RichDoc {
             _ => None,
         };
         if let Some(c) = ctx {
-            r.ctx.push((tag.clone(), c));
+            r.open_ctx(&tag, c);
         }
         let (mut marks, not_bold) = attr(&attrs, "style").map(style_marks).unwrap_or_default();
         match tag.as_str() {
@@ -473,6 +549,7 @@ pub fn from_html(html: &str) -> RichDoc {
             _ => {}
         }
         let start = r.text.len();
+        r.open_tags.add(&tag);
         r.open.push(Open { tag, marks, start });
     }
     while let Some(o) = r.open.last() {

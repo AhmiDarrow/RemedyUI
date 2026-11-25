@@ -2,8 +2,11 @@
 //!
 //! It runs one instruction over a batch of [`LANES`] pixels (or particles) at a time, so the
 //! cost of decoding an instruction is shared by the batch and the inner loops are plain
-//! array arithmetic the compiler vectorizes. Every instruction is total: division by zero,
-//! roots and logarithms of negatives, and overflow give finite numbers, never NaN, so a
+//! array arithmetic the compiler vectorizes. Every instruction is total: division by zero and
+//! roots and logarithms of negatives give finite numbers. Sums and products can still
+//! overflow to infinity, and an infinity become NaN (`inf - inf`, `sin(inf)`); neither
+//! reaches a picture: samples and noise take a non-finite position as none, and whoever reads
+//! a result (a pixel, a per-frame value, a particle) writes a non-finite one as 0. So a
 //! hostile program cannot poison a picture.
 
 use crate::effects::ir::{Input, Op, Program, Source};

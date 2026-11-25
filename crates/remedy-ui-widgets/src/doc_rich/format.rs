@@ -18,7 +18,7 @@ pub trait RichFormat {
     fn read(&self, text: &str) -> RichDoc;
 }
 
-/// Markdown (CommonMark with tables' cousins left out: strikethrough and task lists).
+/// Markdown: CommonMark with strikethrough and task lists (tables are not read as tables).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MarkdownFormat;
 

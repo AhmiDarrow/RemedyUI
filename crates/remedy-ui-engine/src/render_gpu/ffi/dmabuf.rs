@@ -246,11 +246,25 @@ impl Shared {
         }
     }
 
+    /// Lets go of a picture that was opened and never submitted.
+    fn abandon(&mut self) {
+        let Some(o) = self.opening.take() else { return };
+        let Some(Some(d)) = &self.device else { return };
+        // SAFETY: semaphores made in `wait_for_writes` that no submission was given to wait on.
+        unsafe {
+            for s in o.waits {
+                d.raw.destroy_semaphore(s, None);
+            }
+        }
+    }
+
     pub(crate) fn open(
         &mut self,
         device: &wgpu::Device,
         picture: &GpuFrame,
     ) -> Option<Vec<wgpu::TextureView>> {
+        // A picture opened before and never submitted is not this one's to submit.
+        self.abandon();
         let GpuTexture::DmaBuf { planes, plane_count, drm_fourcc, modifier, width, height } =
             picture.0.texture()
         else {
@@ -377,6 +391,14 @@ impl Shared {
             // wgpu found them; the picture is only held until wgpu's work is done. Upgrade if a
             // command buffer ever fails to be made in practice.
             queue.submit([commands]);
+            if let Some(Some(d)) = &self.device {
+                // SAFETY: semaphores made in `wait_for_writes`; no submission waits on them.
+                unsafe {
+                    for s in &o.waits {
+                        d.raw.destroy_semaphore(*s, None);
+                    }
+                }
+            }
             let held = (picture.clone(), o.textures);
             queue.on_submitted_work_done(move || drop(held));
             return;
@@ -507,6 +529,7 @@ impl Shared {
 
 impl Drop for Shared {
     fn drop(&mut self) {
+        self.abandon();
         let Some(Some(d)) = &self.device else { return };
         // SAFETY: waiting for our submissions before destroying what they use; the pool frees
         // its command buffers.

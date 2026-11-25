@@ -1052,6 +1052,8 @@ fn choices_with_nothing_chosen_take_arrows_and_letters() {
     sel.focus();
     assert!(t.key(Key::ArrowDown));
     assert_eq!(picked.get_untracked().ok(), Some(0), "down starts at the first option");
+    assert!(t.key(Key::ArrowRight), "an arrow that changes the choice is taken");
+    assert_eq!(picked.get_untracked().ok(), Some(1));
     picked.set(usize::MAX);
     t.ui.key(&KeyEvent::press(Key::Character("c".into())).with_text(Some("c".into())));
     t.frame();
@@ -1302,6 +1304,64 @@ fn dock_pane_resizes_collapses_and_redocks() {
     assert!((state.get().width - width).abs() < 0.5, "redock keeps the width");
     let left = body.bounds().unwrap_or_default();
     assert!(left.min.x < 8.0, "back on the start edge: {left:?}");
+}
+
+#[test]
+fn dock_resize_within_its_widths_stays_put_and_the_grip_redocks_from_the_keyboard() {
+    let mut t = T::new();
+    let state = Signal::new(w::DockState::new(120.0));
+    let mut spec = w::DockSpec::named("Plans");
+    spec.min_width = 80.0;
+    spec.max_width = 300.0;
+    let (body, main) = (t.ui.el("plan-body"), t.ui.el("main-body"));
+    let dock = w::dock(&t.ui, state, spec, body, main).width(400.0).height(200.0);
+    t.ui.root().child(dock.clone());
+    t.frame();
+
+    // 260 is past the row's midpoint, and a width the pane can take: a resize, not a redock.
+    let handle = find_widget(&dock, "dock-handle").unwrap_or_else(|| unreachable!("resize handle"));
+    let hb = handle.bounds().unwrap_or_default();
+    let y = (hb.min.y + hb.max.y) / 2.0;
+    t.ui.pointer(&ptr(PointerPhase::Down, Point::new(hb.min.x + 4.0, y), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(260.0, y), Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Up, Point::new(260.0, y), Buttons::default()));
+    t.frame();
+    assert_eq!(state.get().side, w::DockSide::Start, "a resize past the midpoint keeps the side");
+    assert!((state.get().width - 260.0).abs() < 0.5, "and takes the width: {}", state.get().width);
+
+    let grip = find_widget(&dock, "dock-grip").unwrap_or_else(|| unreachable!("move grip"));
+    grip.focus();
+    assert!(t.key(Key::Enter), "the grip takes Enter");
+    assert_eq!(state.get().side, w::DockSide::End, "Enter on the grip docks on the other side");
+    assert!(t.key(Key::Space));
+    assert_eq!(state.get().side, w::DockSide::Start, "and Space docks it back");
+    assert!((state.get().width - 260.0).abs() < 0.5, "the width is kept");
+}
+
+#[test]
+fn an_overflow_row_gives_back_the_room_of_a_slot_that_collapses() {
+    let mut t = T::new();
+    let (a, b) = (t.ui.el("first").width(80.0).height(24.0), t.ui.el("last").width(80.0).height(24.0));
+    let slot = t.ui.el("slot").width(150.0).height(24.0);
+    let bar = w::overflow_row(&t.ui)
+        .gap(4.0)
+        .child("First", a)
+        .child_maybe("Slot", slot.clone())
+        .child("Last", b.clone())
+        .el()
+        .width(300.0);
+    t.ui.root().child(bar);
+    for _ in 0..6 {
+        t.frame();
+    }
+    let width = |e: &El| e.bounds().map_or(0.0, |r| r.width());
+    assert!(width(&b) < 1.0, "318 px of children in 300: the last is in the More menu");
+    assert!(width(&slot) > 100.0, "the slot still fits beside More");
+    let _ = slot.clone().width(0.0);
+    for _ in 0..6 {
+        t.frame();
+    }
+    assert!(width(&b) > 70.0, "the collapsed slot's room goes back to the last child");
 }
 
 #[test]

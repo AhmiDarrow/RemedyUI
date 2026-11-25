@@ -237,14 +237,15 @@ impl ColorMatrix {
         })
     }
 
-    /// The matrix applied to one premultiplied RGBA8 pixel: unpremultiplied, run through the
-    /// matrix, clamped and premultiplied again, rounding to the nearest value. A transparent
-    /// pixel stays transparent. Renderers compute exactly this, to within a step of rounding.
+    /// The [`limited`](Self::limited) matrix applied to one premultiplied RGBA8 pixel:
+    /// unpremultiplied, run through the matrix, clamped and premultiplied again, rounding to
+    /// the nearest value. A transparent pixel stays transparent. Renderers compute exactly
+    /// this, to within a step of rounding.
     pub fn apply_premultiplied(&self, px: [u8; 4]) -> [u8; 4] {
         if px[3] == 0 {
             return [0; 4];
         }
-        self.apply_with_inverse(px, 1.0 / f32::from(px[3]))
+        self.limited().apply_with_inverse(px, 1.0 / f32::from(px[3]))
     }
 
     /// [`apply_premultiplied`](Self::apply_premultiplied) of a pixel with alpha above zero,
@@ -349,6 +350,13 @@ mod tests {
         assert!(ColorMatrix::saturate(f32::INFINITY).is_identity());
         assert!(ColorMatrix::hue_rotate(f32::NAN).is_identity());
         assert!(ColorMatrix::grayscale(-3.0).is_identity());
+        // One pixel is limited as pixels in bulk are: NaN entries are the identity's.
+        let mut nan = ColorMatrix::IDENTITY;
+        nan.0[0] = f32::NAN;
+        let mut px = [40, 20, 10, 80];
+        nan.apply_to_pixels(&mut px);
+        assert_eq!(nan.apply_premultiplied([40, 20, 10, 80]), px);
+        assert_eq!(px, [40, 20, 10, 80]);
     }
 
     #[test]

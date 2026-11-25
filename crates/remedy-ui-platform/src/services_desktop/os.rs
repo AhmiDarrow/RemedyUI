@@ -223,31 +223,41 @@ pub(crate) fn scheme_command(scheme: &str) -> Option<String> {
 /// A string value (`name` `None` for the key's default) under `HKCU\<path>`, if there is one.
 #[cfg(windows)]
 fn get_string(path: &str, name: Option<&str>) -> Option<String> {
+    use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
     use windows_sys::Win32::System::Registry::{
         HKEY_CURRENT_USER, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW,
     };
     let p = wide(path);
     let n = name.map(wide);
     let mut buf = vec![0u16; 2048];
-    let mut bytes = u32::try_from(buf.len() * 2).unwrap_or(u32::MAX);
-    // SAFETY: reading a string value into a buffer of `bytes` bytes, which Windows
-    // NUL-terminates; the names are NUL-terminated (a null name is the default value).
-    let r = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            p.as_ptr(),
-            n.as_ref().map_or(std::ptr::null(), |n| n.as_ptr()),
-            RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND,
-            std::ptr::null_mut(),
-            buf.as_mut_ptr().cast(),
-            &mut bytes,
-        )
-    };
-    if r != 0 {
-        return None;
+    // A longer value is read again with the size Windows asks for; it can grow between two
+    // reads, so a few times at most.
+    for _ in 0..4 {
+        let mut bytes = u32::try_from(buf.len() * 2).unwrap_or(u32::MAX);
+        // SAFETY: reading a string value into a buffer of `bytes` bytes, which Windows
+        // NUL-terminates; the names are NUL-terminated (a null name is the default value).
+        let r = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                p.as_ptr(),
+                n.as_ref().map_or(std::ptr::null(), |n| n.as_ptr()),
+                RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut bytes,
+            )
+        };
+        if r == ERROR_MORE_DATA {
+            buf.resize(usize::try_from(bytes).ok()?.div_ceil(2) + 1, 0);
+            continue;
+        }
+        if r != 0 {
+            return None;
+        }
+        let len = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+        return Some(String::from_utf16_lossy(buf.get(..len)?));
     }
-    let len = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
-    Some(String::from_utf16_lossy(buf.get(..len)?))
+    None
 }
 
 /// The `name` value under `HKCU\<key>` (a Run key), if there is one.

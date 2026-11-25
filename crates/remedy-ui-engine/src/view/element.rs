@@ -610,6 +610,12 @@ pub(crate) struct ElData {
     /// How keyboard users do what this element's pointer handling does.
     pub(crate) keyboard_alternative: Option<String>,
     pub(crate) hidden: bool,
+    /// Takes no input ([`El::disabled`]).
+    pub(crate) inert: bool,
+    /// Clicks go through it to what is below ([`El::pass_through`]).
+    pub(crate) pass_through: bool,
+    /// Playing its way out ([`crate::view::play_exit`]): takes no input until it is removed.
+    pub(crate) leaving: bool,
     /// Lays out as nothing, like `hidden`, but set by the engine (a [`crate::view::show`] with
     /// nothing to show), so it never fights what the app sets with [`El::hidden`].
     pub(crate) collapsed: bool,
@@ -917,7 +923,10 @@ impl Ui {
                     d.on_visibility = None;
                     d.on_placed = None;
                     d.links = None;
-                    (std::mem::take(&mut d.effects), std::mem::take(&mut d.removed), d.paint_watch.take())
+                    let mut removed = std::mem::take(&mut d.removed);
+                    let anims = std::mem::take(&mut d.anims);
+                    removed.extend(crate::view::motion::cut_short(anims, crate::view::motion::End::Removed));
+                    (std::mem::take(&mut d.effects), removed, d.paint_watch.take())
                 }
                 None => (Vec::new(), Vec::new(), None),
             }
@@ -1099,7 +1108,7 @@ impl Ui {
             l.width = remedy_ui_core::layout::Length::Percent(1.0);
             l.height = remedy_ui_core::layout::Length::Percent(1.0);
         });
-        let _ = ui.tree().set_hit_mode(overlays.id, HitMode::PassThrough);
+        let overlays = overlays.pass_through();
         // Trusted prompts sit above everything the app can draw.
         let trusted = ui.el("trusted").layout(|l| {
             l.position = remedy_ui_core::layout::Position::Absolute;
@@ -1107,7 +1116,7 @@ impl Ui {
             l.width = remedy_ui_core::layout::Length::Percent(1.0);
             l.height = remedy_ui_core::layout::Length::Percent(1.0);
         });
-        let _ = ui.tree().set_hit_mode(trusted.id, HitMode::PassThrough);
+        let trusted = trusted.pass_through();
         let window = El { ui: ui.clone(), id: root };
         let _ = window.child(content.clone()).child(overlays.clone()).child(trusted.clone());
         {
@@ -2051,6 +2060,9 @@ impl ElData {
             data_text: false,
             keyboard_alternative: None,
             hidden: false,
+            inert: false,
+            pass_through: false,
+            leaving: false,
             collapsed: false,
             removed: Vec::new(),
             on_scroll: None,
@@ -2200,6 +2212,9 @@ impl El {
                         w.dispose();
                     }
                     removed.extend(d.removed);
+                    // Who waited for a move of it to end hears that it was cut short.
+                    removed
+                        .extend(crate::view::motion::cut_short(d.anims, crate::view::motion::End::Removed));
                 }
                 i.scroll_offsets.remove(id);
                 i.boundaries.remove(id);
@@ -2555,10 +2570,17 @@ impl El {
 
     /// Calls `f` with the element's size (logical pixels) after each frame in which it
     /// changed, including the first: virtual lists rebuild for a taller viewport, charts
-    /// re-scale.
+    /// re-scale. An element may have several: each is called, in the order they were set.
     pub fn on_resize(self, f: impl Fn(Size) + 'static) -> Self {
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
-            d.on_resize = Some(Rc::new(f));
+            let all: Rc<dyn Fn(Size)> = match d.on_resize.take() {
+                Some(first) => Rc::new(move |s: Size| {
+                    first(s);
+                    f(s);
+                }),
+                None => Rc::new(f),
+            };
+            d.on_resize = Some(all);
             d.last_size = None;
         }
         self.ui.mark(self.id, Dirty::LAYOUT);
@@ -2805,10 +2827,17 @@ impl El {
     }
 
     /// Calls `f(true)` when the pointer comes over the element and `f(false)` when it leaves.
+    /// An element may have several: each is called, in the order they were set.
     pub fn on_hover(self, f: impl Fn(bool) + 'static) -> Self {
-        let f: Rc<dyn Fn(bool)> = Rc::new(f);
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
-            d.hover = Some(f);
+            let all: Rc<dyn Fn(bool)> = match d.hover.take() {
+                Some(first) => Rc::new(move |on: bool| {
+                    first(on);
+                    f(on);
+                }),
+                None => Rc::new(f),
+            };
+            d.hover = Some(all);
         }
         self
     }
@@ -2880,7 +2909,8 @@ impl El {
     pub fn disabled(self, on: impl IntoProp<bool>) -> Self {
         self.prop("disabled", on, |me, on| {
             me.state(States::DISABLED, on);
-            let _ = me.ui.tree().set_hit_mode(me.id, if on { HitMode::None } else { HitMode::Normal });
+            me.edit(Dirty::NONE, |d| d.inert = on);
+            me.sync_hit_mode();
         });
         self
     }
@@ -3093,6 +3123,11 @@ impl El {
             let _ = i.layout.set_children(p, &kids);
         }
         if let Some(old) = old {
+            // Children it already has (an icon in a label) stay laid out inside it.
+            let kids = i.layout.children(old);
+            if !kids.is_empty() {
+                let _ = i.layout.set_children(node, &kids);
+            }
             let _ = i.layout.remove(old);
         }
         if let Some(d) = i.els.get_mut(&self.id) {
@@ -3322,11 +3357,11 @@ impl El {
     /// Hides the element and everything inside it: not laid out (it takes no space), not
     /// drawn, not hit, not reachable by keyboard and not in the accessibility tree.
     pub fn hidden(self, on: bool) -> Self {
-        let _ = self.ui.tree().set_hit_mode(self.id, if on { HitMode::None } else { HitMode::Normal });
         if self.ui.0.borrow().els.get(&self.id).is_some_and(|d| d.hidden == on) {
             return self;
         }
         self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
+        self.sync_hit_mode();
         self.ui.0.borrow_mut().structure_changed = true;
         self
     }
@@ -3422,8 +3457,21 @@ impl El {
     /// Lets clicks through the element itself to what is below; its children still take
     /// them.
     pub fn pass_through(self) -> Self {
-        let _ = self.ui.tree().set_hit_mode(self.id, HitMode::PassThrough);
+        self.edit(Dirty::NONE, |d| d.pass_through = true);
+        self.sync_hit_mode();
         self
+    }
+
+    /// Sets how the element is hit from everything that has a say: hidden, disabled or
+    /// leaving it takes no input; otherwise clicks pass through it when it was made so.
+    pub(crate) fn sync_hit_mode(&self) {
+        let mode = match self.ui.0.borrow().els.get(&self.id) {
+            Some(d) if d.hidden || d.inert || d.leaving => HitMode::None,
+            Some(d) if d.pass_through => HitMode::PassThrough,
+            Some(_) => HitMode::Normal,
+            None => return,
+        };
+        let _ = self.ui.tree().set_hit_mode(self.id, mode);
     }
 
     /// Re-records the element's paint (a custom painter reads state that changed).

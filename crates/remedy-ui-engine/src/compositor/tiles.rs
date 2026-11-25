@@ -42,6 +42,10 @@ fn to_index(v: f32) -> i32 {
     v.clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
+/// The most cells one area lists: a 16K screen of the smallest tiles is about 4,000, so this
+/// only stops an area that would take all memory to list.
+const MAX_CELLS: i64 = 1 << 20;
+
 /// A cell of a grid: column and row.
 pub(crate) type Cell = (i32, i32);
 
@@ -81,11 +85,18 @@ impl TileGrid {
         tile_pixels(self.raster_scale) as f32 / self.raster_scale
     }
 
-    /// Every cell touching `area` (content space).
+    /// Every cell touching `area` (content space). No cells for an area of more than any
+    /// window shows ([`MAX_CELLS`]): one that is not finite, or a layer drawn far smaller
+    /// than its raster scale.
     pub(crate) fn cells_in(&self, area: Rect) -> Vec<Cell> {
         let e = self.content_edge();
         let (c0, c1) = (to_index((area.min.x / e).floor()), to_index((area.max.x / e).ceil()));
         let (r0, r1) = (to_index((area.min.y / e).floor()), to_index((area.max.y / e).ceil()));
+        // Counted before they are listed, in a width no pair of i32 spans overflows.
+        let span = |a: i32, b: i32| (i64::from(b) - i64::from(a)).max(0);
+        if span(c0, c1).saturating_mul(span(r0, r1)) > MAX_CELLS {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         for row in r0..r1 {
             for col in c0..c1 {
@@ -242,5 +253,19 @@ impl RasterBudget {
             sample
         };
         self.measured = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_area_of_endless_cells_lists_none() {
+        let grid = TileGrid::new(1.0);
+        assert_eq!(grid.cells_in(Rect::new(0.0, 0.0, 300.0, 300.0)).len(), 4);
+        assert!(grid.cells_in(Rect::new(0.0, 0.0, f32::INFINITY, 1.0e30)).is_empty());
+        assert!(grid.cells_in(Rect::new(f32::NAN, 0.0, f32::NAN, 10.0)).is_empty());
+        assert_eq!(grid.covering(Rect::new(0.0, 0.0, f32::INFINITY, 10.0), Rect::ZERO), None);
     }
 }

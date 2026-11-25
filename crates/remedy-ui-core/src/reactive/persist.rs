@@ -315,25 +315,57 @@ trait Backend: Send + Sync {
 /// Entries as files in a folder, written atomically.
 struct Folder(PathBuf);
 
+impl Folder {
+    /// The file an earlier version kept `key` in ([`legacy_file_name`]), when its name
+    /// differs from today's and the folder still has it.
+    fn legacy(&self, key: &str) -> Option<PathBuf> {
+        let key = split_slot(key).0;
+        let old = legacy_file_name(key);
+        if old == file_name(key) {
+            return None;
+        }
+        let path = self.0.join(&old);
+        std::fs::symlink_metadata(&path).ok()?;
+        // A folder that does not tell `A` from `a` answers for another key's file too: only
+        // a file of exactly this name is this key's.
+        let exact =
+            std::fs::read_dir(&self.0).ok()?.flatten().any(|e| e.file_name().to_str() == Some(old.as_str()));
+        exact.then_some(path)
+    }
+}
+
+/// Removes `path`; nothing there is not an error.
+fn remove_file(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 impl Backend for Folder {
     fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
-        match std::fs::read(self.0.join(self.name_of(key))) {
+        let read = |path: &Path| match std::fs::read(path) {
             Ok(b) => Ok(Some(b)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.to_string()),
+        };
+        match read(&self.0.join(self.name_of(key)))? {
+            Some(b) => Ok(Some(b)),
+            // What an earlier version saved still loads; the next write moves it.
+            None => self.legacy(key).map_or(Ok(None), |old| read(&old)),
         }
     }
 
     fn write(&self, key: &str, bytes: &[u8]) -> Result<(), String> {
-        write_atomic(&self.0, &self.name_of(key), bytes).map_err(|e| e.to_string())
+        write_atomic(&self.0, &self.name_of(key), bytes).map_err(|e| e.to_string())?;
+        // The value has moved: left behind, the old file would come back after a remove.
+        self.legacy(key).map_or(Ok(()), |old| remove_file(&old))
     }
 
     fn remove(&self, key: &str) -> Result<(), String> {
-        match std::fs::remove_file(self.0.join(self.name_of(key))) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
+        remove_file(&self.0.join(self.name_of(key)))?;
+        self.legacy(key).map_or(Ok(()), |old| remove_file(&old))
     }
 
     fn name_of(&self, key: &str) -> String {
@@ -556,9 +588,35 @@ impl std::fmt::Debug for PersistStore {
     }
 }
 
-/// The file name for `key`: letters, digits, `.`, `-` and `_` stay; everything else is
-/// written as `~` and two hex digits per byte, so any key is a safe, distinct file name.
+/// The file name for `key`: lower-case letters, digits, `.`, `-` and `_` stay; everything
+/// else is written as `~` and two hex digits per byte, so any key is a safe, distinct file
+/// name on every platform. Capitals are written that way too (Windows and macOS folders do
+/// not tell `A` from `a`), and so is the first letter of a name Windows keeps for a device
+/// (`con`, `nul`, `com1`).
 fn file_name(key: &str) -> String {
+    let stem = key.split('.').next().unwrap_or_default();
+    let numbered = |port: &str| {
+        stem.strip_prefix(port).is_some_and(|n| n.len() == 1 && n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let device = matches!(stem, "con" | "prn" | "aux" | "nul") || numbered("com") || numbered("lpt");
+    let mut out = String::new();
+    for (i, b) in key.bytes().enumerate() {
+        let kept =
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_') || (b == b'.' && i > 0);
+        if kept && !(device && i == 0) {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("~{b:02x}"));
+        }
+    }
+    out.push_str(".json");
+    out
+}
+
+/// The file name earlier versions gave `key`, with capitals and device names as they are:
+/// `Layout` and `layout` were one file on Windows and macOS. Read when today's file is
+/// missing, so what those versions saved still loads.
+fn legacy_file_name(key: &str) -> String {
     let mut out = String::new();
     for b in key.bytes() {
         if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || (b == b'.' && !out.is_empty()) {
@@ -726,7 +784,9 @@ impl PersistStore {
     }
 
     /// The file `key` is saved in. Empty for a store in a page's `localStorage`, which keeps
-    /// no files ([`PersistStore::storage_key_of`] names its entry).
+    /// no files ([`PersistStore::storage_key_of`] names its entry). A key with capitals, or
+    /// one Windows keeps for a device, may still be in the file an earlier version named
+    /// after it until it is next saved; loads read that file too.
     pub fn path_of(&self, key: &str) -> PathBuf {
         if self.inner.prefix.is_some() {
             return PathBuf::new();
@@ -1129,6 +1189,34 @@ mod tests {
         ok(store.flush());
         assert!(lock(&kv.map).contains_key("remedy:Calc:library"));
         assert!(store.take_errors().is_empty());
+    }
+
+    #[test]
+    fn keys_differing_in_case_are_apart_and_files_of_earlier_versions_still_load() {
+        assert_eq!(file_name("main window/layout"), "main~20window~2flayout.json");
+        assert_eq!(file_name("Layout"), "~4cayout.json");
+        assert_eq!(file_name("con"), "~63on.json");
+        assert_eq!(file_name("com1.ports"), "~63om1.ports.json");
+        assert_eq!(file_name("console"), "console.json");
+        assert_eq!(file_name(".hidden"), "~2ehidden.json");
+        let dir = std::env::temp_dir().join(format!("remedy-persist-case-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = ok(PersistStore::with_debounce(&dir, Duration::from_secs(60)));
+        // What an earlier version wrote for "Layout".
+        ok(std::fs::write(dir.join("Layout.json"), r#"{"version": 1, "value": 7}"#));
+        assert_eq!(ok(store.load::<u8>(&Persist::new("Layout"))), Some(7));
+        ok(store.save(&Persist::new("Layout"), &8u8));
+        ok(store.save(&Persist::new("layout"), &9u8));
+        ok(store.flush());
+        assert!(store.path_of("Layout").exists() && store.path_of("layout").exists());
+        assert_eq!(ok(store.load::<u8>(&Persist::new("Layout"))), Some(8));
+        assert_eq!(ok(store.load::<u8>(&Persist::new("layout"))), Some(9));
+        // Removing one leaves the other, and nothing of the earlier file comes back.
+        ok(store.remove("Layout"));
+        ok(store.flush());
+        assert_eq!(ok(store.load::<u8>(&Persist::new("Layout"))), None);
+        assert_eq!(ok(store.load::<u8>(&Persist::new("layout"))), Some(9));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -214,6 +214,15 @@ fn calibration_png() -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// A region for `px` pixels a helper writes. The size is a helper's word (the source size it
+/// read from the header), and a region costs nothing until it is written: so the app first
+/// makes sure it can itself hold the pixels it will read back, as decoding in place does.
+pub(crate) fn out_region(px: u64) -> Option<Shm> {
+    let len = px.checked_mul(4).and_then(|n| usize::try_from(n).ok())?;
+    Vec::<u8>::new().try_reserve_exact(len).ok()?;
+    Shm::new(len).ok()
+}
+
 fn shm_with(bytes: &[u8]) -> Result<Shm, DecodeError> {
     let mut s = Shm::new(bytes.len())
         .map_err(|e| DecodeError::Io(format!("no shared memory for {} bytes: {e}", bytes.len())))?;
@@ -446,8 +455,7 @@ impl Engine {
         let too_large = || Fail::Image(DecodeError::TooLarge { width: source.0, height: source.1 });
         let source_px = u64::from(source.0) * u64::from(source.1);
         let output_px = u64::from(show.0) * u64::from(show.1);
-        let out_len = output_px.checked_mul(4).and_then(|n| usize::try_from(n).ok()).ok_or_else(too_large)?;
-        let out = Shm::new(out_len).map_err(|_| too_large())?;
+        let out = out_region(output_px).ok_or_else(too_large)?;
         let need = (len as u64)
             .saturating_mul(per_byte())
             .saturating_add(source_px.saturating_mul(per_source_pixel()))
@@ -491,5 +499,15 @@ impl Router for Route {
     ) -> Result<Decoded, DecodeError> {
         let input = shm_with(bytes)?;
         self.0.run(|e, h| e.decode_on(h, &input, bytes.len(), box_px, cover))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_region_the_app_could_not_hold_is_refused() {
+        assert!(super::out_region(16).is_some_and(|s| s.len() == 64));
+        assert!(super::out_region(u64::MAX / 8).is_none(), "more bytes than an allocation can have");
+        assert!(super::out_region(u64::MAX).is_none(), "the byte count overflows");
     }
 }

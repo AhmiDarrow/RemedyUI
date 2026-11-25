@@ -475,7 +475,10 @@ fn samples(stbl: &[Atom<'_>], shift: i64, file_len: u64) -> Result<Vec<SampleRef
     let stsc = need(b"stsc")?;
     let (runs, rows) = table(stsc, 4, 12)?;
     let run = |i: usize| -> Result<(u32, u32), Error> { Ok((be32(rows, i * 12)?, be32(rows, i * 12 + 4)?)) };
-    let mut out: Vec<SampleRef> = Vec::with_capacity(count);
+    // The count is the file's claim: with one size for all, nothing above has tied it to the
+    // tables' own lengths, so only as many as that size fits in the file are reserved.
+    let fit = usize::try_from(file_len / u64::from(fixed.max(1))).unwrap_or(usize::MAX);
+    let mut out: Vec<SampleRef> = Vec::with_capacity(count.min(fit).min(1 << 20));
     let mut sample = 0usize;
     for r in 0..runs {
         let (first, per) = run(r)?;

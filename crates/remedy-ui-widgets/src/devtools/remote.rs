@@ -302,6 +302,9 @@ thread_local! {
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
+/// How long a new connection has to send its token.
+const TOKEN_WAIT: Duration = Duration::from_secs(10);
+
 struct Served {
     ui: Ui,
     log: UpdateLog,
@@ -317,7 +320,7 @@ pub struct RemoteServer {
     addr: SocketAddr,
     token: String,
     stop: Arc<AtomicBool>,
-    connections: Arc<Mutex<Vec<TcpStream>>>,
+    connections: Arc<Mutex<Vec<(u64, TcpStream)>>>,
 }
 
 impl RemoteServer {
@@ -355,7 +358,7 @@ impl RemoteServer {
         };
         SERVING.with(|s| s.borrow_mut().insert(id, served));
         let stop = Arc::new(AtomicBool::new(false));
-        let connections: Arc<Mutex<Vec<TcpStream>>> = Arc::default();
+        let connections: Arc<Mutex<Vec<(u64, TcpStream)>>> = Arc::default();
         let (secret, stop2, conns) = (token.clone(), stop.clone(), connections.clone());
         std::thread::Builder::new().name("remedy-devtools".into()).spawn(move || {
             for stream in socket.incoming() {
@@ -363,25 +366,32 @@ impl RemoteServer {
                     break;
                 }
                 let Ok(mut stream) = stream else { continue };
+                let conn = NEXT.fetch_add(1, Ordering::Relaxed);
                 if let Ok(c) = stream.try_clone() {
-                    conns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(c);
+                    conns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((conn, c));
                 }
                 let (secret, waker, stop) = (secret.clone(), waker.clone(), stop2.clone());
-                let _ = std::thread::Builder::new().name("remedy-devtools-client".into()).spawn(move || {
-                    // Strangers are turned away here, before reaching the window.
+                let open = conns.clone();
+                let client = std::thread::Builder::new().name("remedy-devtools-client".into());
+                let spawned = client.spawn(move || {
+                    // Strangers are turned away here, before reaching the window; one that
+                    // sends no token does not hold its thread for good.
+                    let _ = stream.set_read_timeout(Some(TOKEN_WAIT));
                     let known = read_token(&mut stream).is_some_and(|t| same_secret(&t, &secret));
+                    let _ = stream.set_read_timeout(None);
+                    let welcome = json(&RemoteAnswer::Welcome { version: PROTOCOL_VERSION });
                     if !known {
                         let _ = writeln!(stream, "{}", json(&RemoteAnswer::Refused));
                         let _ = stream.shutdown(Shutdown::Both);
-                        return;
+                    } else if writeln!(stream, "{welcome}").is_ok() {
+                        serve(stream, id, &waker, &stop);
                     }
-                    if writeln!(stream, "{}", json(&RemoteAnswer::Welcome { version: PROTOCOL_VERSION }))
-                        .is_err()
-                    {
-                        return;
-                    }
-                    serve(stream, id, &waker, &stop);
+                    // The kept handle would hold the socket open for as long as the window is served.
+                    forget(&open, conn);
                 });
+                if spawned.is_err() {
+                    forget(&conns, conn);
+                }
             }
         })?;
         Ok(RemoteServer { id, addr, token, stop, connections })
@@ -403,12 +413,17 @@ impl Drop for RemoteServer {
         self.stop.store(true, Ordering::SeqCst);
         // Wake the accepting thread so it sees the stop.
         let _ = TcpStream::connect(self.addr);
-        for c in self.connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+        for (_, c) in self.connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
             let _ = c.shutdown(Shutdown::Both);
         }
         let id = self.id;
         let _ = SERVING.try_with(|s| s.borrow_mut().remove(&id));
     }
+}
+
+/// Drops the handle kept for closing connection `conn`, once it has ended.
+fn forget(connections: &Mutex<Vec<(u64, TcpStream)>>, conn: u64) {
+    connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(c, _)| *c != conn);
 }
 
 fn json(a: &RemoteAnswer) -> String {

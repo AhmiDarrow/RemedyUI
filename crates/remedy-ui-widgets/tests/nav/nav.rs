@@ -135,6 +135,30 @@ fn commands_run_from_shortcuts_toolbars_and_the_palette() {
 }
 
 #[test]
+fn the_palette_scrolls_to_a_choice_past_the_visible_rows() {
+    let ui = ui();
+    let cmds = Commands::new();
+    for i in 0..30 {
+        cmds.add(&format!("c.{i}"), format!("Command {i}"), vec![], None, || {});
+    }
+    let palette = CommandPalette::new(&ui, &cmds);
+    palette.toggle();
+    frame(&ui);
+    frame(&ui);
+    let mut scrolled = false;
+    for _ in 0..29 {
+        let _ = ui.key(&KeyEvent::press(Key::ArrowDown).with_text(None));
+        let _ = ui.frame(Size::new(800.0, 600.0), 1.0);
+        scrolled |= ui
+            .take_requests()
+            .iter()
+            .any(|r| matches!(r, remedy_ui_engine::view::Request::ScrollTo { offset, .. } if offset.y > 0.0));
+    }
+    assert!(scrolled, "arrowing down to the last of 30 commands scrolls the list");
+    palette.close();
+}
+
+#[test]
 fn tabs_move_with_arrows_keep_one_tab_stop_and_close() {
     let ui = ui();
     let items = Signal::new(vec![

@@ -383,6 +383,8 @@ struct State {
     /// Made from the display, not a window: a window it held would outlive its close.
     softbuffer: Option<softbuffer::Context<winit::event_loop::OwnedDisplayHandle>>,
     settings: SystemSettings,
+    /// The theme winit last reported, with the platform's own answer at that moment.
+    theme: Option<(Option<bool>, bool)>,
     exit: bool,
     /// The loop has resumed before: a later resume follows a suspension (mobile), and the
     /// windows' surfaces are new.
@@ -398,6 +400,17 @@ struct Ctx<'a, H: PlatformHooks> {
     el: &'a ActiveEventLoop,
     state: &'a mut State,
     hooks: &'a mut H,
+}
+
+/// `s` with the theme winit last reported in place of the platform's, for as long as the
+/// platform's own answer stays what it was then: a later read (on focus, on a device change)
+/// must not undo winit's report, and a real change on the platform's side still wins.
+fn with_theme(theme: &mut Option<(Option<bool>, bool)>, mut s: SystemSettings) -> SystemSettings {
+    match *theme {
+        Some((seen, dark)) if seen == s.dark => s.dark = Some(dark),
+        _ => *theme = None,
+    }
+    s
 }
 
 fn logical(p: PhysicalPosition<f64>, scale: f64) -> Point {
@@ -762,7 +775,9 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         else {
             return Err(Unsupported::new("present", "empty pixels"));
         };
-        if pixels.data.len() != pixels.width as usize * pixels.height as usize * 4 {
+        let bytes =
+            (pixels.width as usize).checked_mul(pixels.height as usize).and_then(|n| n.checked_mul(4));
+        if Some(pixels.data.len()) != bytes {
             return Err(Unsupported::new("present", "the pixel data does not match its size"));
         }
         if w.surface.is_none() {
@@ -1080,11 +1095,15 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
 
     fn fire_timers(&mut self, el: &ActiveEventLoop) {
         let now = self.state.start.elapsed();
-        let due: Vec<TimerId> =
-            self.state.timers.iter().filter(|(_, at)| **at <= now).map(|(id, _)| *id).collect();
-        for id in due {
-            self.state.timers.remove(&id);
-            self.deliver(el, HostEvent::Timer(id));
+        let mut due: Vec<(Duration, TimerId)> =
+            self.state.timers.iter().filter(|(_, at)| **at <= now).map(|(id, at)| (*at, *id)).collect();
+        // The earliest first, whatever order they were set in.
+        due.sort_unstable();
+        for (_, id) in due {
+            // One an earlier timer's handler cancelled does not fire.
+            if self.state.timers.remove(&id).is_some() {
+                self.deliver(el, HostEvent::Timer(id));
+            }
         }
     }
 
@@ -1131,7 +1150,7 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
     }
 
     fn resumed(&mut self, el: &ActiveEventLoop) {
-        let settings = self.hooks.settings();
+        let settings = with_theme(&mut self.state.theme, self.hooks.settings());
         self.state.settings = settings.clone();
         self.deliver(el, HostEvent::Settings(settings));
         self.deliver(el, HostEvent::Resumed);
@@ -1242,7 +1261,7 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 // Power can change while the app is away (unplugged, battery saver): look
                 // again when people come back to it, and say so only when something changed.
                 if f {
-                    let s = self.hooks.settings();
+                    let s = with_theme(&mut self.state.theme, self.hooks.settings());
                     if s != self.state.settings {
                         self.state.settings = s.clone();
                         self.deliver(el, HostEvent::Settings(s));
@@ -1253,7 +1272,9 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             WindowEvent::Occluded(o) => self.deliver(el, HostEvent::Occluded(id, o)),
             WindowEvent::ThemeChanged(theme) => {
                 let mut s = self.hooks.settings();
-                s.dark = Some(theme == winit::window::Theme::Dark);
+                let dark = theme == winit::window::Theme::Dark;
+                self.state.theme = Some((s.dark, dark));
+                s.dark = Some(dark);
                 self.state.settings = s.clone();
                 self.deliver(el, HostEvent::Settings(s));
             }
@@ -1416,9 +1437,14 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
         }
         for e in self.hooks.take_events() {
             // Settings the platform reports itself (Android's configuration) become current.
-            if let HostEvent::Settings(s) = &e {
-                self.state.settings = s.clone();
-            }
+            let e = match e {
+                HostEvent::Settings(s) => {
+                    let s = with_theme(&mut self.state.theme, s);
+                    self.state.settings = s.clone();
+                    HostEvent::Settings(s)
+                }
+                other => other,
+            };
             self.deliver(el, e);
         }
         for (wid, notice) in self.hooks.take_window_events() {
@@ -1442,8 +1468,9 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             }
         }
         self.fire_timers(el);
-        let timer = self.state.timers.values().min().map(|at| self.state.start + *at);
-        let slice = self.hooks.wait_slice().map(|s| Instant::now() + s);
+        // A time too far off for the clock to hold (a delay near `Duration::MAX`) never comes.
+        let timer = self.state.timers.values().min().and_then(|at| self.state.start.checked_add(*at));
+        let slice = self.hooks.wait_slice().and_then(|s| Instant::now().checked_add(s));
         let until = match (timer, slice) {
             (Some(t), Some(s)) => Some(t.min(s)),
             (t, s) => t.or(s),
@@ -1475,6 +1502,7 @@ pub fn run_on<A: App, H: PlatformHooks>(
         modifiers: Modifiers::NONE,
         softbuffer: None,
         settings,
+        theme: None,
         exit: false,
         resumed_once: false,
         pads: None,
@@ -1558,5 +1586,26 @@ fn cursor_icon(cursor: remedy_ui_core::host::Cursor) -> CursorIcon {
         Cursor::SwResize => CursorIcon::SwResize,
         // A shape added later that this bridge does not know yet: the arrow.
         _ => CursorIcon::Default,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_theme_winit_reported_holds_until_the_platform_changes_its_answer() {
+        let platform = |dark| {
+            let mut s = SystemSettings::default();
+            s.dark = dark;
+            s
+        };
+        // winit said dark while the platform said nothing.
+        let mut theme = Some((None, true));
+        assert_eq!(with_theme(&mut theme, platform(None)).dark, Some(true), "a later read keeps it");
+        assert!(theme.is_some());
+        assert_eq!(with_theme(&mut theme, platform(Some(false))).dark, Some(false), "a real change wins");
+        assert_eq!(theme, None);
+        assert_eq!(with_theme(&mut theme, platform(None)).dark, None, "and nothing is kept after it");
     }
 }

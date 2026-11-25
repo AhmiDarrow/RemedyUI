@@ -403,6 +403,8 @@ impl Parser<'_> {
                 .help("flatten the layout"));
         }
         let mut args: Vec<Arg> = Vec::new();
+        // A set, so a stranger's element with a million arguments is checked in linear time.
+        let mut seen = std::collections::HashSet::new();
         if self.punct("(") {
             while !self.punct(")") {
                 let (an, aat) = self.ident("an argument name or `)`")?;
@@ -411,7 +413,7 @@ impl Parser<'_> {
                 }
                 let value_at = self.at();
                 let value = self.value()?;
-                if args.iter().any(|a| a.name == an) {
+                if !seen.insert(an.clone()) {
                     return Err(RuiError::new(self.file, aat, format!("`{an}` is given twice")));
                 }
                 args.push(Arg { name: an, value, at: aat, value_at });

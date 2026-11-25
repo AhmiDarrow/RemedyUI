@@ -13,7 +13,7 @@
 //! See `docs/design/15-widgets-and-media.md`.
 
 /// The navigation widgets' own words (button names, tooltips, keyboard hints, the command
-/// palette) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add
+/// palette) in every language the engine ships, from `i18n/widgets-nav/*.ftl`. Apps reword them, or add
 /// a language, with [`remedy_ui_engine::view::strings::add_messages`] under the name `widgets-nav`.
 pub static STRINGS: remedy_ui_engine::view::strings::Strings =
     remedy_ui_engine::engine_strings!("widgets-nav");

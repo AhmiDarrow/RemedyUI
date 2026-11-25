@@ -110,4 +110,15 @@ fn broken_html_still_gives_its_text() {
     // Many of each cost no more than their length.
     let hostile = format!("{}{}{}ok", "<svg></svg>".repeat(50_000), "&".repeat(200_000), "<".repeat(200_000));
     assert!(from_html(&hostile).text.ends_with("ok"));
+    // So do nesting that never closes and end tags that close nothing.
+    let deep = format!(
+        "{}{}{}ok",
+        "<b><ul><li>".repeat(20_000),
+        "</q></pre>".repeat(30_000),
+        "<input type=checkbox>x<br>".repeat(20_000)
+    );
+    let doc = from_html(&deep);
+    assert!(doc.text.ends_with("ok"));
+    assert!(matches!(doc.blocks.as_slice(), [Block::Task { done: false, .. }]), "{}", doc.blocks.len());
+    assert_eq!(doc.marks.len(), 1, "the bold runs are one");
 }

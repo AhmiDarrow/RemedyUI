@@ -69,9 +69,9 @@ img=$!
 trap 'kill $slow $hls $net $img 2>/dev/null; rm -f "$port_file" "$hls_port_file" "$net_port_file" "$img_port_file"' EXIT
 for _ in $(seq 50); do [ -s "$port_file" ] && [ -s "$hls_port_file" ] && [ -s "$net_port_file" ] && [ -s "$img_port_file" ] && break; sleep 0.1; done
 REMEDY_NET_URL="http://127.0.0.1:$(cat "$net_port_file")" \
-    cargo test --manifest-path "$root/crates/remedy-ui-platform/services-net/Cargo.toml" --target wasm32-unknown-unknown --test web
+    cargo test --manifest-path "$root/crates/remedy-ui-platform/Cargo.toml" --features services-net --target wasm32-unknown-unknown --test web
 REMEDY_IMAGE_URL="http://127.0.0.1:$(cat "$img_port_file")" \
-    cargo test --manifest-path "$root/crates/remedy-ui-media/media-image/Cargo.toml" --target wasm32-unknown-unknown --test web
+    cargo test --manifest-path "$root/crates/remedy-ui-media/Cargo.toml" --features media-image --target wasm32-unknown-unknown --test web
 REMEDY_HLS_URL="http://127.0.0.1:$(cat "$hls_port_file")" \
 REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
@@ -100,8 +100,8 @@ if [ -n "$lan" ] && [ "$lan" != none ] && [ "${lan#127.}" = "$lan" ]; then
 else
     echo "no LAN address (REMEDY_LAN_ADDRESS): skipping the media element on a page that is not secure"
 fi
-cargo test --manifest-path "$root/crates/remedy-ui-widgets/widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
-cargo test --manifest-path "$root/crates/remedy-ui-platform/services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test media_session_web
+cargo test --manifest-path "$root/crates/remedy-ui-widgets/Cargo.toml" --features board --target wasm32-unknown-unknown --test web
+cargo test --manifest-path "$root/crates/remedy-ui-platform/Cargo.toml" --features services-desktop --target wasm32-unknown-unknown --test media_session_web
 # The Screen Wake Lock: held, let go, asked again when the page shows; and a player's hold.
-cargo test --manifest-path "$root/crates/remedy-ui-platform/services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test keep_awake_web
+cargo test --manifest-path "$root/crates/remedy-ui-platform/Cargo.toml" --features services-desktop --target wasm32-unknown-unknown --test keep_awake_web
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --features keep-awake --test web_keep_awake

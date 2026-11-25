@@ -8,8 +8,8 @@ use std::hash::{BuildHasher, Hasher};
 pub const TOKEN_LEN: usize = 32;
 
 /// A secret no other process can guess: 128 bits from the system's randomness (the standard
-/// library's hasher seeds, which come from the OS, freshly drawn for each half) and the time,
-/// as [`TOKEN_LEN`] lowercase hex digits.
+/// library's hasher seeds, which a thread draws from the OS once and varies for each hasher,
+/// so each half has its own) and the time, as [`TOKEN_LEN`] lowercase hex digits.
 pub fn random_token() -> String {
     let mut out = String::with_capacity(TOKEN_LEN);
     for i in 0..2u64 {
