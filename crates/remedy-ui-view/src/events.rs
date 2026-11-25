@@ -607,7 +607,6 @@ impl Ui {
         self.0.borrow().scroll_step
     }
 
-
     /// Primary-button grab and drag of a scroll container's painted thumb, or a click on its
     /// track that jumps the thumb there. These bars are drawn by the compositor, so they are
     /// not in the element hit-test tree; without this, they appear on scroll but cannot be
@@ -732,11 +731,7 @@ impl Ui {
         };
         let off = self.scroll_offset(id);
         let tree = self.tree();
-        let union = tree
-            .children(id)
-            .iter()
-            .filter_map(|k| tree.bounds(*k))
-            .fold(view, |u, r| u.union(r));
+        let union = tree.children(id).iter().filter_map(|k| tree.bounds(*k)).fold(view, |u, r| u.union(r));
         let content = Size::new(
             (union.max.x - view.max.x + off.x + view.width()).max(view.width()),
             (union.max.y - view.max.y + off.y + view.height()).max(view.height()),
@@ -1022,4 +1017,3 @@ pub(crate) fn focus_changed(ui: &Ui) {
 fn inflate(r: remedy_ui_core::Rect, slop: f32) -> remedy_ui_core::Rect {
     remedy_ui_core::Rect::new(r.min.x - slop, r.min.y - slop, r.max.x + slop, r.max.y + slop)
 }
-
