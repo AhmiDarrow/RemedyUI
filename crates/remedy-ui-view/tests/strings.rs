@@ -1,6 +1,6 @@
 //! The view's own words: every locale has every message, and they follow the window's locale.
 
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 

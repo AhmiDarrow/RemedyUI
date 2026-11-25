@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remedy_ui_media_image::{Fit, Source};
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 use remedy_ui_view::{El, Ui, WeakUi};
 use serde_json::{Map, Value, json};
 

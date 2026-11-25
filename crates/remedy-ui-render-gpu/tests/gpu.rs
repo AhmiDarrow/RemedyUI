@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_paint::{Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, Sampling, Stop, Stroke};
 use remedy_ui_render_cpu::{CpuCompositor, CpuRenderer, Frame};
 use remedy_ui_render_gpu::*;

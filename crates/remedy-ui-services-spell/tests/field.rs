@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 use remedy_ui_services_spell::{
     MenuLabels, SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions,
 };
@@ -84,7 +84,7 @@ impl T {
         loop {
             self.frame();
             self.fire(|d| d < Duration::from_secs(1));
-            remedy_ui_reactive::run_posted();
+            remedy_ui_core::reactive::run_posted();
             self.frame();
             if done() {
                 return;
@@ -97,7 +97,7 @@ impl T {
     fn field(&mut self, text: &str) -> TextField {
         let f = self.ui.text_field("text_input", FieldKind::Multi);
         f.set_value(text);
-        self.ui.root().child(f.el().layout(|l| l.width = remedy_ui_layout::Length::Px(300.0)));
+        self.ui.root().child(f.el().layout(|l| l.width = remedy_ui_core::layout::Length::Px(300.0)));
         self.frame();
         f
     }

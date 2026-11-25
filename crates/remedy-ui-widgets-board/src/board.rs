@@ -8,12 +8,12 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Display, Length, Track};
-use remedy_ui_reactive::{Effect, Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Display, Length, Track};
+use remedy_ui_core::reactive::{Effect, Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{Align, Drag, DragData, DropEffect, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::{Property, PropertyGroup, property_grid};
@@ -511,7 +511,7 @@ impl BoardState {
     }
 
     /// Keys while editing; true when handled.
-    pub fn key(&self, e: &remedy_ui_input::KeyEvent) -> bool {
+    pub fn key(&self, e: &remedy_ui_core::input::KeyEvent) -> bool {
         if !e.pressed || !self.editing.get_untracked().unwrap_or(false) {
             return false;
         }
@@ -825,7 +825,7 @@ fn widget_el(b: &Build<'_>, placed: &Placed) -> El {
         .semantics(
             Semantics::new(Role::Button)
                 .label(fill(&words.widget_name, &[("name", name)]))
-                .action(remedy_ui_a11y::Action::Click),
+                .action(remedy_ui_core::a11y::Action::Click),
         );
     // A widget dropped on another goes before it (where its area has room).
     let (st4, target, st5) = (state.clone(), placed.id.clone(), state.clone());
@@ -917,7 +917,7 @@ fn area_el(b: &Build<'_>, a: &Area, index: usize) -> El {
             |_| {},
         )
         .keyboard_alternative(words.area_keys.clone())
-        .semantics(Semantics::new(Role::Group).label(label).action(remedy_ui_a11y::Action::Click));
+        .semantics(Semantics::new(Role::Group).label(label).action(remedy_ui_core::a11y::Action::Click));
     // Widgets dropped on an area go to its end (where it has room); an area dropped on
     // another trades places.
     let (st3, target, st4, target2) = (state.clone(), a.id.clone(), state.clone(), a.id.clone());

@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::{OnceLock, RwLock};
 
 use remedy_ui_core::Color;
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 use syntect::parsing::{
     ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxDefinition, SyntaxReference, SyntaxSet,
 };
@@ -78,14 +78,14 @@ impl Kind {
         let c = &theme.colors;
         match self {
             Kind::Plain | Kind::Operator => d.text,
-            Kind::Keyword => remedy_ui_style::ensure_contrast(c.accent, c.card, 4.5),
-            Kind::String => remedy_ui_style::ensure_contrast(c.ok, c.card, 4.5),
+            Kind::Keyword => remedy_ui_core::style::ensure_contrast(c.accent, c.card, 4.5),
+            Kind::String => remedy_ui_core::style::ensure_contrast(c.ok, c.card, 4.5),
             Kind::Comment => d.muted,
-            Kind::Constant => remedy_ui_style::ensure_contrast(c.warn, c.card, 4.5),
-            Kind::Function => remedy_ui_style::ensure_contrast(c.accent.mix_oklab(d.text, 0.45), c.card, 4.5),
-            Kind::Type => remedy_ui_style::ensure_contrast(c.ok.mix_oklab(c.accent, 0.5), c.card, 4.5),
-            Kind::Tag => remedy_ui_style::ensure_contrast(c.danger, c.card, 4.5),
-            Kind::Attribute => remedy_ui_style::ensure_contrast(c.warn.mix_oklab(c.accent, 0.5), c.card, 4.5),
+            Kind::Constant => remedy_ui_core::style::ensure_contrast(c.warn, c.card, 4.5),
+            Kind::Function => remedy_ui_core::style::ensure_contrast(c.accent.mix_oklab(d.text, 0.45), c.card, 4.5),
+            Kind::Type => remedy_ui_core::style::ensure_contrast(c.ok.mix_oklab(c.accent, 0.5), c.card, 4.5),
+            Kind::Tag => remedy_ui_core::style::ensure_contrast(c.danger, c.card, 4.5),
+            Kind::Attribute => remedy_ui_core::style::ensure_contrast(c.warn.mix_oklab(c.accent, 0.5), c.card, 4.5),
         }
     }
 }

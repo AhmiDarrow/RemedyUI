@@ -2,8 +2,8 @@
 //! their direction, as the W3C CSS Spatial Navigation draft picks it.
 
 use remedy_ui_core::{Rect, Vec2};
-use remedy_ui_input::Key;
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::El;
 use crate::element::Ui;
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn overlap_beats_a_closer_diagonal() {
-        let tree = remedy_ui_tree::Tree::new();
+        let tree = remedy_ui_core::tree::Tree::new();
         let (d, b) = (tree.create("box"), tree.create("box"));
         let from = r(100.0, 0.0, 100.0, 50.0);
         // Straight below but farther, and down-left but nearer.

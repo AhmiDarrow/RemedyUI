@@ -27,7 +27,7 @@ pub(crate) fn format_now(
     id: &str,
     args: &[(&str, remedy_ui_view::strings::StrArg)],
 ) -> String {
-    STRINGS.format_in(&remedy_ui_reactive::untrack(|| ui.locale()), id, args)
+    STRINGS.format_in(&remedy_ui_core::reactive::untrack(|| ui.locale()), id, args)
 }
 
 mod chat;

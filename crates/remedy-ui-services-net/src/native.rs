@@ -12,7 +12,7 @@ use std::sync::mpsc;
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
-use remedy_ui_reactive::Cancel;
+use remedy_ui_core::reactive::Cancel;
 use ureq::RequestExt;
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 use ureq::unversioned::transport::{DefaultConnector, NextTimeout};

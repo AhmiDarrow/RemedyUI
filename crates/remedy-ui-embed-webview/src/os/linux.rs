@@ -21,8 +21,8 @@ use std::rc::{Rc, Weak};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use remedy_ui_host::WindowHandles;
-use remedy_ui_host::raw_window_handle::RawWindowHandle;
+use remedy_ui_core::host::WindowHandles;
+use remedy_ui_core::host::raw_window_handle::RawWindowHandle;
 use remedy_ui_view::{Placement, WeakUi};
 
 use super::{Layout, PxRect};

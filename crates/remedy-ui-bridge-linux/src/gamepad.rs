@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use remedy_ui_bridge_winit::gamepad::PadSource;
-use remedy_ui_input::PadState;
+use remedy_ui_core::input::PadState;
 
 use crate::evdev::{self, Event};
 use crate::os::gamepad as os;

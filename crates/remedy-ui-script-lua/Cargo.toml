@@ -13,7 +13,6 @@ categories.workspace = true
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-motion = { path = "../remedy-ui-motion", version = "1.0.0-rc.1" }
 remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1" }
 # Lua 5.4 in safe Rust with fuel, memory and depth limits in every step (no C).
 remedy-lua = { version = "=0.1.0" }

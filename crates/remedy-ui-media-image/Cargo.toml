@@ -34,11 +34,8 @@ svg-raster-images = ["svg", "resvg?/raster-images"]
 svg-text = ["svg", "resvg?/text", "resvg?/system-fonts"]
 
 [dependencies]
-remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-layout = { path = "../remedy-ui-layout", version = "1.0.0-rc.1" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
-remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 image = { version = "=0.25.10", default-features = false }

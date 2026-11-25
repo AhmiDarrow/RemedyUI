@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use remedy_ui_reactive::{Cancel, Resource, Signal, run_posted, untrack};
+use remedy_ui_core::reactive::{Cancel, Resource, Signal, run_posted, untrack};
 use remedy_ui_services_net::{
     CookieJar, Http, HttpPolicy, Multipart, NetError, Request, SameSite, finish_keepalive, on_keepalive,
 };

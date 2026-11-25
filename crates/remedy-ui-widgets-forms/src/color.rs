@@ -1,11 +1,11 @@
 //! A color picker with a contrast readout.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 use remedy_ui_paint::{Brush, Stop};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -334,7 +334,7 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         if !fe2b.is_focused() {
             untrack(|| field.set_value(&hex(c)));
         }
-        fe2b.state(remedy_ui_style::States::INVALID, wrong);
+        fe2b.state(remedy_ui_core::style::States::INVALID, wrong);
     });
 
     // Keep the HSV in step with outside changes to the color.

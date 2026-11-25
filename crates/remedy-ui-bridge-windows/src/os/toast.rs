@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
+use remedy_ui_core::host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::Foundation::TypedEventHandler;
 use windows::UI::Notifications::{
@@ -142,7 +142,7 @@ pub(crate) fn toast_xml(n: &Notification, icon: Option<&std::path::Path>) -> Str
 
 /// Writes the icon as a PNG in the app's local cache (toasts take images by file), named by
 /// its content so a changed icon is a new file.
-fn icon_file(id: &str, icon: &remedy_ui_host::TrayImage) -> Option<std::path::PathBuf> {
+fn icon_file(id: &str, icon: &remedy_ui_core::host::TrayImage) -> Option<std::path::PathBuf> {
     let n = icon.size as usize;
     if n == 0 || icon.rgba.len() != n.checked_mul(n)?.checked_mul(4)? {
         return None;

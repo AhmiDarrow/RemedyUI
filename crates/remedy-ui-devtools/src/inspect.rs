@@ -4,12 +4,12 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, Insets, Rect};
-use remedy_ui_input::PointerPhase;
-use remedy_ui_layout::Position;
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::input::PointerPhase;
+use remedy_ui_core::layout::Position;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
 use remedy_ui_view::{El, ElementId, ElementInfo, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -127,8 +127,8 @@ impl Problem {
 }
 
 /// True when someone looking would see the change from `a` to `b`.
-fn visibly_differs(a: &remedy_ui_style::ResolvedStyle, b: &remedy_ui_style::ResolvedStyle) -> bool {
-    let border = |s: &remedy_ui_style::ResolvedStyle| {
+fn visibly_differs(a: &remedy_ui_core::style::ResolvedStyle, b: &remedy_ui_core::style::ResolvedStyle) -> bool {
+    let border = |s: &remedy_ui_core::style::ResolvedStyle| {
         if s.border_width > 0.0 && s.border.a > 0.0 { Some((s.border, s.border_width)) } else { None }
     };
     b.shows_focus_ring()
@@ -348,7 +348,7 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
             } else if !reader.contains(&el.node_id()) {
                 Some(if merged_away(&el) { Unreachable::Merged } else { Unreachable::Hidden })
             } else if i.clickable
-                && !i.semantics.as_ref().is_some_and(|s| s.actions().contains(&remedy_ui_a11y::Action::Click))
+                && !i.semantics.as_ref().is_some_and(|s| s.actions().contains(&remedy_ui_core::a11y::Action::Click))
             {
                 Some(Unreachable::NoAction)
             } else {
@@ -421,7 +421,7 @@ fn merged_away(el: &El) -> bool {
 #[non_exhaustive]
 pub struct ReaderLine {
     /// The node.
-    pub node: remedy_ui_a11y::ReaderNode,
+    pub node: remedy_ui_core::a11y::ReaderNode,
     /// The element it comes from.
     pub element: Option<ElementId>,
     /// What [`audit`] found wrong with it.
@@ -709,11 +709,11 @@ fn place(el: &El, b: Rect) {
         l.inset = Insets {
             top: b.min.y,
             start: b.min.x,
-            end: remedy_ui_layout::AUTO,
-            bottom: remedy_ui_layout::AUTO,
+            end: remedy_ui_core::layout::AUTO,
+            bottom: remedy_ui_core::layout::AUTO,
         };
-        l.width = remedy_ui_layout::Length::Px(b.width());
-        l.height = remedy_ui_layout::Length::Px(b.height());
+        l.width = remedy_ui_core::layout::Length::Px(b.width());
+        l.height = remedy_ui_core::layout::Length::Px(b.height());
     });
 }
 

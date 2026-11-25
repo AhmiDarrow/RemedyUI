@@ -6,8 +6,8 @@ mod common;
 use common::*;
 use remedy_ui_core::{Color, Rect, Size};
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::ColorRole;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::ColorRole;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_stage::{
     Anchor, Fit, Ink, Layer, PixelArt, PixelScale, Place, SceneOptions, SpriteOptions, scene, sprite,
@@ -184,7 +184,7 @@ fn anchors_keep_to_the_art_in_right_to_left_windows() {
     let el: El = stage.into();
     let holder = ui
         .el("holder")
-        .layout(|l| l.direction = remedy_ui_layout::Direction::Rtl)
+        .layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl)
         .child(el.clone().width(200.0).height(100.0));
     mount(&ui, &holder);
     let b = el.bounds().unwrap_or_default();
@@ -201,7 +201,7 @@ fn anchors_keep_to_the_art_in_right_to_left_windows() {
 
 #[test]
 fn parallax_follows_the_pointer_but_not_under_reduced_motion() {
-    use remedy_ui_input::{Buttons, PointerPhase};
+    use remedy_ui_core::input::{Buttons, PointerPhase};
     let ui = ui();
     let stage = scene(&ui, "Sky", Size::new(100.0, 100.0), SceneOptions::default().parallax(10.0)).layer(
         Layer::paint(|cx| {

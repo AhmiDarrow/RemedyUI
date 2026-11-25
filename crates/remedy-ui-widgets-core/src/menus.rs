@@ -9,12 +9,12 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Point, Rect};
-use remedy_ui_input::{Buttons, Chord, Key, KeyEvent, PointerPhase};
-use remedy_ui_layout::Align;
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, PointerPhase};
+use remedy_ui_core::layout::Align;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, IntoProp, Prop, RichText, TextStylePatch, Ui};
 
 use crate::icons::{Icon, icon};
@@ -49,7 +49,7 @@ enum Shortcut {
 /// with a constructor and refine it with the builder methods:
 ///
 /// ```
-/// use remedy_ui_reactive::Signal;
+/// use remedy_ui_core::reactive::Signal;
 /// use remedy_ui_widgets_core::MenuItem;
 ///
 /// let book_mode = Signal::new(false);
@@ -309,7 +309,7 @@ impl MenuItem {
 
 /// Alt is held where access keys exist (not on Apple platforms): they show underlined.
 pub(crate) fn alt_shows_keys(ui: &Ui) -> bool {
-    ui.alt_held() && ui.platform() != remedy_ui_input::Platform::Apple
+    ui.alt_held() && ui.platform() != remedy_ui_core::input::Platform::Apple
 }
 
 /// The shortcut text of `s` for `ui`'s platform and language.
@@ -569,7 +569,7 @@ impl Chain {
         // Entries read in the direction of what opened the menu (the menu itself is placed in
         // window coordinates, so it keeps the overlay layer's).
         let direction =
-            if self.rtl { remedy_ui_layout::Direction::Rtl } else { remedy_ui_layout::Direction::Ltr };
+            if self.rtl { remedy_ui_core::layout::Direction::Rtl } else { remedy_ui_core::layout::Direction::Ltr };
         let mut row = ui
             .el("menu_item")
             .row()

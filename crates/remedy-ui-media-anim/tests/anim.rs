@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Axis, Display, Length};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Axis, Display, Length};
 use remedy_ui_media_anim::{Fit, Source, animated, cached, resident_frames, trim_memory};
 use remedy_ui_view::El;
 

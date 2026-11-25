@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size, Vec2};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
@@ -87,7 +87,7 @@ fn clicks_and_keys_select_in_two_dimensions() {
     let cols = columns(&g) as u32;
     click(&g.ui, centre(&tile(&g, 1)), Duration::from_secs(1));
     assert_eq!(selected(&g), vec![1]);
-    assert!(tile(&g, 1).info().is_some_and(|i| i.states.contains(remedy_ui_style::States::SELECTED)));
+    assert!(tile(&g, 1).info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::SELECTED)));
     assert!(key(&g.ui, Key::ArrowRight, NONE));
     assert_eq!(selected(&g), vec![2]);
     assert!(key(&g.ui, Key::ArrowDown, NONE));
@@ -154,7 +154,7 @@ fn removed_items_leave_the_selection_and_the_grid_reads_well() {
     assert!(problems.is_empty(), "{problems:#?}");
     let t = tile(&g, 2);
     let s = t.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
-    assert_eq!(s.role(), remedy_ui_a11y::Role::ListItem);
+    assert_eq!(s.role(), remedy_ui_core::a11y::Role::ListItem);
 }
 
 #[test]

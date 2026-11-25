@@ -5,10 +5,10 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Insets, Point, Rect, Size};
-use remedy_ui_input::{Key, PointerPhase};
-use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
+use remedy_ui_core::input::{Key, PointerPhase};
+use remedy_ui_core::layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_view::{El, Ui};
 
 /// How long the pointer rests on an element before its tooltip shows.
@@ -121,7 +121,7 @@ pub(crate) fn place_fitted(
     // anchor it would have only what is left of the window there, and text in it would wrap
     // to that. Placed, it always has at least the width it was measured at.
     let el =
-        place_at(el, Point::new(0.0, first.y)).style(remedy_ui_style::StylePatch::default().opacity(0.0));
+        place_at(el, Point::new(0.0, first.y)).style(remedy_ui_core::style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
     let measured: Rc<Cell<Option<Size>>> = Rc::default();
     let place = {
@@ -144,17 +144,17 @@ pub(crate) fn place_fitted(
                         l.max_height = Length::Px(tallest);
                     }
                 })
-                .style(remedy_ui_style::StylePatch::default().opacity(1.0));
+                .style(remedy_ui_core::style::StylePatch::default().opacity(1.0));
         })
     };
     let (ui2, f2, ui3, f3) = (ui.clone(), place.clone(), ui.clone(), place);
     el.on_resize(move |size| {
         measured.set(Some(size));
-        f2(remedy_ui_reactive::untrack(|| ui2.window_size()));
+        f2(remedy_ui_core::reactive::untrack(|| ui2.window_size()));
     })
     .bind(move || {
         let window = ui3.window_size();
-        remedy_ui_reactive::untrack(|| f3(window));
+        remedy_ui_core::reactive::untrack(|| f3(window));
     })
 }
 

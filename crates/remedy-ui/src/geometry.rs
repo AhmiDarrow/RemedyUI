@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_reactive::{JsonValue, Persist, PersistStore};
+use remedy_ui_core::reactive::{JsonValue, Persist, PersistStore};
 
 /// The key window geometry is kept under in a [`PersistStore`]
 /// ([`GeometryStore::persisted_in`]).

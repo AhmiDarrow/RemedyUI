@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 use crate::{App, Window, WindowSpec};

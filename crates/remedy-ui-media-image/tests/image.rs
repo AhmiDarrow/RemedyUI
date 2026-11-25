@@ -152,7 +152,7 @@ fn settle(ui: &Ui) {
     let start = Instant::now();
     for _ in 0..4 {
         frame(ui);
-        while !remedy_ui_reactive::has_posted() {
+        while !remedy_ui_core::reactive::has_posted() {
             if start.elapsed() > Duration::from_secs(10) {
                 return;
             }
@@ -161,7 +161,7 @@ fn settle(ui: &Ui) {
                 break;
             }
         }
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
     }
     frame(ui);
 }
@@ -234,7 +234,7 @@ fn an_edited_file_shows_its_new_pixels() {
     // Rewritten, larger and in another color, then shown by a new element.
     std::thread::sleep(Duration::from_millis(20));
     let _ = std::fs::write(&path, png(80, 20, |_, _| [0, 0, 255, 255], None));
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::File(path.clone()), Some((40, 20)), false, state);
     settle(&ui);
     match state.get_untracked().ok() {
@@ -328,10 +328,10 @@ fn sources_are_told_apart_and_files_notice_edits() {
 }
 
 /// Runs posted results until every probe has its size.
-fn sized(states: &[remedy_ui_reactive::Signal<ImageState>]) -> Vec<(u32, u32)> {
+fn sized(states: &[remedy_ui_core::reactive::Signal<ImageState>]) -> Vec<(u32, u32)> {
     let start = Instant::now();
     loop {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let sizes: Vec<(u32, u32)> = states
             .iter()
             .filter_map(|s| match s.get_untracked().ok() {
@@ -346,8 +346,8 @@ fn sized(states: &[remedy_ui_reactive::Signal<ImageState>]) -> Vec<(u32, u32)> {
     }
 }
 
-fn probed(source: &Source) -> remedy_ui_reactive::Signal<ImageState> {
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+fn probed(source: &Source) -> remedy_ui_core::reactive::Signal<ImageState> {
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     probe(source, state);
     state
 }
@@ -397,7 +397,7 @@ fn an_edited_file_probes_to_its_new_size() {
     while !matches!(state.get_untracked().ok(), Some(ImageState::Sized((80, 20))))
         && start.elapsed() < Duration::from_secs(10)
     {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         std::thread::sleep(Duration::from_millis(1));
     }
     assert!(
@@ -488,7 +488,7 @@ fn late_results_for_a_disposed_signal_are_dropped() {
     let bytes: Arc<[u8]> = png(6, 4, |_, _| [9, 9, 9, 255], None).into();
     let source = Source::Bytes(bytes);
     let gone = || {
-        let s = remedy_ui_reactive::Signal::new(ImageState::Loading);
+        let s = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
         s.dispose();
         s
     };
@@ -496,7 +496,7 @@ fn late_results_for_a_disposed_signal_are_dropped() {
     probe(&source, gone());
     settle(&ui);
     // Wanted elsewhere now, so cached and sized: answered at once, to a disposed signal.
-    let live = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let live = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _held = load(&source, None, false, live);
     settle(&ui);
     assert!(matches!(live.get_untracked().ok(), Some(ImageState::Ready(..))));

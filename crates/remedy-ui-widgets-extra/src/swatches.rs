@@ -1,12 +1,12 @@
 //! A grid of color swatches to choose from.
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, Point};
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Display, Length, Track};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Display, Length, Track};
 use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{El, Ui};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -163,7 +163,7 @@ pub fn color_swatch_grid(
                     .description(code.clone())
                     .selected(selected.get() == Some(i))
                     .set_position(i + 1, count)
-                    .action(remedy_ui_a11y::Action::Click)
+                    .action(remedy_ui_core::a11y::Action::Click)
             });
             remedy_ui_widgets_core::tooltip(&sem_cell, sw.name);
             let _ = host.clone().child(cell);

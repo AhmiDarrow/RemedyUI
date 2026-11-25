@@ -4,11 +4,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Point, Rect, Vec2};
-use remedy_ui_input::{Key, KeyEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::input::{Key, KeyEvent, PointerPhase, WheelEvent};
 use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, PaintCx, TextPaint, Ui};
 use remedy_ui_viz::{Clock, Moved, smooth};
 
@@ -636,7 +636,7 @@ pub fn tuner(
         );
         let target = spot_of(&spots, sel);
         nd.target.set(target);
-        if !nd.dragging.get() && remedy_ui_reactive::untrack(|| me.ui().reduced_motion()) {
+        if !nd.dragging.get() && remedy_ui_core::reactive::untrack(|| me.ui().reduced_motion()) {
             nd.shown.set(target);
         }
         me.repaint();

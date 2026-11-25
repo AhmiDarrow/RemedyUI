@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Size};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::layout::Length;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{Ui, WindowDirection};
 
@@ -24,7 +24,7 @@ fn ui() -> Ui {
 }
 
 struct Screen {
-    scrollers: Vec<(remedy_ui_compositor::LayerId, remedy_ui_tree::ElementId)>,
+    scrollers: Vec<(remedy_ui_compositor::LayerId, remedy_ui_core::tree::ElementId)>,
     ui: Ui,
     comp: Compositor,
     cpu: CpuCompositor,

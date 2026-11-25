@@ -6,10 +6,10 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     DropEffect, HostEvent, Pixels, ResizeEdge, SafeArea, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
-use remedy_ui_input::KeyEvent;
+use remedy_ui_core::input::KeyEvent;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{HtmlCanvasElement, HtmlElement};
@@ -54,7 +54,7 @@ pub(crate) struct Win {
     /// keyboard focus for the window.
     pub(crate) surface: HtmlElement,
     cursor_hidden: std::cell::Cell<bool>,
-    cursor: std::cell::Cell<remedy_ui_host::Cursor>,
+    cursor: std::cell::Cell<remedy_ui_core::host::Cursor>,
     title_el: Option<HtmlElement>,
     cpu: HtmlCanvasElement,
     gpu: HtmlCanvasElement,
@@ -259,7 +259,7 @@ impl Win {
                 frame,
                 surface,
                 cursor_hidden: std::cell::Cell::new(false),
-                cursor: std::cell::Cell::new(remedy_ui_host::Cursor::Default),
+                cursor: std::cell::Cell::new(remedy_ui_core::host::Cursor::Default),
                 title_el,
                 cpu,
                 gpu,
@@ -534,7 +534,7 @@ impl Win {
     }
 
     /// Gives the pointer `cursor`'s shape over the window's content (CSS `cursor`).
-    pub(crate) fn set_cursor(&self, cursor: remedy_ui_host::Cursor) {
+    pub(crate) fn set_cursor(&self, cursor: remedy_ui_core::host::Cursor) {
         self.cursor.set(cursor);
         self.show_cursor();
     }
@@ -543,7 +543,7 @@ impl Win {
     fn show_cursor(&self) {
         let css = match (self.cursor_hidden.get(), self.cursor.get()) {
             (true, _) => "none",
-            (false, remedy_ui_host::Cursor::Default) => "",
+            (false, remedy_ui_core::host::Cursor::Default) => "",
             (false, shape) => shape.css_name(),
         };
         dom::style(&self.surface, &[("cursor", css)]);

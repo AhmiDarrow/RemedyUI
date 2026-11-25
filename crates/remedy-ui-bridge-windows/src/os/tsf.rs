@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::Rc;
 
-use remedy_ui_host::{ImeEvent, InputPurpose, TextInputState};
+use remedy_ui_core::host::{ImeEvent, InputPurpose, TextInputState};
 use windows::Win32::Foundation::{E_FAIL, E_INVALIDARG, E_NOTIMPL, HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Com::{

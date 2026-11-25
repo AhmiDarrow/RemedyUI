@@ -4,10 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 use crate::drive::{Clock, Moved, Smoothing, Ticker};

@@ -19,11 +19,11 @@ mod hooks {
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use remedy_ui_bridge_winit::winit::window::{Window, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
-    use remedy_ui_host::{
+    use remedy_ui_core::host::{
         App, DragData, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported,
         Waker,
     };
-    use remedy_ui_input::Platform;
+    use remedy_ui_core::input::Platform;
 
     use crate::os;
 
@@ -91,7 +91,7 @@ mod hooks {
 
         fn show_notification(
             &mut self,
-            notification: &remedy_ui_host::Notification,
+            notification: &remedy_ui_core::host::Notification,
         ) -> Result<(), Unsupported> {
             os::notify::show(notification)
         }
@@ -104,9 +104,9 @@ mod hooks {
             &mut self,
             _windows: &[&Window],
             _app_id: &str,
-            badge: Option<remedy_ui_host::Badge>,
+            badge: Option<remedy_ui_core::host::Badge>,
         ) -> Result<(), Unsupported> {
-            os::set_badge(badge.map(remedy_ui_host::Badge::label).as_deref())
+            os::set_badge(badge.map(remedy_ui_core::host::Badge::label).as_deref())
         }
 
         fn start_drag(
@@ -133,8 +133,8 @@ mod hooks {
         fn share(
             &mut self,
             window: Option<&Window>,
-            share: &remedy_ui_host::ShareOptions,
-        ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+            share: &remedy_ui_core::host::ShareOptions,
+        ) -> Result<remedy_ui_core::host::ShareStarted, Unsupported> {
             let _ = (window, share);
             Err(Unsupported::new(
                 "sharing",
@@ -200,7 +200,7 @@ mod hooks {
         fn set_window_icon(
             &mut self,
             _window: &Window,
-            _icon: Option<&remedy_ui_host::WindowIcon>,
+            _icon: Option<&remedy_ui_core::host::WindowIcon>,
         ) -> Result<(), Unsupported> {
             Err(Unsupported::new(
                 "window icons",

@@ -8,13 +8,13 @@ use remedy_ui_bridge_winit::winit::platform::android::EventLoopBuilderExtAndroid
 use remedy_ui_bridge_winit::winit::platform::android::activity::AndroidApp;
 use remedy_ui_bridge_winit::winit::window::{Window, WindowId as WinitId};
 use remedy_ui_bridge_winit::{PlatformHooks, RunError, UserEvent, WindowNotice};
-use remedy_ui_host::accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
-use remedy_ui_host::{
+use remedy_ui_core::host::accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
+use remedy_ui_core::host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, ForegroundTask,
     HostEvent, ImeEvent, Notification, NotificationResponse, Permission, PermissionStarted, SafeArea,
     SystemSettings, TrayIcon, Unsupported, Waker,
 };
-use remedy_ui_input::Platform;
+use remedy_ui_core::input::Platform;
 
 use crate::convert;
 use crate::os::{self, Java};
@@ -36,7 +36,7 @@ pub(crate) enum Notice {
     /// The person answered the permission prompt for this request: true when granted.
     Permission(u64, bool),
     /// The share chooser for this request closed.
-    Share(u64, remedy_ui_host::ShareOutcome),
+    Share(u64, remedy_ui_core::host::ShareOutcome),
     /// The drag out ended: 1 dropped and taken, 0 dropped nowhere or refused, -1 never started.
     DragEnded(i32),
     /// A screen reader set a text field's text; the field is the target of the focus request
@@ -253,7 +253,7 @@ pub struct AndroidHooks {
     /// A text-input session is open.
     text_session: bool,
     /// The element a screen reader last asked to focus (where its "set text" goes).
-    a11y_focus: Option<(remedy_ui_host::accesskit::TreeId, remedy_ui_host::accesskit::NodeId)>,
+    a11y_focus: Option<(remedy_ui_core::host::accesskit::TreeId, remedy_ui_core::host::accesskit::NodeId)>,
 }
 
 impl std::fmt::Debug for AndroidHooks {
@@ -319,7 +319,7 @@ impl AndroidHooks {
                 }
                 Notice::Accessibility(e) => {
                     if let AccessibilityEvent::Action(r) = &e
-                        && r.action == remedy_ui_host::accesskit::Action::Focus
+                        && r.action == remedy_ui_core::host::accesskit::Action::Focus
                     {
                         self.a11y_focus = Some((r.target_tree, r.target_node));
                     }
@@ -330,10 +330,10 @@ impl AndroidHooks {
                 Notice::SetText(text) => {
                     if let (Some(w), Some((target_tree, target_node))) = (self.window, self.a11y_focus) {
                         let request = ActionRequest {
-                            action: remedy_ui_host::accesskit::Action::SetValue,
+                            action: remedy_ui_core::host::accesskit::Action::SetValue,
                             target_tree,
                             target_node,
-                            data: Some(remedy_ui_host::accesskit::ActionData::Value(text.into())),
+                            data: Some(remedy_ui_core::host::accesskit::ActionData::Value(text.into())),
                         };
                         self.window_events
                             .push((w, WindowNotice::Accessibility(AccessibilityEvent::Action(request))));
@@ -347,10 +347,10 @@ impl AndroidHooks {
                     }
                 }
                 Notice::Dialog(id, paths) => {
-                    self.app_events.push(HostEvent::FileDialog(remedy_ui_host::DialogId(id), paths));
+                    self.app_events.push(HostEvent::FileDialog(remedy_ui_core::host::DialogId(id), paths));
                 }
                 Notice::Permission(id, granted) => {
-                    self.app_events.push(HostEvent::Permission(remedy_ui_host::PermissionId(id), granted));
+                    self.app_events.push(HostEvent::Permission(remedy_ui_core::host::PermissionId(id), granted));
                 }
                 Notice::Notification(id, response) => {
                     self.app_events.push(HostEvent::Notification(id, response));
@@ -359,7 +359,7 @@ impl AndroidHooks {
                     self.app_events.push(HostEvent::ForegroundStopped(why));
                 }
                 Notice::Share(id, outcome) => {
-                    self.app_events.push(HostEvent::Share(remedy_ui_host::ShareId(id), outcome));
+                    self.app_events.push(HostEvent::Share(remedy_ui_core::host::ShareId(id), outcome));
                 }
                 Notice::DragEnded(result) => {
                     if let Some(w) = self.window {
@@ -482,7 +482,7 @@ impl PlatformHooks for AndroidHooks {
     fn set_window_icon(
         &mut self,
         _window: &Window,
-        _icon: Option<&remedy_ui_host::WindowIcon>,
+        _icon: Option<&remedy_ui_core::host::WindowIcon>,
     ) -> Result<(), Unsupported> {
         Err(Unsupported::new("window icons", "Android shows the app's launcher icon for its window"))
     }
@@ -536,7 +536,7 @@ impl PlatformHooks for AndroidHooks {
                 dialog.title.clone(),
             )
             .map_err(|e| Unsupported::new("file dialogs", e))?;
-        Ok(DialogStarted::Pending(remedy_ui_host::DialogId(id)))
+        Ok(DialogStarted::Pending(remedy_ui_core::host::DialogId(id)))
     }
 
     fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
@@ -564,7 +564,7 @@ impl PlatformHooks for AndroidHooks {
         self.java("permission requests")?
             .request_permission(&self.app, id, name)
             .map_err(|e| Unsupported::new("permission requests", e))?;
-        Ok(PermissionStarted::Pending(remedy_ui_host::PermissionId(id)))
+        Ok(PermissionStarted::Pending(remedy_ui_core::host::PermissionId(id)))
     }
 
     fn show_notification(&mut self, notification: &Notification) -> Result<(), Unsupported> {
@@ -601,13 +601,13 @@ impl PlatformHooks for AndroidHooks {
     fn share(
         &mut self,
         window: Option<&Window>,
-        share: &remedy_ui_host::ShareOptions,
-    ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+        share: &remedy_ui_core::host::ShareOptions,
+    ) -> Result<remedy_ui_core::host::ShareStarted, Unsupported> {
         let _ = window;
         let id = self.next_share;
         self.next_share += 1;
         self.java("sharing")?.share(&self.app, id, share).map_err(|e| Unsupported::new("sharing", e))?;
-        Ok(remedy_ui_host::ShareStarted::Pending(remedy_ui_host::ShareId(id)))
+        Ok(remedy_ui_core::host::ShareStarted::Pending(remedy_ui_core::host::ShareId(id)))
     }
 
     fn print_html(&mut self, window: Option<&Window>, title: &str, html: &str) -> Result<(), Unsupported> {
@@ -647,7 +647,7 @@ impl PlatformHooks for AndroidHooks {
         std::mem::take(&mut self.drag_ends)
     }
 
-    fn set_text_input(&mut self, window: &Window, state: Option<&remedy_ui_host::TextInputState>) -> bool {
+    fn set_text_input(&mut self, window: &Window, state: Option<&remedy_ui_core::host::TextInputState>) -> bool {
         let Ok(j) = &self.java else { return false };
         let r = match state {
             Some(s) => {

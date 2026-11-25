@@ -1,7 +1,7 @@
 //! Icons from premultiplied RGBA: the tray's, and each window's own (`WM_SETICON`, small for
 //! the title bar and big for the taskbar and Alt+Tab, at the window's DPI).
 
-use remedy_ui_host::{Unsupported, WindowIcon};
+use remedy_ui_core::host::{Unsupported, WindowIcon};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};

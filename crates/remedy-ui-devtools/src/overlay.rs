@@ -14,13 +14,13 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::trace::phases;
 use remedy_ui_core::{Color, Insets, Point, Rect, Size};
-use remedy_ui_layout::Position;
+use remedy_ui_core::layout::Position;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -147,7 +147,7 @@ impl PerfOverlay {
         // them up as posted work, after the frame.
         let ui_id = target.id();
         let arrived = Signal::new(0u64);
-        if let Ok(waker) = remedy_ui_reactive::waker() {
+        if let Ok(waker) = remedy_ui_core::reactive::waker() {
             me.0.feed.on_sample(move |s: &FrameSample| {
                 if s.ui == Some(ui_id) {
                     let _ = waker.post(move || {
@@ -476,10 +476,10 @@ impl PerfOverlay {
                 l.inset = Insets {
                     top: 8.0,
                     end: 8.0,
-                    start: remedy_ui_layout::AUTO,
-                    bottom: remedy_ui_layout::AUTO,
+                    start: remedy_ui_core::layout::AUTO,
+                    bottom: remedy_ui_core::layout::AUTO,
                 };
-                l.width = remedy_ui_layout::Length::Px(GRAPH.width + unit * 4.0);
+                l.width = remedy_ui_core::layout::Length::Px(GRAPH.width + unit * 4.0);
             })
             .semantics(Semantics::new(Role::Group).hidden(true))
             .child(headline)

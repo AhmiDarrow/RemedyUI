@@ -9,17 +9,17 @@ use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerId};
 use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
     TrayIcon, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
-use remedy_ui_input::{
+use remedy_ui_core::input::{
     Buttons, GestureSettings, PointerEvent, PointerKind, PointerPhase, ScrollPhysics, VelocityTracker,
 };
 use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, FontFile};
-use remedy_ui_tree::ElementId;
+use remedy_ui_core::tree::ElementId;
 use remedy_ui_view::{Request, Ui};
 
 use crate::geometry::{GeometryStore, data_dir};
@@ -343,7 +343,7 @@ impl AppConfig {
 
     /// Adds a font the app ships (its brand's typeface; TrueType, OpenType, WOFF or WOFF2) to
     /// every window's fonts, after the bundled Remedy families. Name its family first in the
-    /// theme's [`font_families`](remedy_ui_style::Theme::font_families) to draw text in it.
+    /// theme's [`font_families`](remedy_ui_core::style::Theme::font_families) to draw text in it.
     /// Several files of one family (weights, styles, or a web font's subsets per script) are
     /// added one call each and join as one family.
     ///
@@ -639,8 +639,8 @@ type Build = Box<dyn FnOnce(&Ui, &Window)>;
 /// whether a window is maximized), made in a scope of its own: whatever reactive owner is
 /// current where it is first asked for (a window's build, a binding) must not dispose it
 /// when that owner runs again or ends.
-fn app_signal<T: 'static>(value: T) -> remedy_ui_reactive::Signal<T> {
-    remedy_ui_reactive::Scope::detached(|| remedy_ui_reactive::Signal::new(value)).0
+fn app_signal<T: 'static>(value: T) -> remedy_ui_core::reactive::Signal<T> {
+    remedy_ui_core::reactive::Scope::detached(|| remedy_ui_core::reactive::Signal::new(value)).0
 }
 /// A background job's result, typed back by its [`Job`].
 type JobResult = Box<dyn std::any::Any + Send>;
@@ -657,7 +657,7 @@ type LocaleFn = Rc<dyn Fn(&str)>;
 pub struct Completion<T: Send + 'static> {
     id: u64,
     results: Arc<Mutex<Vec<(u64, JobResult)>>>,
-    waker: Option<remedy_ui_host::Waker>,
+    waker: Option<remedy_ui_core::host::Waker>,
     done: bool,
     _t: std::marker::PhantomData<fn(T)>,
 }
@@ -762,14 +762,14 @@ enum Cmd {
     Tray(Option<TrayIcon>),
     Dialog(Option<u64>, FileDialog, DialogDone),
     OpenUrl(String, Box<dyn FnOnce(Result<(), Unsupported>)>),
-    Permission(remedy_ui_host::Permission, PermissionDone),
-    Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
+    Permission(remedy_ui_core::host::Permission, PermissionDone),
+    Notify(Box<remedy_ui_core::host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Withdraw(u64),
-    Badge(Option<remedy_ui_host::Badge>),
-    Gamepad(remedy_ui_input::GamepadTuning),
-    Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
+    Badge(Option<remedy_ui_core::host::Badge>),
+    Gamepad(remedy_ui_core::input::GamepadTuning),
+    Foreground(Box<remedy_ui_core::host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     StopForeground,
-    Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
+    Share(Option<u64>, remedy_ui_core::host::ShareOptions, ShareDone),
     Print(Option<u64>, String, String, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Quit,
 }
@@ -806,12 +806,12 @@ struct Shared {
     ambient: Option<remedy_ui_view::AmbientPolicy>,
     /// A tray icon is shown now: one was asked for and the platform took it.
     /// (Made when first asked for.)
-    tray_up: Option<remedy_ui_reactive::Signal<bool>>,
+    tray_up: Option<remedy_ui_core::reactive::Signal<bool>>,
     name: String,
     /// The data folder the app config chose, if it chose one.
     data_dir: Option<PathBuf>,
     /// Persisted signals' folder (`<data>/state`), opened when first needed.
-    persist: Option<remedy_ui_reactive::PersistStore>,
+    persist: Option<remedy_ui_core::reactive::PersistStore>,
     uis: HashMap<u64, Ui>,
     open: HashSet<u64>,
     /// Windows kept out of screen capture (where the system could do it).
@@ -826,14 +826,14 @@ struct Shared {
     /// Windows the platform cannot hide while they are open (Wayland's): hiding minimizes.
     unhideable: HashSet<u64>,
     /// Wakes the host's loop for requests made between events.
-    waker: Option<remedy_ui_host::Waker>,
+    waker: Option<remedy_ui_core::host::Waker>,
     in_event: bool,
     on_tray: Option<Rc<dyn Fn(TrayEvent)>>,
-    on_notification: Option<Rc<dyn Fn(u64, remedy_ui_host::NotificationResponse)>>,
+    on_notification: Option<Rc<dyn Fn(u64, remedy_ui_core::host::NotificationResponse)>>,
     on_foreground_stopped: Option<Rc<dyn Fn(String)>>,
     /// Notification answers that came before [`App::on_notification`] was set: a press that
     /// started the app arrives before its setup.
-    unheard_notifications: Vec<(u64, remedy_ui_host::NotificationResponse)>,
+    unheard_notifications: Vec<(u64, remedy_ui_core::host::NotificationResponse)>,
     next_job: u64,
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
@@ -868,9 +868,9 @@ struct Shared {
     renderers: HashMap<u64, RendererKind>,
     titles: HashMap<u64, String>,
     /// Whether each window is maximized, kept current from the host.
-    maximized: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
+    maximized: HashMap<u64, remedy_ui_core::reactive::Signal<bool>>,
     /// Whether each window fills the screen, kept current from the host.
-    fullscreen: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
+    fullscreen: HashMap<u64, remedy_ui_core::reactive::Signal<bool>>,
     /// Each window's content zoom ([`Window::set_zoom`]).
     zoom: HashMap<u64, f32>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
@@ -882,7 +882,7 @@ struct Shared {
     /// Keys and pointer events sent to a window by the app ([`Window::send_key`]), in order.
     injected: Vec<(u64, Injected)>,
     /// The effect keeping the tray in step with [`App::tray_dyn`], while it does.
-    tray_effect: Option<remedy_ui_reactive::Effect>,
+    tray_effect: Option<remedy_ui_core::reactive::Effect>,
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
     #[cfg(feature = "agents")]
     agents: HashMap<u64, remedy_ui_automation::Agents>,
@@ -1328,7 +1328,7 @@ impl App {
         self.tray_signal().get()
     }
 
-    fn tray_signal(&self) -> remedy_ui_reactive::Signal<bool> {
+    fn tray_signal(&self) -> remedy_ui_core::reactive::Signal<bool> {
         *self.0.borrow_mut().tray_up.get_or_insert_with(|| app_signal(false))
     }
 
@@ -1417,7 +1417,7 @@ impl App {
             e.dispose();
         }
         let app = self.clone();
-        let effect = remedy_ui_reactive::Effect::new(move || {
+        let effect = remedy_ui_core::reactive::Effect::new(move || {
             let t = tray();
             app.push(Cmd::Tray(t));
         });
@@ -1436,7 +1436,7 @@ impl App {
     /// the person chose to show it: notifications can show on a locked screen.
     pub fn notify(
         &self,
-        notification: remedy_ui_host::Notification,
+        notification: remedy_ui_core::host::Notification,
         done: impl FnOnce(Result<(), Unsupported>) + 'static,
     ) {
         self.push(Cmd::Notify(Box::new(notification), Box::new(done)));
@@ -1460,7 +1460,7 @@ impl App {
     /// app.set_badge(Badge::count(n));
     /// # }
     /// ```
-    pub fn set_badge(&self, badge: Option<remedy_ui_host::Badge>) {
+    pub fn set_badge(&self, badge: Option<remedy_ui_core::host::Badge>) {
         self.push(Cmd::Badge(badge));
     }
 
@@ -1479,7 +1479,7 @@ impl App {
     /// app.set_gamepad_tuning(tuning);
     /// # }
     /// ```
-    pub fn set_gamepad_tuning(&self, tuning: remedy_ui_input::GamepadTuning) {
+    pub fn set_gamepad_tuning(&self, tuning: remedy_ui_core::input::GamepadTuning) {
         self.push(Cmd::Gamepad(tuning));
     }
 
@@ -1538,7 +1538,7 @@ impl App {
         if self.0.borrow().power.is_some() {
             return Ok(());
         }
-        let ui = remedy_ui_reactive::waker()
+        let ui = remedy_ui_core::reactive::waker()
             .map_err(|e| remedy_ui_services_desktop::DesktopError::Platform { reason: e.to_string() })?;
         let watch = remedy_ui_services_desktop::power::watch(move |e| {
             let _ = ui.post(move || {
@@ -1555,8 +1555,8 @@ impl App {
     /// Called when the person uses a notification the app showed: its id and what they did.
     /// Answers that came before it was set (pressing a notification that started the app,
     /// on Android) reach `f` right after the call that sets it.
-    pub fn on_notification(&self, f: impl Fn(u64, remedy_ui_host::NotificationResponse) + 'static) {
-        let f: Rc<dyn Fn(u64, remedy_ui_host::NotificationResponse)> = Rc::new(f);
+    pub fn on_notification(&self, f: impl Fn(u64, remedy_ui_core::host::NotificationResponse) + 'static) {
+        let f: Rc<dyn Fn(u64, remedy_ui_core::host::NotificationResponse)> = Rc::new(f);
         let unheard = {
             let mut s = self.0.borrow_mut();
             s.on_notification = Some(f.clone());
@@ -1585,11 +1585,11 @@ impl App {
     /// sight anyway, so there it answers `Ok` and shows nothing; show a notification with
     /// [`App::notify`] where one is wanted there too.
     ///
-    /// [`ForegroundKind`]: remedy_ui_host::ForegroundKind
-    /// [`Permission::Microphone`]: remedy_ui_host::Permission::Microphone
+    /// [`ForegroundKind`]: remedy_ui_core::host::ForegroundKind
+    /// [`Permission::Microphone`]: remedy_ui_core::host::Permission::Microphone
     pub fn start_foreground(
         &self,
-        task: remedy_ui_host::ForegroundTask,
+        task: remedy_ui_core::host::ForegroundTask,
         done: impl FnOnce(Result<(), Unsupported>) + 'static,
     ) {
         self.push(Cmd::Foreground(Box::new(task), Box::new(done)));
@@ -1722,7 +1722,7 @@ impl App {
     /// so the prompt explains itself.
     pub fn request_permission(
         &self,
-        permission: remedy_ui_host::Permission,
+        permission: remedy_ui_core::host::Permission,
         done: impl FnOnce(bool) + 'static,
     ) {
         self.push(Cmd::Permission(permission, Box::new(done)));
@@ -1755,14 +1755,14 @@ impl App {
     /// # }
     /// ```
     ///
-    /// [`ShareOutcome::Shared`]: remedy_ui_host::ShareOutcome::Shared
-    /// [`ShareOutcome::Cancelled`]: remedy_ui_host::ShareOutcome::Cancelled
-    /// [`ShareOutcome::Unsupported`]: remedy_ui_host::ShareOutcome::Unsupported
+    /// [`ShareOutcome::Shared`]: remedy_ui_core::host::ShareOutcome::Shared
+    /// [`ShareOutcome::Cancelled`]: remedy_ui_core::host::ShareOutcome::Cancelled
+    /// [`ShareOutcome::Unsupported`]: remedy_ui_core::host::ShareOutcome::Unsupported
     pub fn share(
         &self,
         window: Option<&Window>,
-        share: remedy_ui_host::ShareOptions,
-        done: impl FnOnce(remedy_ui_host::ShareOutcome) + 'static,
+        share: remedy_ui_core::host::ShareOptions,
+        done: impl FnOnce(remedy_ui_core::host::ShareOutcome) + 'static,
     ) {
         self.push(Cmd::Share(window.map(|w| w.key), share, Box::new(done)));
     }
@@ -1798,27 +1798,27 @@ impl App {
         s.data_dir.clone().or_else(|| data_dir(&s.name))
     }
 
-    /// Where persisted signals ([`remedy_ui_reactive::Signal::persist`]) and the app's own
-    /// documents ([`PersistStore::save`](remedy_ui_reactive::PersistStore::save) and
-    /// [`load`](remedy_ui_reactive::PersistStore::load)) are kept: the `state` folder of the
+    /// Where persisted signals ([`remedy_ui_core::reactive::Signal::persist`]) and the app's own
+    /// documents ([`PersistStore::save`](remedy_ui_core::reactive::PersistStore::save) and
+    /// [`load`](remedy_ui_core::reactive::PersistStore::load)) are kept: the `state` folder of the
     /// app's data folder ([`App::data_dir`]), and in a browser page the page's `localStorage`
-    /// under `remedy:<name>:` ([`PersistStore::local_storage`](remedy_ui_reactive::PersistStore)).
+    /// under `remedy:<name>:` ([`PersistStore::local_storage`](remedy_ui_core::reactive::PersistStore)).
     /// Every window's content is built with it provided as context, so
     /// `Signal::new(v).persist("key")` there saves and restores itself. It is flushed when the
     /// app quits, is suspended, or goes out of sight (every window hidden or covered, a page's
     /// tab hidden). `None` when the platform gives the app no place for data (no data folder,
     /// or a page whose browser blocks its storage).
-    pub fn persist_store(&self) -> Option<remedy_ui_reactive::PersistStore> {
+    pub fn persist_store(&self) -> Option<remedy_ui_core::reactive::PersistStore> {
         if let Some(s) = self.0.borrow().persist.clone() {
             return Some(s);
         }
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         let store = {
             let name = self.0.borrow().name.clone();
-            remedy_ui_reactive::PersistStore::local_storage(&name).ok()?
+            remedy_ui_core::reactive::PersistStore::local_storage(&name).ok()?
         };
         #[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
-        let store = remedy_ui_reactive::PersistStore::open(self.data_dir()?.join("state")).ok()?;
+        let store = remedy_ui_core::reactive::PersistStore::open(self.data_dir()?.join("state")).ok()?;
         self.0.borrow_mut().persist = Some(store.clone());
         Some(store)
     }
@@ -2008,14 +2008,14 @@ impl Window {
     /// Tracks whether the window is maximized: button, Aero Snap, dragging off a
     /// maximized window, Win+Up/Down, double-click on the title bar. Bind a custom
     /// title-bar icon to this so it follows the real window state.
-    pub fn maximized(&self) -> remedy_ui_reactive::Signal<bool> {
+    pub fn maximized(&self) -> remedy_ui_core::reactive::Signal<bool> {
         self.app
             .0
             .borrow()
             .maximized
             .get(&self.key)
             .cloned()
-            .unwrap_or_else(|| remedy_ui_reactive::Signal::new(false))
+            .unwrap_or_else(|| remedy_ui_core::reactive::Signal::new(false))
     }
 
     /// Calls `f` with the window's desktop position and content size (logical pixels) after
@@ -2083,13 +2083,13 @@ impl Window {
     /// automation and end-to-end tests of a running app. It arrives with the next event the
     /// app handles (the window is asked for a frame). [`press_key`](Self::press_key) sends a
     /// press and its release.
-    pub fn send_key(&self, event: remedy_ui_input::KeyEvent) {
+    pub fn send_key(&self, event: remedy_ui_core::input::KeyEvent) {
         self.inject(Box::new(move |w| HostEvent::Key(w, event)));
     }
 
     /// Presses and releases `event`'s key ([`send_key`](Self::send_key) twice).
-    pub fn press_key(&self, event: remedy_ui_input::KeyEvent) {
-        let release = remedy_ui_input::KeyEvent::release(event.key.clone())
+    pub fn press_key(&self, event: remedy_ui_core::input::KeyEvent) {
+        let release = remedy_ui_core::input::KeyEvent::release(event.key.clone())
             .with_modifiers(event.modifiers)
             .with_physical(event.physical.clone());
         let mut press = event;
@@ -2233,7 +2233,7 @@ impl Window {
 /// What runs with a file dialog's choice.
 type DialogDone = Box<dyn FnOnce(Result<Vec<std::path::PathBuf>, Unsupported>)>;
 type PermissionDone = Box<dyn FnOnce(bool)>;
-type ShareDone = Box<dyn FnOnce(remedy_ui_host::ShareOutcome)>;
+type ShareDone = Box<dyn FnOnce(remedy_ui_core::host::ShareOutcome)>;
 
 enum Present {
     Cpu(Box<CpuCompositor>),
@@ -2332,8 +2332,8 @@ impl Win {
     /// puts back what moved.
     fn can_scroll_at(&mut self, p: Point) -> bool {
         for dir in [Vec2::new(0.0, 1.0), Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0), Vec2::new(-1.0, 0.0)] {
-            if self.ui.wheel(&remedy_ui_input::WheelEvent::new(p, dir).with_precise(true)) {
-                self.ui.wheel(&remedy_ui_input::WheelEvent::new(p, -dir).with_precise(true));
+            if self.ui.wheel(&remedy_ui_core::input::WheelEvent::new(p, dir).with_precise(true)) {
+                self.ui.wheel(&remedy_ui_core::input::WheelEvent::new(p, -dir).with_precise(true));
                 return true;
             }
             let s = self.scale();
@@ -2401,7 +2401,7 @@ impl Win {
                     None if p.layer.is_none() => {
                         // No scroll container under the finger. An element that scrolls
                         // itself takes the drag as it takes the wheel.
-                        let wheel = remedy_ui_input::WheelEvent::new(e.position, moved).with_precise(true);
+                        let wheel = remedy_ui_core::input::WheelEvent::new(e.position, moved).with_precise(true);
                         if self.ui.wheel(&wheel) {
                             p.by_view = true;
                         } else if !p.by_view && dx.abs() > dy.abs() {
@@ -2484,11 +2484,11 @@ pub struct Runner {
     /// The app was told it is hidden or frozen and has not been told it is back.
     away: bool,
     /// File dialogs the platform answers later, and what to call with the choice.
-    dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
+    dialogs: HashMap<remedy_ui_core::host::DialogId, DialogDone>,
     /// Permission requests the platform answers later, and what to call with the answer.
-    permissions: HashMap<remedy_ui_host::PermissionId, PermissionDone>,
+    permissions: HashMap<remedy_ui_core::host::PermissionId, PermissionDone>,
     /// Share sheets the platform closes later, and what to call with how they ended.
-    shares: HashMap<remedy_ui_host::ShareId, ShareDone>,
+    shares: HashMap<remedy_ui_core::host::ShareId, ShareDone>,
     secret: Option<(crate::secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
@@ -2960,9 +2960,9 @@ impl Runner {
             Cmd::Dialog(key, dialog, done) => {
                 let w = key.and_then(|k| self.host_of(k));
                 match host.file_dialog(w, &dialog) {
-                    Ok(remedy_ui_host::DialogStarted::Finished(chosen)) => done(Ok(chosen)),
+                    Ok(remedy_ui_core::host::DialogStarted::Finished(chosen)) => done(Ok(chosen)),
                     // The platform's picker answers later, with `HostEvent::FileDialog`.
-                    Ok(remedy_ui_host::DialogStarted::Pending(id)) => {
+                    Ok(remedy_ui_core::host::DialogStarted::Pending(id)) => {
                         self.dialogs.insert(id, done);
                     }
                     Err(e) => done(Err(e)),
@@ -2993,9 +2993,9 @@ impl Runner {
                 let _ = host.stop_foreground();
             }
             Cmd::Permission(permission, done) => match host.request_permission(permission) {
-                Ok(remedy_ui_host::PermissionStarted::Finished(granted)) => done(granted),
+                Ok(remedy_ui_core::host::PermissionStarted::Finished(granted)) => done(granted),
                 // The platform's prompt answers later, with `HostEvent::Permission`.
-                Ok(remedy_ui_host::PermissionStarted::Pending(id)) => {
+                Ok(remedy_ui_core::host::PermissionStarted::Pending(id)) => {
                     self.permissions.insert(id, done);
                 }
                 Err(_) => done(false),
@@ -3006,7 +3006,7 @@ impl Runner {
             }
             Cmd::Share(key, share, done) => {
                 if share.is_empty() {
-                    done(remedy_ui_host::ShareOutcome::Unsupported(Unsupported::new(
+                    done(remedy_ui_core::host::ShareOutcome::Unsupported(Unsupported::new(
                         "sharing",
                         "there is nothing to share: no title, text or files",
                     )));
@@ -3014,12 +3014,12 @@ impl Runner {
                 }
                 let w = key.and_then(|k| self.host_of(k));
                 match host.share(w, &share) {
-                    Ok(remedy_ui_host::ShareStarted::Finished(outcome)) => done(outcome),
+                    Ok(remedy_ui_core::host::ShareStarted::Finished(outcome)) => done(outcome),
                     // The platform's sheet closes later, with `HostEvent::Share`.
-                    Ok(remedy_ui_host::ShareStarted::Pending(id)) => {
+                    Ok(remedy_ui_core::host::ShareStarted::Pending(id)) => {
                         self.shares.insert(id, done);
                     }
-                    Err(why) => done(remedy_ui_host::ShareOutcome::Unsupported(why)),
+                    Err(why) => done(remedy_ui_core::host::ShareOutcome::Unsupported(why)),
                 }
             }
             Cmd::Forget(key) => {
@@ -3128,10 +3128,10 @@ impl Runner {
                 }
                 Request::StartDrag { data, allowed } => {
                     match host.start_drag(h, &data, &allowed) {
-                        Ok(remedy_ui_host::DragStarted::Finished(effect)) => ui.drag_finished(effect),
+                        Ok(remedy_ui_core::host::DragStarted::Finished(effect)) => ui.drag_finished(effect),
                         // The host reports the end with `HostEvent::DragEnded`.
-                        Ok(remedy_ui_host::DragStarted::Pending) => {}
-                        Err(_) => ui.drag_finished(remedy_ui_host::DropEffect::None),
+                        Ok(remedy_ui_core::host::DragStarted::Pending) => {}
+                        Err(_) => ui.drag_finished(remedy_ui_core::host::DropEffect::None),
                     }
                     host.request_frame(h);
                 }
@@ -3365,7 +3365,7 @@ impl Runner {
     }
 
     /// Routes a wheel scroll (in the content's logical pixels) in `window`.
-    fn wheel(&mut self, host: &mut dyn Host, window: WindowId, e: &remedy_ui_input::WheelEvent) {
+    fn wheel(&mut self, host: &mut dyn Host, window: WindowId, e: &remedy_ui_core::input::WheelEvent) {
         // Elements that take the wheel themselves (zoomable documents, Ctrl+wheel)
         // come first; otherwise it scrolls on the compositor.
         let taken = self
@@ -3403,7 +3403,7 @@ impl Runner {
             a.last = Some(at);
             let (delta, origin, window) = (a.delta(dt), a.origin, w.host);
             if delta != Vec2::ZERO {
-                self.wheel(host, window, &remedy_ui_input::WheelEvent::new(origin, delta).with_precise(true));
+                self.wheel(host, window, &remedy_ui_core::input::WheelEvent::new(origin, delta).with_precise(true));
             }
             host.request_frame(window);
         }
@@ -3696,8 +3696,8 @@ impl Runner {
 }
 
 /// AccessKit's action as the engine's, for the actions elements offer.
-fn action(a: remedy_ui_host::accesskit::Action) -> Option<remedy_ui_view::A11yAction> {
-    use remedy_ui_host::accesskit::Action as K;
+fn action(a: remedy_ui_core::host::accesskit::Action) -> Option<remedy_ui_view::A11yAction> {
+    use remedy_ui_core::host::accesskit::Action as K;
     use remedy_ui_view::A11yAction as A;
     Some(match a {
         K::Click => A::Click,
@@ -3762,7 +3762,7 @@ fn new_gpu() -> Option<remedy_ui_render_gpu::GpuCompositor> {
     Some(remedy_ui_render_gpu::GpuCompositor::new(remedy_ui_render_gpu::GpuRenderer::new(ctx, None), ladder))
 }
 
-impl remedy_ui_host::App for Runner {
+impl remedy_ui_core::host::App for Runner {
     fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
         // Edits group into undo steps by when they happen: every window reads the host's time.
         let now = host.now();
@@ -3777,7 +3777,7 @@ impl remedy_ui_host::App for Runner {
                 s.waker = Some(w.clone());
                 // Work other threads post to the UI thread (decoded images, finished sorts,
                 // reloaded messages) wakes the loop, and runs below.
-                let _ = remedy_ui_reactive::set_wake_handler(move || w());
+                let _ = remedy_ui_core::reactive::set_wake_handler(move || w());
             }
         }
         {
@@ -3794,8 +3794,8 @@ impl remedy_ui_host::App for Runner {
         // Background work that finished.
         self.app.finish_background();
         // Closures other threads posted through the reactive waker.
-        if remedy_ui_reactive::has_posted() {
-            let _ = remedy_ui_reactive::run_posted();
+        if remedy_ui_core::reactive::has_posted() {
+            let _ = remedy_ui_core::reactive::run_posted();
         }
         // Launches handed over by later instances.
         let launches = std::mem::take(
@@ -4004,9 +4004,9 @@ impl remedy_ui_host::App for Runner {
                     && let Some((ui, zoom)) = self.wins.get(&key).map(|w| (w.ui.clone(), w.zoom))
                 {
                     match &mut e {
-                        remedy_ui_host::DragEvent::Enter { position: Some(p), .. }
-                        | remedy_ui_host::DragEvent::Drop { position: Some(p), .. }
-                        | remedy_ui_host::DragEvent::Over { position: p } => *p = unzoom(*p, zoom),
+                        remedy_ui_core::host::DragEvent::Enter { position: Some(p), .. }
+                        | remedy_ui_core::host::DragEvent::Drop { position: Some(p), .. }
+                        | remedy_ui_core::host::DragEvent::Over { position: p } => *p = unzoom(*p, zoom),
                         _ => {}
                     }
                     let effect = ui.drag_event(&e);
@@ -4041,7 +4041,7 @@ impl remedy_ui_host::App for Runner {
                 // Any key ends autoscroll; Escape does nothing else.
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k))
                     && w.autoscroll.take().is_some()
-                    && e.key == remedy_ui_input::Key::Escape
+                    && e.key == remedy_ui_core::input::Key::Escape
                 {
                     host.request_frame(window);
                     return;
@@ -4049,8 +4049,8 @@ impl remedy_ui_host::App for Runner {
                 // F12 opens the inspector (devtools) instead of reaching the app.
                 #[cfg(feature = "devtools")]
                 let inspector = e.pressed
-                    && e.key == remedy_ui_input::Key::F(12)
-                    && e.modifiers == remedy_ui_input::Modifiers::NONE;
+                    && e.key == remedy_ui_core::input::Key::F(12)
+                    && e.modifiers == remedy_ui_core::input::Modifiers::NONE;
                 #[cfg(not(feature = "devtools"))]
                 let inspector = false;
                 if inspector {
@@ -4062,7 +4062,7 @@ impl remedy_ui_host::App for Runner {
                     let taken = w.ui.key(&e);
                     // A back action nothing in the window took leaves the window, as the
                     // platform's back does.
-                    if !taken && e.pressed && e.key == remedy_ui_input::Key::Back {
+                    if !taken && e.pressed && e.key == remedy_ui_core::input::Key::Back {
                         self.close_requested(host, window);
                     }
                 }
@@ -4086,14 +4086,14 @@ impl remedy_ui_host::App for Runner {
                             (false, None) => {
                                 let ui = w.ui.clone();
                                 let cover = ui.el("privacy_cover").layout(|l| {
-                                    l.position = remedy_ui_layout::Position::Absolute;
+                                    l.position = remedy_ui_core::layout::Position::Absolute;
                                     l.inset = remedy_ui_core::Insets::ZERO;
-                                    l.width = remedy_ui_layout::Length::Percent(1.0);
-                                    l.height = remedy_ui_layout::Length::Percent(1.0);
+                                    l.width = remedy_ui_core::layout::Length::Percent(1.0);
+                                    l.height = remedy_ui_core::layout::Length::Percent(1.0);
                                 });
                                 let bg = w.spec.background.unwrap_or(self.config.theme.colors.bg);
                                 let cover =
-                                    cover.style(remedy_ui_style::StylePatch::default().background(bg));
+                                    cover.style(remedy_ui_core::style::StylePatch::default().background(bg));
                                 w.cover = Some(ui.trusted_overlay(cover));
                             }
                             (_, keep) => w.cover = keep,
@@ -4249,8 +4249,8 @@ impl remedy_ui_host::App for Runner {
                         AccessibilityEvent::Requested => w.ui.connect_accessibility(),
                         AccessibilityEvent::Deactivated => w.ui.disconnect_accessibility(),
                         AccessibilityEvent::Action(r) => {
-                            if r.action == remedy_ui_host::accesskit::Action::SetValue {
-                                if let Some(remedy_ui_host::accesskit::ActionData::Value(v)) = &r.data {
+                            if r.action == remedy_ui_core::host::accesskit::Action::SetValue {
+                                if let Some(remedy_ui_core::host::accesskit::ActionData::Value(v)) = &r.data {
                                     w.ui.accessibility_set_value(r.target_node.0, v);
                                 }
                             } else if let Some(a) = action(r.action) {
@@ -4288,7 +4288,7 @@ impl remedy_ui_host::App for Runner {
                     }
                 }
                 #[cfg(feature = "gpu")]
-                if level != remedy_ui_host::MemoryPressure::Normal
+                if level != remedy_ui_core::host::MemoryPressure::Normal
                     && let Some(Some(gpu)) = self.gpu.as_mut()
                 {
                     gpu.trim_memory();

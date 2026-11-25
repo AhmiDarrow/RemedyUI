@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_a11y::{Action, Role};
+use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::Commands;
@@ -427,7 +427,7 @@ impl Agents {
             .padding(remedy_ui_core::Insets::all(unit * 2.0))
             .child(w::text(ui, text.clone()).variant("strong"))
             .child(stop)
-            .semantics(remedy_ui_a11y::Semantics::new(Role::Status).label(text));
+            .semantics(remedy_ui_core::a11y::Semantics::new(Role::Status).label(text));
         let [_, _, trusted] = ui.layers();
         let _ = trusted.child(bar.clone());
         self.state.borrow_mut().indicator = Some(bar);
@@ -463,7 +463,7 @@ impl Agents {
             checked: sem.checked_state(),
             selected: sem.selected_state(),
             expanded: sem.expanded_state(),
-            disabled: info.states.contains(remedy_ui_style::States::DISABLED),
+            disabled: info.states.contains(remedy_ui_core::style::States::DISABLED),
             actions: sem
                 .actions()
                 .iter()

@@ -4,7 +4,7 @@
 //! page sets each in Remedy Sans at 16 px.
 
 use remedy_ui_core::{Color, Insets};
-use remedy_ui_style::{Gradient, States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{Gradient, States, StylePatch, StyleSheet, Theme};
 
 /// One Portal palette: `(id, name, [bg, raised, well, line, accent, text, muted, error, track])`,
 /// as `themes.ts` writes them (`--track` is the line, except in Portal's own palette).
@@ -277,7 +277,7 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
         StylePatch::default()
             .foreground(c.muted)
             .text_size(12.0)
-            .letter_spacing(remedy_ui_style::LetterSpacing::Em(0.08)),
+            .letter_spacing(remedy_ui_core::style::LetterSpacing::Em(0.08)),
     );
     // #dock-upnext-play: the accent, the background's color on it.
     let gold = StylePatch::default().background(c.accent).border(c.accent).foreground(c.bg).weight(600.0);
@@ -293,7 +293,7 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
             .foreground(c.accent)
             .text_size(13.12)
             .padding(Insets { top: 1.92, bottom: 1.92, start: 7.2, end: 7.2 })
-            .shadow(remedy_ui_style::Shadow::new(0.0, 8.0, 18.0, Color::BLACK.with_alpha(0.4))),
+            .shadow(remedy_ui_core::style::Shadow::new(0.0, 8.0, 18.0, Color::BLACK.with_alpha(0.4))),
     );
     // .is-full .stage-top: the heading face at 1.3rem.
     rule(
@@ -343,7 +343,7 @@ mod tests {
         for (id, ..) in PORTAL_PALETTES {
             let t = portal_theme(id).unwrap_or_else(|| unreachable!());
             let mut sheet = portal_sheet(&t);
-            let key = remedy_ui_style::StyleKey { widget: "heading", variant: "1", states: States::NONE };
+            let key = remedy_ui_core::style::StyleKey { widget: "heading", variant: "1", states: States::NONE };
             let s = sheet.resolve(&key, &StylePatch::defaults(&t), &StylePatch::default());
             assert!(s.heading, "{id}");
             assert!(

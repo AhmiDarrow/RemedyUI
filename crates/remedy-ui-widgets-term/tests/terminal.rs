@@ -8,8 +8,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Point, Size, Vec2};
-use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
+use remedy_ui_core::host::ImeEvent;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
 use remedy_ui_paint::Item;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -92,7 +92,7 @@ impl H {
 
     fn frame(&mut self) {
         for _ in 0..6 {
-            let _ = remedy_ui_reactive::run_posted();
+            let _ = remedy_ui_core::reactive::run_posted();
             let f = self.ui.frame(self.size, 1.0);
             if let Some(t) = f.layers {
                 for r in &t.roots {
@@ -451,7 +451,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
     h.fire_timers();
     let root = h.term.input_element();
     let s = root.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(s.role(), remedy_ui_a11y::Role::MultilineTextInput);
+    assert_eq!(s.role(), remedy_ui_core::a11y::Role::MultilineTextInput);
     assert_eq!(s.name(), Some("Terminal"));
     assert_eq!(s.value_text(), Some("build started\ncompiling\nbuild ok"));
     let announcer = find(&h.ui.root(), "terminal_announcer")
@@ -459,7 +459,7 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
         .next()
         .unwrap_or_else(|| unreachable!("announcer"));
     let a = announcer.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("announcer semantics"));
-    assert_eq!(a.live_state(), remedy_ui_a11y::Live::Polite);
+    assert_eq!(a.live_state(), remedy_ui_core::a11y::Live::Polite);
     assert_eq!(a.name(), Some("build started\ncompiling\nbuild ok"));
     // Output in quick succession is read in one go, after a pause (one timer, not one each).
     h.term.feeder().feed(b"\r\none");

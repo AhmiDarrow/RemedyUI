@@ -106,7 +106,7 @@ fn a_hundred_megabytes_keep_the_ui_responsive() {
     ui.root().child(ui.el("col").column().height(900.0).fill_width().child(term.element()));
     let size = Size::new(1400.0, 900.0);
     let frame = |ui: &Ui| {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let _ = ui.frame(size, 1.0);
         for r in ui.take_requests() {
             if let Request::ScrollTo { scroller, offset } = r {

@@ -7,8 +7,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Vec2};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_data::*;
@@ -151,12 +151,12 @@ fn large_sorts_run_off_the_ui_thread() {
     frame(&t.ui);
     // The UI thread did not sort: the old order still shows until the result arrives.
     let start = Instant::now();
-    while !remedy_ui_reactive::has_posted() {
+    while !remedy_ui_core::reactive::has_posted() {
         assert!(start.elapsed() < Duration::from_secs(20), "the sort never finished");
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(shown_names(&t), before);
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     frame(&t.ui);
     let biggest = files(SORT_OFF_THREAD + 5_000).into_iter().max_by_key(|f| f.size).map(|f| f.name);
     assert_eq!(shown_names(&t).first(), biggest.as_ref());
@@ -173,8 +173,8 @@ fn a_newer_sort_wins_over_one_still_running() {
     let mut done = 0;
     while done < 2 {
         assert!(start.elapsed() < Duration::from_secs(20), "the sorts never finished");
-        if remedy_ui_reactive::has_posted() {
-            done += remedy_ui_reactive::run_posted().ran;
+        if remedy_ui_core::reactive::has_posted() {
+            done += remedy_ui_core::reactive::run_posted().ran;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -190,7 +190,7 @@ fn clicks_and_keys_select() {
     let third = rows.get(2).cloned().unwrap_or_else(|| unreachable!());
     click(&t.ui, centre(&third), Duration::from_secs(1));
     assert_eq!(t.state.selection.selected.get_untracked().ok(), Some(vec![2]));
-    assert!(third.info().is_some_and(|i| i.states.contains(remedy_ui_style::States::SELECTED)));
+    assert!(third.info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::SELECTED)));
     // Arrows move the selection; Shift extends it from the anchor.
     assert!(key(&t.ui, Key::ArrowDown, NONE));
     assert_eq!(t.state.selection.selected.get_untracked().ok(), Some(vec![3]));
@@ -323,7 +323,7 @@ fn cells_edit_in_place() {
     assert!(key(&t.ui, Key::Character("a".into()), CTRL));
     assert!(key(&t.ui, Key::Backspace, NONE));
     assert!(key(&t.ui, Key::Enter, NONE));
-    assert!(field.info().is_some_and(|i| i.states.contains(remedy_ui_style::States::INVALID)));
+    assert!(field.info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::INVALID)));
     assert!(key(&t.ui, Key::Character("a".into()), CTRL));
     t.ui.paste("renamed.txt");
     frame(&t.ui);
@@ -353,11 +353,11 @@ fn the_fifty_thousand_file_explorer_meets_its_frame_budget() {
     let t = explorer(50_000);
     t.state.sort.set(Some(("name".into(), SortDirection::Ascending)));
     let start = Instant::now();
-    while !remedy_ui_reactive::has_posted() {
+    while !remedy_ui_core::reactive::has_posted() {
         assert!(start.elapsed() < Duration::from_secs(20));
         std::thread::sleep(Duration::from_millis(2));
     }
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     frame(&t.ui);
     let b = body(&t);
     let h = remedy_ui_widgets_core::MIN_TARGET.max(t.ui.theme().spacing.control_height);

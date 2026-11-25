@@ -1,9 +1,9 @@
 //! Recording a keyboard shortcut.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_input::{Chord, Key, KeyEvent, Modifiers};
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::States;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 

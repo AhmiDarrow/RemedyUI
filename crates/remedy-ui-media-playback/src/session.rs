@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
-use remedy_ui_reactive::{Effect, Scope};
+use remedy_ui_core::reactive::{Effect, Scope};
 use remedy_ui_services_desktop::DesktopError;
 use remedy_ui_services_desktop::media_session::{
     MediaCommand, MediaSession, MediaState, NowPlaying, NowPlayingSink,
@@ -118,7 +118,7 @@ impl Player {
             return Ok(());
         }
         let waker =
-            remedy_ui_reactive::waker().map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
+            remedy_ui_core::reactive::waker().map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
         let session = MediaSession::new(move |c| {
             let _ = waker.post(move || {
                 if let Some(p) = Player::by_id(id) {

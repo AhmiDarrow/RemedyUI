@@ -7,10 +7,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Color, Insets, Size, Vec2};
-use remedy_ui_reactive::{Executor, Job, Resource, Signal, run_posted, use_context};
-use remedy_ui_style::{ColorRole, Dp, Radius, Space, States, Style, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::reactive::{Executor, Job, Resource, Signal, run_posted, use_context};
+use remedy_ui_core::style::{ColorRole, Dp, Radius, Space, States, Style, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::motion::{Easing, Motion, Target};
 use remedy_ui_view::{El, FailurePhase, Request, Transition, Ui, catch_errors, show, suspense};
@@ -633,7 +633,7 @@ fn elements_built_while_a_binding_runs_keep_their_own_bindings() {
     let (h, k, ui2, p2) = (host.clone(), kept.clone(), ui.clone(), painted.clone());
     let host = host.bind(move || {
         let _ = rerun.get();
-        remedy_ui_reactive::untrack(|| {
+        remedy_ui_core::reactive::untrack(|| {
             // Built once, on the first run, and kept: the binding running again must not
             // take its bindings and painter with it.
             if k.borrow().is_none() {
@@ -721,7 +721,7 @@ fn keyframes_loop_until_stopped_and_shadow_spread_animates() {
 
 #[test]
 fn the_pointer_takes_the_shape_of_the_innermost_element_that_sets_one() {
-    use remedy_ui_input::{PointerEvent, PointerPhase};
+    use remedy_ui_core::input::{PointerEvent, PointerPhase};
     use remedy_ui_view::Cursor;
     let ui = ui();
     let inner = ui.el("box").width(20.0).height(20.0);

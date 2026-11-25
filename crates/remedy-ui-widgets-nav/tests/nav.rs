@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
@@ -40,7 +40,7 @@ fn press(ui: &Ui, el: &El, at: Duration) {
         PointerEvent::new(phase, c)
             .with_buttons(buttons)
             .with_time(at)
-            .with_modifiers(remedy_ui_input::Modifiers::NONE)
+            .with_modifiers(remedy_ui_core::input::Modifiers::NONE)
     };
     ui.pointer(&ev(PointerPhase::Down, Buttons::PRIMARY));
     ui.pointer(&ev(PointerPhase::Up, Buttons::default()));
@@ -191,7 +191,7 @@ fn rails_breadcrumbs_and_stacks_navigate() {
     let current = |i: usize| nth(&rail, i).info().and_then(|i| i.semantics).and_then(|s| s.current_state());
     assert_eq!(
         (current(0), current(1)),
-        (None, Some(remedy_ui_a11y::Current::Page)),
+        (None, Some(remedy_ui_core::a11y::Current::Page)),
         "the chosen place is the current page"
     );
     collapsed.set(true);
@@ -248,12 +248,12 @@ fn drawers_close_on_a_press_outside_and_offer_no_dead_controls() {
     let inner = w::text(&ui, "Rooms");
     let holder = drawer(&ui, "Rooms", Edge::Start, open, w::column(&ui).child(inner.clone()));
     let away = w::button(&ui, "Elsewhere", || {}).layout(|l| {
-        l.position = remedy_ui_layout::Position::Absolute;
+        l.position = remedy_ui_core::layout::Position::Absolute;
         l.inset = remedy_ui_core::Insets {
             top: 10.0,
             start: 700.0,
-            end: remedy_ui_layout::AUTO,
-            bottom: remedy_ui_layout::AUTO,
+            end: remedy_ui_core::layout::AUTO,
+            bottom: remedy_ui_core::layout::AUTO,
         };
     });
     ui.root().child(holder).child(away.clone());
@@ -319,7 +319,7 @@ fn pages_pushed_from_a_binding_keep_their_bindings_while_on_the_stack() {
     let (s2, u2, p2) = (stack.clone(), ui.clone(), pushed.clone());
     let follower = ui.el("route").hidden(true).bind(move || {
         let r = route.get();
-        remedy_ui_reactive::untrack(|| {
+        remedy_ui_core::reactive::untrack(|| {
             if r > 0 && !p2.replace(true) {
                 s2.push("Thread", w::text(&u2, move || format!("{} unread", unread.get())));
             }
@@ -480,7 +480,7 @@ fn open_menus_pass_the_audit_in_narrow_windows_and_long_languages() {
         let _ = ui.key(&KeyEvent::press(Key::End));
         let _ = ui.key(&KeyEvent::press(Key::ArrowRight));
         frames_at(&ui, size);
-        let menus = ui.reader_view().into_iter().filter(|n| n.role == remedy_ui_a11y::Role::Menu).count();
+        let menus = ui.reader_view().into_iter().filter(|n| n.role == remedy_ui_core::a11y::Role::Menu).count();
         assert!(menus >= 2, "the submenu opened at {size:?}");
         audit_clean_at(&ui, size);
     }

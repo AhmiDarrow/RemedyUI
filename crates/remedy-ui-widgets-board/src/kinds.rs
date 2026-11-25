@@ -6,7 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use remedy_ui_reactive::{Scope, Signal, untrack};
+use remedy_ui_core::reactive::{Scope, Signal, untrack};
 use remedy_ui_script::{
     Engines, Language, Limits, Node, Package, ScriptError, ScriptWidget, SettingKind, SettingSpec, TextStyle,
 };
@@ -287,7 +287,7 @@ pub fn parse_links(text: &str) -> Vec<(String, String)> {
                 Some((a, b)) => (a.trim().to_owned(), b.trim().to_owned()),
                 None => (l.to_owned(), l.to_owned()),
             };
-            remedy_ui_host::is_openable_url(&url)
+            remedy_ui_core::host::is_openable_url(&url)
                 .then(|| (if label.is_empty() { url.clone() } else { label }, url))
         })
         .collect()
@@ -704,7 +704,7 @@ pub fn build_node_with(
             })
         }
         Node::Link { label, url } => {
-            if remedy_ui_host::is_openable_url(url) {
+            if remedy_ui_core::host::is_openable_url(url) {
                 let (open, url) = (open.clone(), url.clone());
                 w::link(ui, label.clone(), move || open(&url))
             } else {
@@ -723,7 +723,7 @@ pub fn build_node_with(
                     el
                 } else {
                     el.semantics(
-                        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Image).label(alt.clone()),
+                        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Image).label(alt.clone()),
                     )
                 };
                 let el = if *width > 0.0 { el.width(*width) } else { el };

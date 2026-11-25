@@ -8,9 +8,9 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Live, Role, Semantics};
-use remedy_ui_input::Key;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::a11y::{Live, Role, Semantics};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 

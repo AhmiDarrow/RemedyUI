@@ -4,10 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Rect};
-use remedy_ui_layout::Align;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::layout::Align;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 use crate::drive::{Clock, Gate, Moved, Smoothing, Ticker};
@@ -179,7 +179,7 @@ pub fn speaking_ring(
         .el("speaking_ring")
         .row()
         .align(Align::Center)
-        .justify(remedy_ui_layout::Justify::Center)
+        .justify(remedy_ui_core::layout::Justify::Center)
         .padding(Insets::all(thickness + gap))
         .layout(|l| l.align_self = Some(Align::Start))
         .semantics(move || {

@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use remedy_ui_host::WindowHandles;
+use remedy_ui_core::host::WindowHandles;
 
 use crate::GpuError;
 
@@ -132,7 +132,7 @@ const DROPPED_ERRORS: &str = "more GPU errors came and were dropped";
 
 /// The browser canvas id behind a window's handles, if it is one.
 pub(crate) fn canvas_id(handles: &dyn WindowHandles) -> Option<u32> {
-    use remedy_ui_host::raw_window_handle::RawWindowHandle;
+    use remedy_ui_core::host::raw_window_handle::RawWindowHandle;
     match handles.window_handle().ok()?.as_raw() {
         RawWindowHandle::Web(h) => Some(h.id),
         _ => None,

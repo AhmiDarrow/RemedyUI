@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_input::Key;
-use remedy_ui_layout::{Length, VirtualList};
-use remedy_ui_reactive::{Scope, Signal, SignalVec, VecDiff, VecReader, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{Length, VirtualList};
+use remedy_ui_core::reactive::{Scope, Signal, SignalVec, VecDiff, VecReader, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::motion::Motion;
 use remedy_ui_view::{El, Transition, Ui};
 
@@ -559,7 +559,7 @@ type RowBuilder<T> = Rc<dyn Fn(usize, &T) -> El>;
 
 fn ui_row(content: El) -> El {
     let ui = content.ui().clone();
-    ui.el("list_item").row().align(remedy_ui_layout::Align::Center).fill_width().child(content)
+    ui.el("list_item").row().align(remedy_ui_core::layout::Align::Center).fill_width().child(content)
 }
 
 /// The rows a virtual list shows, by item index.

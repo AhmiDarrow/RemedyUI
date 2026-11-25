@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use remedy_ui_layout::Length;
+use remedy_ui_core::layout::Length;
 use remedy_ui_view::{El, Ui};
 
 /// How far beyond the viewport tall rows (poster cards) stay built on each side.

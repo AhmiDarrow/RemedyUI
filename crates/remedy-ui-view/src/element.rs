@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{A11yTree, Semantics};
+use remedy_ui_core::a11y::{A11yTree, Semantics};
 use remedy_ui_core::{Insets, Size, Vec2};
-use remedy_ui_layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
+use remedy_ui_core::layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
 use remedy_ui_paint::DisplayList;
-use remedy_ui_reactive::{Effect, Reaction};
-use remedy_ui_style::{ResolvedStyle, States, StyleKey, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::reactive::{Effect, Reaction};
+use remedy_ui_core::style::{ResolvedStyle, States, StyleKey, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextStyle};
-use remedy_ui_tree::{Dirty, ElementId, HitMode, Phase, Tree};
+use remedy_ui_core::tree::{Dirty, ElementId, HitMode, Phase, Tree};
 
 use crate::Request;
 use crate::events::Click;
@@ -404,7 +404,7 @@ impl TextSlot {
 }
 
 /// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
-pub type PointerInterceptor = Rc<dyn Fn(&remedy_ui_input::PointerEvent) -> bool>;
+pub type PointerInterceptor = Rc<dyn Fn(&remedy_ui_core::input::PointerEvent) -> bool>;
 
 /// Told about each element marked for work ([`Ui::add_dirty_observer`]).
 pub type DirtyObserver = Rc<dyn Fn(&DirtyRecord)>;
@@ -427,9 +427,9 @@ pub struct DirtyRecord {
     /// Its semantics are sent again.
     pub semantics: bool,
     /// The binding or painter run that marked it, with the signal writes that made it run,
-    /// while reactive tracing is on ([`remedy_ui_reactive::debug::trace`]). `None` when the
+    /// while reactive tracing is on ([`remedy_ui_core::reactive::debug::trace`]). `None` when the
     /// mark came from outside any recorded run: input, focus, or a direct call.
-    pub cause: Option<remedy_ui_reactive::debug::Update>,
+    pub cause: Option<remedy_ui_core::reactive::debug::Update>,
     /// The trace clock's time of the mark ([`remedy_ui_core::trace::now_ns`]).
     pub at_ns: u64,
 }
@@ -505,10 +505,10 @@ pub struct ElementInfo {
     /// Reactive bindings it owns.
     pub bindings: usize,
     /// Its bindings and painter in the reactive graph (see
-    /// [`remedy_ui_reactive::debug`]): bindings first, then the painter's watch.
-    pub binding_keys: Vec<remedy_ui_reactive::debug::NodeKey>,
+    /// [`remedy_ui_core::reactive::debug`]): bindings first, then the painter's watch.
+    pub binding_keys: Vec<remedy_ui_core::reactive::debug::NodeKey>,
     /// The signals and memos its bindings and painter read (each once, in first-seen order).
-    pub reads: Vec<remedy_ui_reactive::Source>,
+    pub reads: Vec<remedy_ui_core::reactive::Source>,
     /// Hidden.
     pub hidden: bool,
     /// Its children are cut to its box: a scroll container or a clipping element.
@@ -624,10 +624,10 @@ pub(crate) struct ElData {
     pub(crate) prop_bindings: Vec<(&'static str, Effect)>,
     /// Its own style as given, tokens and all: constants merged in order, then the bound
     /// layer. `local` is this resolved under the theme.
-    pub(crate) style_src: remedy_ui_style::Style,
-    pub(crate) style_bound: Option<remedy_ui_style::Style>,
+    pub(crate) style_src: remedy_ui_core::style::Style,
+    pub(crate) style_bound: Option<remedy_ui_core::style::Style>,
     /// Layout lengths given as tokens, resolved again when the theme changes.
-    pub(crate) layout_tokens: Vec<(crate::tokens::LayoutField, remedy_ui_style::Dp)>,
+    pub(crate) layout_tokens: Vec<(crate::tokens::LayoutField, remedy_ui_core::style::Dp)>,
     /// Values animations hold now, over its own style.
     pub(crate) anim_style: StylePatch,
     /// Animations running on it.
@@ -635,9 +635,9 @@ pub(crate) struct ElData {
     /// Its animated offset and scale (about its center), drawn without relayout.
     pub(crate) shift: (Vec2, f32),
     /// Where it was before a layout change it should glide through ([`El::flip`]), and how.
-    pub(crate) flip: Option<(remedy_ui_core::Point, remedy_ui_motion::Motion)>,
+    pub(crate) flip: Option<(remedy_ui_core::Point, remedy_ui_core::motion::Motion)>,
     /// Does what assistive technology asks of it ([`El::on_accessibility_action`]).
-    pub(crate) a11y_action: Option<Rc<dyn Fn(remedy_ui_a11y::Action) -> bool>>,
+    pub(crate) a11y_action: Option<Rc<dyn Fn(remedy_ui_core::a11y::Action) -> bool>>,
     /// Where the element was built (the first caller outside `#[track_caller]` builders).
     pub(crate) created_at: Option<&'static std::panic::Location<'static>>,
 }
@@ -718,7 +718,7 @@ pub(crate) struct Inner {
     /// Elements that hide the mouse pointer while it is over them ([`El::cursor_hidden`]).
     pub(crate) cursor_hiding: std::collections::HashSet<ElementId>,
     /// The pointer's shape over the elements that set one ([`El::cursor`]).
-    pub(crate) cursors: HashMap<ElementId, remedy_ui_input::Cursor>,
+    pub(crate) cursors: HashMap<ElementId, remedy_ui_core::input::Cursor>,
     pub(crate) pressed: Option<ElementId>,
     pub(crate) focus_visible: bool,
     /// The keyboard came up: the next frame scrolls the focused element back into view.
@@ -731,7 +731,7 @@ pub(crate) struct Inner {
     pub(crate) now_ms: u64,
     pub(crate) field_session: Option<ElementId>,
     pub(crate) focus_shown: Option<ElementId>,
-    pub(crate) platform: remedy_ui_input::Platform,
+    pub(crate) platform: remedy_ui_core::input::Platform,
     /// The focused element and its ancestors, as when focus last moved ([`El::on_focus_within`]).
     pub(crate) focus_chain: Vec<ElementId>,
     /// Spatial navigation as the app chose it (`None` follows the system) and as the system
@@ -750,9 +750,9 @@ pub(crate) struct Inner {
     pub(crate) system_subpixel: Option<bool>,
     /// The app's edition: which default behaviors this window follows.
     pub(crate) edition: remedy_ui_core::Edition,
-    pub(crate) locale: remedy_ui_reactive::Signal<String>,
+    pub(crate) locale: remedy_ui_core::reactive::Signal<String>,
     /// The window's size in logical pixels, set as each frame starts.
-    pub(crate) window_size: remedy_ui_reactive::Signal<Size>,
+    pub(crate) window_size: remedy_ui_core::reactive::Signal<Size>,
     pub(crate) pseudo: Option<remedy_ui_text::Pseudo>,
     /// The system's double-click time.
     pub(crate) double_click: std::time::Duration,
@@ -767,8 +767,8 @@ pub(crate) struct Inner {
     pub(crate) rich_clip: Option<(String, remedy_ui_text::RichDoc)>,
     /// The window's undo history (changes outside text fields).
     pub(crate) history: crate::history::History,
-    pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
-    pub(crate) time_zone: remedy_ui_host::TimeZone,
+    pub(crate) local_time: remedy_ui_core::reactive::Signal<remedy_ui_core::host::LocalTime>,
+    pub(crate) time_zone: remedy_ui_core::host::TimeZone,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
@@ -778,7 +778,7 @@ pub(crate) struct Inner {
     /// Alt is down and nothing else happened since it went down: its release is a tap.
     pub(crate) alt_tap: bool,
     /// Alt is held ([`Ui::alt_held`]).
-    pub(crate) alt_held: remedy_ui_reactive::Signal<bool>,
+    pub(crate) alt_held: remedy_ui_core::reactive::Signal<bool>,
     /// A handler consumed the last pointer event (see [`Ui::pointer_consumed`]).
     pub(crate) consumed: bool,
     /// Called when a request arrives with none pending: the host's loop must come around.
@@ -798,28 +798,28 @@ pub(crate) struct Inner {
     pub(crate) drag: Option<crate::dnd::Session>,
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
-    pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
-    pub(crate) pointer_caps: remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps>,
+    pub(crate) reduced_motion: remedy_ui_core::reactive::Signal<bool>,
+    pub(crate) pointer_caps: remedy_ui_core::reactive::Signal<remedy_ui_core::host::PointerCaps>,
     /// The platform reports the pointer's caps: the last pointer used does not change them.
     pub(crate) pointer_reported: bool,
     /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
     /// keyboard), in logical pixels.
-    pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
+    pub(crate) safe_area: remedy_ui_core::reactive::Signal<remedy_ui_core::host::SafeArea>,
     /// How often the window's display refreshes, where known.
-    pub(crate) refresh: remedy_ui_reactive::Signal<Option<std::time::Duration>>,
+    pub(crate) refresh: remedy_ui_core::reactive::Signal<Option<std::time::Duration>>,
     /// The window is minimized or fully covered: nothing in it is seen.
     pub(crate) occluded: bool,
     /// Where the window's layout direction comes from ([`Ui::set_direction`]).
     pub(crate) direction: WindowDirection,
     /// The window lays out right to left now ([`Ui::is_rtl`]).
-    pub(crate) rtl: remedy_ui_reactive::Signal<bool>,
+    pub(crate) rtl: remedy_ui_core::reactive::Signal<bool>,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
     pub(crate) next_timer: u64,
     /// The native window this view draws into, for content the platform draws itself (an
     /// embedded web view); `None` on hosts without one (headless).
-    pub(crate) window_handles: Option<std::sync::Arc<dyn remedy_ui_host::WindowHandles>>,
+    pub(crate) window_handles: Option<std::sync::Arc<dyn remedy_ui_core::host::WindowHandles>>,
     /// The window is drawn by the GPU renderer now.
-    pub(crate) gpu: remedy_ui_reactive::Signal<bool>,
+    pub(crate) gpu: remedy_ui_core::reactive::Signal<bool>,
     /// This view's id, unique in the process ([`Ui::id`]).
     pub(crate) id: u64,
     /// Told about every element marked for work ([`Ui::add_dirty_observer`]), by id.
@@ -830,11 +830,11 @@ pub(crate) struct Inner {
     /// The frame clock: set by the runner each frame, or wall time since the view was made.
     pub(crate) clock: crate::motion::Clock,
     /// Error boundaries ([`crate::catch_errors`]) by element, with the failure each holds.
-    pub(crate) boundaries: HashMap<ElementId, remedy_ui_reactive::Signal<Option<crate::CaughtError>>>,
+    pub(crate) boundaries: HashMap<ElementId, remedy_ui_core::reactive::Signal<Option<crate::CaughtError>>>,
     /// Failures caught in this window, oldest first, for the inspector.
     pub(crate) failures: Vec<crate::CaughtError>,
     /// Changes whenever the failure list does (readers of [`Ui::failures`] follow it).
-    pub(crate) failures_rev: remedy_ui_reactive::Signal<u64>,
+    pub(crate) failures_rev: remedy_ui_core::reactive::Signal<u64>,
     /// The app's error hook ([`Ui::set_error_hook`]).
     pub(crate) error_hook: Option<crate::flow::ErrorHook>,
     /// This view's handler for effect panics in the reactive runtime.
@@ -845,7 +845,7 @@ pub(crate) struct Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        remedy_ui_reactive::remove_panic_handler(self.panic_handler);
+        remedy_ui_core::reactive::remove_panic_handler(self.panic_handler);
     }
 }
 
@@ -887,7 +887,7 @@ impl Ui {
         let _ = self.tree().clear_handlers(root);
         self.tree().set_failure_handler(None);
         let handler = std::mem::take(&mut self.0.borrow_mut().panic_handler);
-        remedy_ui_reactive::remove_panic_handler(handler);
+        remedy_ui_core::reactive::remove_panic_handler(handler);
         let (effects, removed, watch) = {
             let mut i = self.0.borrow_mut();
             i.timers.clear();
@@ -966,8 +966,8 @@ pub enum WindowDirection {
 fn root_style() -> LayoutStyle {
     {
         let mut v_ = LayoutStyle::column();
-        v_.width = remedy_ui_layout::Length::Percent(1.0);
-        v_.height = remedy_ui_layout::Length::Percent(1.0);
+        v_.width = remedy_ui_core::layout::Length::Percent(1.0);
+        v_.height = remedy_ui_core::layout::Length::Percent(1.0);
         v_
     }
 }
@@ -1018,7 +1018,7 @@ impl Ui {
             now_ms: 0,
             field_session: None,
             focus_shown: None,
-            platform: remedy_ui_input::Platform::Standard,
+            platform: remedy_ui_core::input::Platform::Standard,
             focus_chain: Vec::new(),
             spatial: None,
             scroll_step: crate::events::SCROLL_STEP,
@@ -1028,8 +1028,8 @@ impl Ui {
             text_rendering: TextRendering::default(),
             system_subpixel: None,
             edition: remedy_ui_core::Edition::FIRST,
-            locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
-            window_size: remedy_ui_reactive::Signal::new(Size::ZERO),
+            locale: remedy_ui_core::reactive::Signal::new(String::from("en-US")),
+            window_size: remedy_ui_core::reactive::Signal::new(Size::ZERO),
             pseudo: None,
             double_click: std::time::Duration::from_millis(500),
             last_press: None,
@@ -1038,14 +1038,14 @@ impl Ui {
             selecting: false,
             rich_clip: None,
             history: crate::history::History::default(),
-            local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
-            time_zone: remedy_ui_host::TimeZone::default(),
+            local_time: remedy_ui_core::reactive::Signal::new(remedy_ui_core::host::LocalTime::default()),
+            time_zone: remedy_ui_core::host::TimeZone::default(),
             content: root,
             overlays: root,
             interceptor: None,
             menu_keys: Vec::new(),
             alt_tap: false,
-            alt_held: remedy_ui_reactive::Signal::new(false),
+            alt_held: remedy_ui_core::reactive::Signal::new(false),
             consumed: false,
             wake: None,
             captured: None,
@@ -1055,18 +1055,18 @@ impl Ui {
             drag: None,
             drag_pending: None,
             trusted: root,
-            reduced_motion: remedy_ui_reactive::Signal::new(false),
-            pointer_caps: remedy_ui_reactive::Signal::new(remedy_ui_host::PointerCaps::default()),
+            reduced_motion: remedy_ui_core::reactive::Signal::new(false),
+            pointer_caps: remedy_ui_core::reactive::Signal::new(remedy_ui_core::host::PointerCaps::default()),
             pointer_reported: false,
-            safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
-            refresh: remedy_ui_reactive::Signal::new(None),
+            safe_area: remedy_ui_core::reactive::Signal::new(remedy_ui_core::host::SafeArea::default()),
+            refresh: remedy_ui_core::reactive::Signal::new(None),
             occluded: false,
             direction: WindowDirection::Locale,
-            rtl: remedy_ui_reactive::Signal::new(false),
+            rtl: remedy_ui_core::reactive::Signal::new(false),
             timers: HashMap::new(),
             next_timer: 0,
             window_handles: None,
-            gpu: remedy_ui_reactive::Signal::new(false),
+            gpu: remedy_ui_core::reactive::Signal::new(false),
             id: NEXT_UI.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             dirty_observers: Vec::new(),
             next_observer: 1,
@@ -1074,7 +1074,7 @@ impl Ui {
             clock: crate::motion::Clock::default(),
             boundaries: HashMap::new(),
             failures: Vec::new(),
-            failures_rev: remedy_ui_reactive::Signal::new(0),
+            failures_rev: remedy_ui_core::reactive::Signal::new(0),
             error_hook: None,
             panic_handler: 0,
             ambient: crate::ambient::AmbientState::default(),
@@ -1087,24 +1087,24 @@ impl Ui {
             // Held to the window: taller content overflows into scroll containers rather than
             // stretching the window's content past its edge (flex items otherwise refuse to
             // shrink below their content).
-            l.min_height = remedy_ui_layout::Length::Px(0.0);
-            l.width = remedy_ui_layout::Length::Percent(1.0);
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Column;
+            l.min_height = remedy_ui_core::layout::Length::Px(0.0);
+            l.width = remedy_ui_core::layout::Length::Percent(1.0);
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Column;
         });
         let overlays = ui.el("overlays").layout(|l| {
-            l.position = remedy_ui_layout::Position::Absolute;
+            l.position = remedy_ui_core::layout::Position::Absolute;
             l.inset = Insets::ZERO;
-            l.width = remedy_ui_layout::Length::Percent(1.0);
-            l.height = remedy_ui_layout::Length::Percent(1.0);
+            l.width = remedy_ui_core::layout::Length::Percent(1.0);
+            l.height = remedy_ui_core::layout::Length::Percent(1.0);
         });
         let _ = ui.tree().set_hit_mode(overlays.id, HitMode::PassThrough);
         // Trusted prompts sit above everything the app can draw.
         let trusted = ui.el("trusted").layout(|l| {
-            l.position = remedy_ui_layout::Position::Absolute;
+            l.position = remedy_ui_core::layout::Position::Absolute;
             l.inset = Insets::ZERO;
-            l.width = remedy_ui_layout::Length::Percent(1.0);
-            l.height = remedy_ui_layout::Length::Percent(1.0);
+            l.width = remedy_ui_core::layout::Length::Percent(1.0);
+            l.height = remedy_ui_core::layout::Length::Percent(1.0);
         });
         let _ = ui.tree().set_hit_mode(trusted.id, HitMode::PassThrough);
         let window = El { ui: ui.clone(), id: root };
@@ -1150,7 +1150,7 @@ impl Ui {
 
     /// The wall clock and local UTC offset (tracked). The runner keeps it current: every
     /// frame and at each local midnight, so date displays roll over on their own.
-    pub fn local_time(&self) -> remedy_ui_host::LocalTime {
+    pub fn local_time(&self) -> remedy_ui_core::host::LocalTime {
         let t = self.0.borrow().local_time;
         t.get()
     }
@@ -1159,15 +1159,15 @@ impl Ui {
     /// offset: across a daylight-saving change it is the other side's. Tracked as
     /// [`local_time`](Self::local_time) is; where the time zone cannot say, today's offset
     /// stands in.
-    pub fn local_time_at(&self, unix_seconds: i64) -> remedy_ui_host::LocalTime {
+    pub fn local_time_at(&self, unix_seconds: i64) -> remedy_ui_core::host::LocalTime {
         let now = self.local_time();
         let utc_offset = self.0.borrow().time_zone.offset_at(unix_seconds).unwrap_or(now.utc_offset);
-        remedy_ui_host::LocalTime { unix_seconds, utc_offset }
+        remedy_ui_core::host::LocalTime { unix_seconds, utc_offset }
     }
 
     /// Sets the time zone [`local_time_at`](Self::local_time_at) asks (the runner sets the
     /// system's; tests may set their own).
-    pub fn set_time_zone(&self, zone: remedy_ui_host::TimeZone) {
+    pub fn set_time_zone(&self, zone: remedy_ui_core::host::TimeZone) {
         self.0.borrow_mut().time_zone = zone;
         let t = self.0.borrow().local_time;
         // Readers of other instants format again.
@@ -1175,7 +1175,7 @@ impl Ui {
     }
 
     /// Sets the wall clock and offset (the runner does; tests may).
-    pub fn set_local_time(&self, t: remedy_ui_host::LocalTime) {
+    pub fn set_local_time(&self, t: remedy_ui_core::host::LocalTime) {
         let s = self.0.borrow().local_time;
         // Readers care about the day, the minute at most: change only then.
         let same = s
@@ -1271,7 +1271,7 @@ impl Ui {
             WindowDirection::LeftToRight => false,
             WindowDirection::RightToLeft => true,
         };
-        let want = if rtl { remedy_ui_layout::Direction::Rtl } else { remedy_ui_layout::Direction::Ltr };
+        let want = if rtl { remedy_ui_core::layout::Direction::Rtl } else { remedy_ui_core::layout::Direction::Ltr };
         let same = signal.get_untracked().ok() == Some(rtl)
             && self.0.borrow().els.get(&root).is_some_and(|d| d.layout.direction == want);
         if same {
@@ -1302,14 +1302,14 @@ impl Ui {
     /// The shape the mouse pointer should have: that of the innermost element under it that
     /// sets one ([`El::cursor`]); text that can be selected has the I-beam unless something
     /// inside it says otherwise. The runner passes it to the platform after each event.
-    pub fn cursor(&self) -> remedy_ui_input::Cursor {
+    pub fn cursor(&self) -> remedy_ui_core::input::Cursor {
         let i = self.0.borrow();
         // The chain runs from the element under the pointer out to the root.
         i.hovered
             .iter()
             .find_map(|h| {
                 i.cursors.get(h).copied().or_else(|| {
-                    i.els.get(h).is_some_and(|d| d.selectable).then_some(remedy_ui_input::Cursor::Text)
+                    i.els.get(h).is_some_and(|d| d.selectable).then_some(remedy_ui_core::input::Cursor::Text)
                 })
             })
             .unwrap_or_default()
@@ -1328,7 +1328,7 @@ impl Ui {
     }
 
     /// The platform's conventions for shortcuts and modifiers.
-    pub fn platform(&self) -> remedy_ui_input::Platform {
+    pub fn platform(&self) -> remedy_ui_core::input::Platform {
         self.0.borrow().platform
     }
 
@@ -1339,7 +1339,7 @@ impl Ui {
     ///
     /// ```
     /// use remedy_ui_core::Edition;
-    /// use remedy_ui_style::{StyleSheet, Theme};
+    /// use remedy_ui_core::style::{StyleSheet, Theme};
     /// use remedy_ui_text::FontCollection;
     /// use remedy_ui_view::Ui;
     ///
@@ -1412,13 +1412,13 @@ impl Ui {
     /// read it, and again when devices come and go) and follows the pointer last used (a
     /// mouse, a finger, a pen), so a convertible switching to tablet changes it with the first
     /// touch.
-    pub fn pointer_caps(&self) -> remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps> {
+    pub fn pointer_caps(&self) -> remedy_ui_core::reactive::Signal<remedy_ui_core::host::PointerCaps> {
         self.0.borrow().pointer_caps
     }
 
     /// Sets what the platform reports for the pointer (the runner sets it from the system
     /// settings); `None` goes by the pointer last used.
-    pub fn set_pointer_caps(&self, caps: Option<remedy_ui_host::PointerCaps>) {
+    pub fn set_pointer_caps(&self, caps: Option<remedy_ui_core::host::PointerCaps>) {
         let s = {
             let mut i = self.0.borrow_mut();
             i.pointer_reported = caps.is_some();
@@ -1432,7 +1432,7 @@ impl Ui {
     /// Starts the caps from the pointing hardware attached (the runner sets it at start and
     /// when devices come and go); the pointer last used still refines them. Does nothing while
     /// the platform reports the caps ([`set_pointer_caps`](Self::set_pointer_caps)).
-    pub fn set_pointer_hardware(&self, caps: remedy_ui_host::PointerCaps) {
+    pub fn set_pointer_hardware(&self, caps: remedy_ui_core::host::PointerCaps) {
         let (reported, s) = {
             let i = self.0.borrow();
             (i.pointer_reported, i.pointer_caps)
@@ -1443,16 +1443,16 @@ impl Ui {
     }
 
     /// The pointer last used changes the caps unless the platform reports them.
-    pub(crate) fn pointer_used(&self, kind: remedy_ui_input::PointerKind) {
+    pub(crate) fn pointer_used(&self, kind: remedy_ui_core::input::PointerKind) {
         let (reported, s) = {
             let i = self.0.borrow();
             (i.pointer_reported, i.pointer_caps)
         };
         if !reported {
             s.set_if_changed(match kind {
-                remedy_ui_input::PointerKind::Touch => remedy_ui_host::PointerCaps::TOUCH,
-                remedy_ui_input::PointerKind::Pen => remedy_ui_host::PointerCaps::PEN,
-                _ => remedy_ui_host::PointerCaps::MOUSE,
+                remedy_ui_core::input::PointerKind::Touch => remedy_ui_core::host::PointerCaps::TOUCH,
+                remedy_ui_core::input::PointerKind::Pen => remedy_ui_core::host::PointerCaps::PEN,
+                _ => remedy_ui_core::host::PointerCaps::MOUSE,
             });
         }
     }
@@ -1474,7 +1474,7 @@ impl Ui {
     /// Keeps the window's content, overlays and trusted prompts inside `area`: the edges
     /// system interface covers (the runner sets it from the host). The window's background
     /// still runs under those edges.
-    pub fn set_safe_area(&self, area: remedy_ui_host::SafeArea) {
+    pub fn set_safe_area(&self, area: remedy_ui_core::host::SafeArea) {
         let (signal, overlays, trusted) = {
             let i = self.0.borrow();
             (i.safe_area, i.overlays, i.trusted)
@@ -1500,8 +1500,8 @@ impl Ui {
             let _ = El { ui: self.clone(), id: layer }.layout(|l| {
                 l.inset = insets;
                 l.inset_physical = true;
-                l.width = remedy_ui_layout::Length::Auto;
-                l.height = remedy_ui_layout::Length::Auto;
+                l.width = remedy_ui_core::layout::Length::Auto;
+                l.height = remedy_ui_core::layout::Length::Auto;
             });
         }
         self.request(Request::Frame);
@@ -1523,7 +1523,7 @@ impl Ui {
 
     /// The edges system interface covers, in logical pixels (zero where nothing does).
     /// Tracked: what reads it in a binding runs again when it changes.
-    pub fn safe_area(&self) -> remedy_ui_host::SafeArea {
+    pub fn safe_area(&self) -> remedy_ui_core::host::SafeArea {
         let s = self.0.borrow().safe_area;
         s.get()
     }
@@ -1786,21 +1786,21 @@ impl Ui {
     /// Does what assistive technology asked of an element: click, focus, increment or
     /// decrement (as the arrow keys would), or scroll it into view. Returns false for an
     /// element that is gone or an action it does not offer.
-    pub fn accessibility_action(&self, target: u64, action: remedy_ui_a11y::Action) -> bool {
-        use remedy_ui_a11y::Action as A;
+    pub fn accessibility_action(&self, target: u64, action: remedy_ui_core::a11y::Action) -> bool {
+        use remedy_ui_core::a11y::Action as A;
         let Some(id) = self.0.borrow().els.keys().copied().find(|e| root_key(*e) == target) else {
             return false;
         };
         let el = El { ui: self.clone(), id };
         let own = self.0.borrow().els.get(&id).and_then(|d| d.a11y_action.clone());
         if let Some(f) = own
-            && remedy_ui_reactive::batch(|| f(action))
+            && remedy_ui_core::reactive::batch(|| f(action))
         {
             return true;
         }
         let tree = self.tree();
-        let arrow = |k: remedy_ui_input::Key| {
-            let e = remedy_ui_input::KeyEvent::press(k);
+        let arrow = |k: remedy_ui_core::input::Key| {
+            let e = remedy_ui_core::input::KeyEvent::press(k);
             tree.dispatch(id, &e).is_ok_and(|d| d.handled)
         };
         match action {
@@ -1820,8 +1820,8 @@ impl Ui {
                 el.focus();
                 true
             }
-            A::Increment => arrow(remedy_ui_input::Key::ArrowUp),
-            A::Decrement => arrow(remedy_ui_input::Key::ArrowDown),
+            A::Increment => arrow(remedy_ui_core::input::Key::ArrowUp),
+            A::Decrement => arrow(remedy_ui_core::input::Key::ArrowDown),
             A::ScrollIntoView => {
                 el.scroll_into_view();
                 true
@@ -1834,7 +1834,7 @@ impl Ui {
     }
 
     /// The next accessibility update, when connected and something changed.
-    pub fn take_accessibility_update(&self) -> Option<remedy_ui_a11y::AccessKitUpdate> {
+    pub fn take_accessibility_update(&self) -> Option<remedy_ui_core::a11y::AccessKitUpdate> {
         self.0.borrow_mut().a11y.take_update()
     }
 
@@ -1895,7 +1895,7 @@ impl Ui {
                 layout: flags.contains(Dirty::LAYOUT),
                 paint: flags.contains(Dirty::PAINT),
                 semantics: flags.contains(Dirty::SEMANTICS),
-                cause: remedy_ui_reactive::debug::current(),
+                cause: remedy_ui_core::reactive::debug::current(),
                 at_ns: remedy_ui_core::trace::now_ns(),
             };
             for observe in observers {
@@ -1914,7 +1914,7 @@ impl Ui {
     /// Calls `f` for every element marked for work (restyle, relayout, repaint, semantics),
     /// with what marked it, until [`Ui::remove_dirty_observer`] is called with the returned
     /// id. Devtools use it to say why each element updated; turn on
-    /// [`remedy_ui_reactive::debug::trace`] for the causes. With no observer, marking costs
+    /// [`remedy_ui_core::reactive::debug::trace`] for the causes. With no observer, marking costs
     /// nothing more.
     pub fn add_dirty_observer(&self, f: DirtyObserver) -> u64 {
         let mut i = self.0.borrow_mut();
@@ -1938,7 +1938,7 @@ impl Ui {
 
     /// The element owning the binding or painter `node` (a key of the reactive graph), if it
     /// is one of this view's.
-    pub fn element_of_binding(&self, node: remedy_ui_reactive::debug::NodeKey) -> Option<ElementId> {
+    pub fn element_of_binding(&self, node: remedy_ui_core::reactive::debug::NodeKey) -> Option<ElementId> {
         let i = self.0.borrow();
         i.els.iter().find_map(|(id, d)| {
             let mine = d.effects.iter().any(|e| e.key() == node)
@@ -1956,8 +1956,8 @@ impl Ui {
     }
 
     /// The window as a screen reader meets it, in reading order (see
-    /// [`remedy_ui_a11y::A11yTree::reader_view`]), as of the last frame.
-    pub fn reader_view(&self) -> Vec<remedy_ui_a11y::ReaderNode> {
+    /// [`remedy_ui_core::a11y::A11yTree::reader_view`]), as of the last frame.
+    pub fn reader_view(&self) -> Vec<remedy_ui_core::a11y::ReaderNode> {
         self.0.borrow().a11y.reader_view()
     }
 
@@ -2056,7 +2056,7 @@ impl ElData {
             chunk: None,
             effects: Vec::new(),
             prop_bindings: Vec::new(),
-            style_src: remedy_ui_style::Style::default(),
+            style_src: remedy_ui_core::style::Style::default(),
             style_bound: None,
             layout_tokens: Vec::new(),
             anim_style: StylePatch::default(),
@@ -2251,11 +2251,11 @@ impl El {
     }
 
     /// Overrides style properties on this element: a [`StylePatch`] of values or a
-    /// [`remedy_ui_style::Style`] of tokens (`Style::new().radius(Radius::R3)`), which
+    /// [`remedy_ui_core::style::Style`] of tokens (`Style::new().radius(Radius::R3)`), which
     /// resolve through the theme and again when it changes. Constants merge, later over
     /// earlier; a signal or closure binds a layer over them that follows its signals.
     #[track_caller]
-    pub fn style(self, style: impl IntoProp<remedy_ui_style::Style>) -> Self {
+    pub fn style(self, style: impl IntoProp<remedy_ui_core::style::Style>) -> Self {
         match style.into_prop() {
             Prop::Value(s) => {
                 let theme = self.ui.0.borrow().theme.clone();
@@ -2335,11 +2335,11 @@ impl El {
     /// `position: sticky`): laid out in the flow, it keeps the set sides' distances from the
     /// container's edges and never leaves its parent's content box. The compositor moves it,
     /// with no new layout; hit testing and the accessibility bounds follow. A style sheet sets
-    /// the same with [`Style::sticky`](remedy_ui_style::Style::sticky).
-    pub fn sticky(self, insets: remedy_ui_style::StickyInsets) -> Self {
-        let side = |v: Option<f32>| v.unwrap_or(remedy_ui_layout::AUTO);
+    /// the same with [`Style::sticky`](remedy_ui_core::style::Style::sticky).
+    pub fn sticky(self, insets: remedy_ui_core::style::StickyInsets) -> Self {
+        let side = |v: Option<f32>| v.unwrap_or(remedy_ui_core::layout::AUTO);
         self.layout(|l| {
-            l.position = remedy_ui_layout::Position::Sticky;
+            l.position = remedy_ui_core::layout::Position::Sticky;
             l.inset = Insets {
                 top: side(insets.top),
                 end: side(insets.end),
@@ -2352,36 +2352,36 @@ impl El {
     /// Lays children out in a row.
     pub fn row(self) -> Self {
         self.layout(|l| {
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Row;
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Row;
         })
     }
 
     /// Lays children out in a column.
     pub fn column(self) -> Self {
         self.layout(|l| {
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Column;
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Column;
         })
     }
 
     /// Space between children: logical pixels or a spacing token (`Space::S3`), which
     /// follows the theme.
-    pub fn gap(self, gap: impl Into<remedy_ui_style::Dp>) -> Self {
+    pub fn gap(self, gap: impl Into<remedy_ui_core::style::Dp>) -> Self {
         self.layout_token(crate::tokens::LayoutField::Gap, gap.into())
     }
 
     /// Fixed width: logical pixels or a token.
-    pub fn width(self, w: impl Into<remedy_ui_style::Dp>) -> Self {
+    pub fn width(self, w: impl Into<remedy_ui_core::style::Dp>) -> Self {
         self.layout_token(crate::tokens::LayoutField::Width, w.into())
     }
 
     /// Fixed height: logical pixels or a token.
-    pub fn height(self, h: impl Into<remedy_ui_style::Dp>) -> Self {
+    pub fn height(self, h: impl Into<remedy_ui_core::style::Dp>) -> Self {
         self.layout_token(crate::tokens::LayoutField::Height, h.into())
     }
 
-    fn layout_token(self, field: crate::tokens::LayoutField, v: remedy_ui_style::Dp) -> Self {
+    fn layout_token(self, field: crate::tokens::LayoutField, v: remedy_ui_core::style::Dp) -> Self {
         let theme = self.ui.0.borrow().theme.clone();
         self.edit(Dirty::LAYOUT, |d| {
             d.layout_tokens.retain(|(f, _)| *f != field);
@@ -2400,16 +2400,16 @@ impl El {
 
     /// Fills the parent's width.
     pub fn fill_width(self) -> Self {
-        self.layout(|l| l.width = remedy_ui_layout::Length::Percent(1.0))
+        self.layout(|l| l.width = remedy_ui_core::layout::Length::Percent(1.0))
     }
 
     /// How children sit across the axis.
-    pub fn align(self, a: remedy_ui_layout::Align) -> Self {
+    pub fn align(self, a: remedy_ui_core::layout::Align) -> Self {
         self.layout(|l| l.align_items = a)
     }
 
     /// How children spread along the axis.
-    pub fn justify(self, j: remedy_ui_layout::Justify) -> Self {
+    pub fn justify(self, j: remedy_ui_core::layout::Justify) -> Self {
         self.layout(|l| l.justify = j)
     }
 
@@ -2418,8 +2418,8 @@ impl El {
     /// key, and then the focused element never gets it. For app-wide shortcuts that must
     /// work even while a text field has focus (a way back, a panic key); keep them to
     /// chords a text field would not use, since the field loses them.
-    pub fn on_key_capture(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
+    pub fn on_key_capture(self, f: impl Fn(&remedy_ui_core::input::KeyEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_core::input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
             if f(e) {
                 cx.set_handled();
                 cx.stop_propagation();
@@ -2430,8 +2430,8 @@ impl El {
 
     /// Calls `f` for key presses while the element or something inside it has focus; `f`
     /// returns true when it handled the key.
-    pub fn on_key(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_input::KeyEvent>(self.id, Phase::Bubble, move |cx, e| {
+    pub fn on_key(self, f: impl Fn(&remedy_ui_core::input::KeyEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_core::input::KeyEvent>(self.id, Phase::Bubble, move |cx, e| {
             if f(e) {
                 cx.set_handled();
                 cx.stop_propagation();
@@ -2445,9 +2445,9 @@ impl El {
     /// begins the platform's window move).
     pub fn drag_region(self, start: impl Fn() + 'static) -> Self {
         let ui = self.ui.clone();
-        let _ = self.ui.tree().on::<remedy_ui_input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
-            if e.phase != remedy_ui_input::PointerPhase::Down
-                || !e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+        let _ = self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if e.phase != remedy_ui_core::input::PointerPhase::Down
+                || !e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
             {
                 return;
             }
@@ -2478,8 +2478,8 @@ impl El {
     /// takes move the scroll containers under the pointer on the compositor, so only
     /// elements that do their own scrolling or zooming (a paged document, Ctrl and the wheel)
     /// need this.
-    pub fn on_wheel(self, f: impl Fn(&remedy_ui_input::WheelEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_input::WheelEvent>(self.id, Phase::Bubble, move |cx, e| {
+    pub fn on_wheel(self, f: impl Fn(&remedy_ui_core::input::WheelEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_core::input::WheelEvent>(self.id, Phase::Bubble, move |cx, e| {
             if f(e) {
                 cx.set_handled();
                 cx.stop_propagation();
@@ -2489,8 +2489,8 @@ impl El {
     }
 
     /// Calls `f` with touchpad pinches over the element; `f` returns true when it zoomed.
-    pub fn on_pinch(self, f: impl Fn(&remedy_ui_input::PinchEvent) -> bool + 'static) -> Self {
-        let _ = self.ui.tree().on::<remedy_ui_input::PinchEvent>(self.id, Phase::Bubble, move |cx, e| {
+    pub fn on_pinch(self, f: impl Fn(&remedy_ui_core::input::PinchEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_core::input::PinchEvent>(self.id, Phase::Bubble, move |cx, e| {
             if f(e) {
                 cx.set_handled();
                 cx.stop_propagation();
@@ -2500,11 +2500,11 @@ impl El {
     }
 
     /// Calls `f` with pointer input on the element (window logical pixels).
-    pub fn on_pointer(self, f: impl Fn(&remedy_ui_input::PointerEvent) -> bool + 'static) -> Self {
+    pub fn on_pointer(self, f: impl Fn(&remedy_ui_core::input::PointerEvent) -> bool + 'static) -> Self {
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.pointer = true;
         }
-        let _ = self.ui.tree().on::<remedy_ui_input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+        let _ = self.ui.tree().on::<remedy_ui_core::input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
             if f(e) {
                 cx.set_handled();
                 cx.stop_propagation();
@@ -2623,7 +2623,7 @@ impl El {
 
     /// How a snapping container moves onto its snap point. Default a 250 ms decelerating
     /// tween; under reduced motion it always jumps.
-    pub fn scroll_snap_motion(self, motion: remedy_ui_motion::Motion) -> Self {
+    pub fn scroll_snap_motion(self, motion: remedy_ui_core::motion::Motion) -> Self {
         self.snap_spec(|s| s.tuning.motion = motion)
     }
 
@@ -2765,8 +2765,8 @@ impl El {
     pub fn on_double_click(self, f: impl Fn() + 'static) -> Self {
         let ui = self.ui.clone();
         self.on_pointer(move |e| {
-            if e.phase == remedy_ui_input::PointerPhase::Down
-                && e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+            if e.phase == remedy_ui_core::input::PointerPhase::Down
+                && e.buttons.contains(remedy_ui_core::input::Buttons::PRIMARY)
                 && ui.click_count() == 2
             {
                 f();
@@ -2787,7 +2787,7 @@ impl El {
 
     /// Calls `f(true)` when keyboard focus comes onto the element or anything inside it, and
     /// `f(false)` when focus leaves it and everything inside (moving between its children
-    /// says nothing). The element also has [`States::FOCUS_WITHIN`](remedy_ui_style::States)
+    /// says nothing). The element also has [`States::FOCUS_WITHIN`](remedy_ui_core::style::States)
     /// meanwhile, for styles. A row whose actions show on hover shows them on this too, so the
     /// keyboard reaches them.
     pub fn on_focus_within(self, f: impl Fn(bool) + 'static) -> Self {
@@ -2852,10 +2852,10 @@ impl El {
     }
 
     /// Padding (a style property, so themes can change it): [`Insets`], a token on every
-    /// side (`Space::S3`), or a [`remedy_ui_style::Pad`] by side.
+    /// side (`Space::S3`), or a [`remedy_ui_core::style::Pad`] by side.
     #[track_caller]
-    pub fn padding(self, p: impl Into<remedy_ui_style::Pad>) -> Self {
-        self.style(remedy_ui_style::Style::new().padding(p))
+    pub fn padding(self, p: impl Into<remedy_ui_core::style::Pad>) -> Self {
+        self.style(remedy_ui_core::style::Style::new().padding(p))
     }
 
     /// Sets a state flag (selected, checked, invalid, …).
@@ -2990,33 +2990,33 @@ impl El {
     /// end). Its minimum width is the "…" alone, so a row can shrink it. Screen readers,
     /// copying and searching still get the whole text; show it to sighted readers too with
     /// `remedy_ui_widgets_core::full_text_tooltip`. 0 lifts the limit. Style sheets set the same with
-    /// [`Style::max_lines`](remedy_ui_style::Style::max_lines).
+    /// [`Style::max_lines`](remedy_ui_core::style::Style::max_lines).
     pub fn max_lines(self, n: u32) -> Self {
-        self.style(remedy_ui_style::Style::default().max_lines(n))
+        self.style(remedy_ui_core::style::Style::default().max_lines(n))
     }
 
     /// Sets where each line of the element's text sits across its box (CSS `text-align`):
     /// start, center, end, or justified to both edges, wrapped lines too; inherited by the
     /// text inside. Style sheets set the same with
-    /// [`Style::text_align`](remedy_ui_style::Style::text_align).
-    pub fn text_align(self, align: remedy_ui_style::TextAlign) -> Self {
-        self.style(remedy_ui_style::Style::default().text_align(align))
+    /// [`Style::text_align`](remedy_ui_core::style::Style::text_align).
+    pub fn text_align(self, align: remedy_ui_core::style::TextAlign) -> Self {
+        self.style(remedy_ui_core::style::Style::default().text_align(align))
     }
 
     /// Draws the text cased by `t` (CSS `text-transform`): capitals for a label above a title,
     /// say. Casing follows the window's locale (Turkish dotted İ, German ß as SS, Greek final
     /// sigma); screen readers, copying and selection get the text as written. Style sheets set
-    /// the same with [`Style::text_transform`](remedy_ui_style::Style::text_transform).
-    pub fn text_transform(self, t: remedy_ui_style::TextTransform) -> Self {
-        self.style(remedy_ui_style::Style::default().text_transform(t))
+    /// the same with [`Style::text_transform`](remedy_ui_core::style::Style::text_transform).
+    pub fn text_transform(self, t: remedy_ui_core::style::TextTransform) -> Self {
+        self.style(remedy_ui_core::style::Style::default().text_transform(t))
     }
 
     /// Sets how tall each line of text is (CSS `line-height`), inherited by descendants:
     /// `LineHeight::Relative(1.5)` for CSS `line-height: 1.5`, `LineHeight::Absolute(24.0)` for
     /// `24px`. The default is `Relative(1.33)`. Style sheets set the same with
-    /// [`Style::line_height`](remedy_ui_style::Style::line_height).
-    pub fn line_height(self, h: remedy_ui_style::LineHeight) -> Self {
-        self.style(remedy_ui_style::Style::default().line_height(h))
+    /// [`Style::line_height`](remedy_ui_core::style::Style::line_height).
+    pub fn line_height(self, h: remedy_ui_core::style::LineHeight) -> Self {
+        self.style(remedy_ui_core::style::Style::default().line_height(h))
     }
 
     /// Keeps the text on one line instead of wrapping.
@@ -3206,7 +3206,7 @@ impl El {
     /// What the element is to assistive technology and agents: exactly the semantics the
     /// accessibility tree carries for it (a field's text and actions, a password field's role
     /// without its text).
-    pub fn composed_semantics(&self) -> Option<remedy_ui_a11y::Semantics> {
+    pub fn composed_semantics(&self) -> Option<remedy_ui_core::a11y::Semantics> {
         let tree = self.ui.tree();
         let i = self.ui.0.borrow();
         let d = i.els.get(&self.id)?;
@@ -3254,7 +3254,7 @@ impl El {
                 .chain(d.paint_watch.iter().map(Reaction::key))
                 .collect(),
             reads: {
-                let mut all: Vec<remedy_ui_reactive::Source> = Vec::new();
+                let mut all: Vec<remedy_ui_core::reactive::Source> = Vec::new();
                 let from_effects = d.effects.iter().flat_map(Effect::sources);
                 for s in from_effects.chain(d.paint_watch.iter().flat_map(Reaction::sources)) {
                     if !all.contains(&s) {
@@ -3296,8 +3296,8 @@ impl El {
     /// and returns whether it did it. It is asked before the element's built-in handling,
     /// so an element can take Click, Expand, Collapse, Increment, Decrement or Show menu
     /// its own way (a tree row expands, a row with no click handler selects).
-    pub fn on_accessibility_action(self, f: impl Fn(remedy_ui_a11y::Action) -> bool + 'static) -> Self {
-        let f: Rc<dyn Fn(remedy_ui_a11y::Action) -> bool> = Rc::new(f);
+    pub fn on_accessibility_action(self, f: impl Fn(remedy_ui_core::a11y::Action) -> bool + 'static) -> Self {
+        let f: Rc<dyn Fn(remedy_ui_core::a11y::Action) -> bool> = Rc::new(f);
         self.edit(Dirty::SEMANTICS, |d| d.a11y_action = Some(f));
         self
     }
@@ -3307,7 +3307,7 @@ impl El {
         self.edit(Dirty::LAYOUT | Dirty::PAINT, |d| {
             d.scroll = true;
             d.clip = true;
-            d.layout.max_height = remedy_ui_layout::Length::Percent(1.0);
+            d.layout.max_height = remedy_ui_core::layout::Length::Percent(1.0);
         });
         let _ = self.ui.tree().set_clips(self.id, true);
         self
@@ -3401,10 +3401,10 @@ impl El {
 
     /// Gives the mouse pointer this shape while it is over the element or its children
     /// (until a child sets its own): a hand over a link, a resize arrow over a divider,
-    /// `not-allowed` over what cannot be dropped on. [`Cursor::Default`](remedy_ui_input::Cursor::Default)
+    /// `not-allowed` over what cannot be dropped on. [`Cursor::Default`](remedy_ui_core::input::Cursor::Default)
     /// is the arrow even inside a parent with another shape. The runner tells the platform
     /// ([`Ui::cursor`]).
-    pub fn cursor(self, cursor: remedy_ui_input::Cursor) -> Self {
+    pub fn cursor(self, cursor: remedy_ui_core::input::Cursor) -> Self {
         let changed = self.ui.0.borrow_mut().cursors.insert(self.id, cursor) != Some(cursor);
         // The runner looks again after the event or timer that changed it.
         if changed {

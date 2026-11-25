@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_host::{HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported, Waker};
+use remedy_ui_core::host::{HostEvent, ShareId, ShareOptions, ShareOutcome, ShareStarted, Unsupported, Waker};
 use windows::ApplicationModel::DataTransfer::{
     DataPackage, DataRequestedEventArgs, DataTransferManager, ShareCompletedEventArgs,
 };
@@ -309,7 +309,7 @@ fn alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remedy_ui_host::ShareFile;
+    use remedy_ui_core::host::ShareFile;
 
     #[test]
     fn files_get_their_own_folders_and_safe_names() {

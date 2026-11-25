@@ -1,6 +1,6 @@
 //! Icons (vector, drawn as strokes on a 24-unit grid), images, avatars and canvases.
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Point;
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_view::{El, PaintCx, Ui};
@@ -982,19 +982,19 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
         .take(2)
         .flat_map(char::to_uppercase)
         .collect();
-    let fg = remedy_ui_style::ensure_contrast(ui.theme().colors.text, color, 4.5);
+    let fg = remedy_ui_core::style::ensure_contrast(ui.theme().colors.text, color, 4.5);
     ui.el("avatar")
         .width(size)
         .height(size)
         .row()
-        .align(remedy_ui_layout::Align::Center)
-        .justify(remedy_ui_layout::Justify::Center)
+        .align(remedy_ui_core::layout::Align::Center)
+        .justify(remedy_ui_core::layout::Justify::Center)
         // The circle is the element's own background, so contrast checks see what the
         // initials sit on.
-        .style(remedy_ui_style::StylePatch::default().background(color).radius(size / 2.0))
+        .style(remedy_ui_core::style::StylePatch::default().background(color).radius(size / 2.0))
         .child(
             ui.el("avatar_initials").text(remedy_ui_view::RichText::plain(initials)).nowrap().style(
-                remedy_ui_style::StylePatch::default().foreground(fg).weight(700.0).text_size(size * 0.4),
+                remedy_ui_core::style::StylePatch::default().foreground(fg).weight(700.0).text_size(size * 0.4),
             ),
         )
         .semantics(Semantics::new(Role::Image).label(name.to_owned()))

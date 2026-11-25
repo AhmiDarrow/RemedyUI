@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Live, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect};
-use remedy_ui_layout::{Align, Length, Position};
+use remedy_ui_core::layout::{Align, Length, Position};
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
 
 /// How long one turn of an engine-drawn indeterminate animation takes.
@@ -164,7 +164,7 @@ pub fn toast_at(ui: &Ui, message: impl Into<String>, duration: Duration, align: 
     let host = toast_host(ui).unwrap_or_else(|| {
         ui.el("toast_host")
             .column()
-            .justify(remedy_ui_layout::Justify::End)
+            .justify(remedy_ui_core::layout::Justify::End)
             .gap(u * 2.0)
             .padding(remedy_ui_core::Insets::all(u * 4.0))
             .layout(|l| {

@@ -8,7 +8,7 @@
 //! threshold is a slider that works from the keyboard.
 //!
 //! ```
-//! use remedy_ui_reactive::Signal;
+//! use remedy_ui_core::reactive::Signal;
 //! use remedy_ui_viz::{MeterOptions, level_meter};
 //!
 //! # fn demo(ui: &remedy_ui_view::Ui) {

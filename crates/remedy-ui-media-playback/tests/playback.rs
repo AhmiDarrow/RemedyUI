@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_compositor::Layer;
 use remedy_ui_core::Size;
-use remedy_ui_input::{Key, KeyEvent};
+use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_media_playback::*;
 use remedy_ui_paint::{Item, VideoFrame};
 use remedy_ui_text::FontCollection;
@@ -296,7 +296,7 @@ impl Screen {
     }
 
     fn pump(&mut self) {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let f = self.ui.frame(SIZE, 1.0);
         if let Some(tree) = &f.layers {
             let mut v = None;
@@ -509,7 +509,7 @@ fn the_player_widget_is_operable_by_keyboard_and_passes_the_audit() {
     assert_eq!(volume.value_text().map(plain).as_deref(), Some("50%"));
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!());
     let sem = seek.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
-    assert_eq!(sem.role(), remedy_ui_a11y::Role::Slider);
+    assert_eq!(sem.role(), remedy_ui_core::a11y::Role::Slider);
     assert_eq!(sem.value_text().map(plain).as_deref(), Some("0:00 of 0:03"));
 
     // The seek bar takes the arrows (5 s, clamped to the end) and Home.
@@ -1026,7 +1026,7 @@ fn cancelling_keeps_the_next_for_when_the_person_asks() {
     assert!(p.next_up().is_some(), "the next is kept");
     // Shift+N plays it.
     s.pump();
-    let shift = remedy_ui_input::Modifiers { shift: true, ..Default::default() };
+    let shift = remedy_ui_core::input::Modifiers { shift: true, ..Default::default() };
     assert!(!card_shown(&view), "cancelled: the card is put away");
     named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar")).focus();
     assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
@@ -1426,8 +1426,8 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     s.pump();
     let stage = named(&view, "Paused on The Ris").unwrap_or_else(|| unreachable!("the stage"));
     let said = stage.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
-    assert_eq!(said.role(), remedy_ui_a11y::Role::Status);
-    assert_eq!(said.live_state(), remedy_ui_a11y::Live::Polite, "announced as it changes");
+    assert_eq!(said.role(), remedy_ui_core::a11y::Role::Status);
+    assert_eq!(said.live_state(), remedy_ui_core::a11y::Live::Polite, "announced as it changes");
     assert!(
         texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:40"),
         "the TV's time: {:?}",
@@ -1442,7 +1442,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     };
     assert_eq!(value().as_deref(), Some("0:30 of 1:40"));
     assert!(
-        seek.info().is_some_and(|i| !i.states.contains(remedy_ui_style::States::DISABLED)),
+        seek.info().is_some_and(|i| !i.states.contains(remedy_ui_core::style::States::DISABLED)),
         "seekable on the TV"
     );
 
@@ -1451,7 +1451,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Next")));
     s.pump();
     seek.focus();
-    let shift = remedy_ui_input::Modifiers { shift: true, ..Default::default() };
+    let shift = remedy_ui_core::input::Modifiers { shift: true, ..Default::default() };
     assert!(press(&s.ui, Key::Character("k".into())));
     assert_eq!(p.state(), PlaybackState::Playing, "shown at once");
     assert!(press(&s.ui, Key::Space));
@@ -1632,7 +1632,7 @@ fn scripted_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Playe
 
 /// Types `c` (with Shift held when `shift`).
 fn letter(ui: &Ui, c: &str, shift: bool) -> bool {
-    let shift = remedy_ui_input::Modifiers { shift, ..Default::default() };
+    let shift = remedy_ui_core::input::Modifiers { shift, ..Default::default() };
     ui.key(&KeyEvent::press(Key::Character(c.into())).with_modifiers(shift).with_text(Some(c.into())))
 }
 
@@ -1642,12 +1642,12 @@ fn el(view: &El, name: &str) -> El {
 
 /// Double-clicks the middle of `target` at `at` ms (two presses 100 ms apart).
 fn double_click(s: &mut Screen, target: &El, at: u64) {
-    presses(s, target, &[at, at + 100], remedy_ui_input::PointerKind::Mouse);
+    presses(s, target, &[at, at + 100], remedy_ui_core::input::PointerKind::Mouse);
 }
 
 /// Presses and lets go of the middle of `target` at each of `times` (ms), with `kind`.
-fn presses(s: &mut Screen, target: &El, times: &[u64], kind: remedy_ui_input::PointerKind) {
-    use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
+fn presses(s: &mut Screen, target: &El, times: &[u64], kind: remedy_ui_core::input::PointerKind) {
+    use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
     s.ui.set_double_click_time(Duration::from_millis(400));
     s.pump();
     let b = target.bounds().unwrap_or_default();
@@ -1736,7 +1736,7 @@ fn the_arrows_scheme_answers_anywhere_in_the_player() {
     assert!(p.queue().is_empty());
     assert!(!letter(&s.ui, "n", false), "nothing next");
     // Ctrl, Alt or the system key: never the player's.
-    let ctrl = remedy_ui_input::Modifiers { ctrl: true, ..Default::default() };
+    let ctrl = remedy_ui_core::input::Modifiers { ctrl: true, ..Default::default() };
     el(&view, "Mute").focus();
     assert!(!s.ui.key(&KeyEvent::press(Key::ArrowRight).with_modifiers(ctrl).with_text(None)));
     s.idle(30);
@@ -1845,7 +1845,7 @@ fn casting_disables_full_screen_and_theater_until_it_ends() {
     let disabled = |v: &El, name: &str| {
         named(v, name)
             .and_then(|b| b.info())
-            .is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+            .is_some_and(|i| i.states.contains(remedy_ui_core::style::States::DISABLED))
     };
     let stage = find(&view, "player_stage").remove(0);
     let log = Arc::new(Mutex::new(Vec::new()));
@@ -1890,7 +1890,7 @@ fn casting_disables_full_screen_and_theater_until_it_ends() {
 
 #[test]
 fn a_click_on_the_picture_plays_and_pauses_once_no_second_click_comes() {
-    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    use remedy_ui_core::input::PointerKind::{Mouse, Touch};
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
     let stage = find(&view, "player_stage").remove(0);
@@ -1961,17 +1961,17 @@ fn in_the_classic_scheme_a_click_on_the_picture_does_nothing() {
     // Playing, with no Play glyph over the picture.
     p.play();
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
-    presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
-    presses(&mut s, &stage, &[2000], remedy_ui_input::PointerKind::Touch);
+    presses(&mut s, &stage, &[1000], remedy_ui_core::input::PointerKind::Mouse);
+    presses(&mut s, &stage, &[2000], remedy_ui_core::input::PointerKind::Touch);
     s.idle(300);
     assert_eq!(p.state(), PlaybackState::Playing);
-    presses(&mut s, &stage, &[3000, 3150], remedy_ui_input::PointerKind::Touch);
+    presses(&mut s, &stage, &[3000, 3150], remedy_ui_core::input::PointerKind::Touch);
     assert!(p.is_fullscreen(), "a double tap is a double click");
 }
 
 #[test]
 fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme() {
-    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    use remedy_ui_core::input::PointerKind::{Mouse, Touch};
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
     p.seek(Duration::from_secs(30));
@@ -2017,7 +2017,7 @@ fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme()
 fn in_the_classic_scheme_a_click_leaves_focus_on_the_control() {
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
-    presses(&mut s, &el(&view, "Mute"), &[1000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &el(&view, "Mute"), &[1000], remedy_ui_core::input::PointerKind::Mouse);
     assert!(p.is_muted());
     assert!(el(&view, "Unmute").is_focused());
     assert!(press(&s.ui, Key::Space), "Space presses it again");
@@ -2038,7 +2038,7 @@ fn the_casting_stage_centers_the_device_over_the_darkened_poster() {
         });
         let p = Player::open(ui, host, MediaSource::url("script:"), PlayerOptions::default());
         let art = ui.el("art").grow(1.0).fill_width().style(
-            remedy_ui_style::StylePatch::default().background(remedy_ui_core::Color::rgb8(200, 60, 40)),
+            remedy_ui_core::style::StylePatch::default().background(remedy_ui_core::Color::rgb8(200, 60, 40)),
         );
         p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default())).poster(art)));
         p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30)));
@@ -2148,7 +2148,7 @@ fn seek_value(view: &El) -> Option<String> {
 fn seek_disabled(view: &El) -> bool {
     named(view, "Seek")
         .and_then(|b| b.info())
-        .is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+        .is_some_and(|i| i.states.contains(remedy_ui_core::style::States::DISABLED))
 }
 
 #[test]
@@ -2326,7 +2326,7 @@ fn without_a_timeline_seeks_are_the_streams_own_and_not_whole_seconds() {
 /// Whether `text` shows on the view as a status announced politely.
 fn announced(view: &El, text: &str) -> bool {
     named(view, text).and_then(|e| e.info()).and_then(|i| i.semantics).is_some_and(|s| {
-        s.role() == remedy_ui_a11y::Role::Status && s.live_state() == remedy_ui_a11y::Live::Polite
+        s.role() == remedy_ui_core::a11y::Role::Status && s.live_state() == remedy_ui_core::a11y::Live::Polite
     })
 }
 
@@ -2440,7 +2440,7 @@ fn portal_later(s: &mut Screen, delay: Option<Duration>) -> (Player, El, Arc<Mut
 fn alert(view: &El) -> Option<String> {
     find(view, "player_caption").iter().find_map(|c| {
         let i = c.info().filter(|i| !i.hidden)?;
-        let alert = i.semantics.is_some_and(|s| s.role() == remedy_ui_a11y::Role::Alert);
+        let alert = i.semantics.is_some_and(|s| s.role() == remedy_ui_core::a11y::Role::Alert);
         i.text.filter(|_| alert).map(|t| plain(&t))
     })
 }
@@ -2616,7 +2616,7 @@ fn stage_cancel(view: &El) -> Option<El> {
 }
 
 fn shown_enabled(e: &El) -> (bool, bool) {
-    e.info().map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_style::States::DISABLED)))
+    e.info().map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_core::style::States::DISABLED)))
 }
 
 #[test]
@@ -2727,7 +2727,7 @@ fn after_a_failure_play_k_space_and_a_click_ask_the_app_to_try_again() {
     assert_eq!(asked_for(), [30, 30, 30]);
     // A click on the picture, in the classic scheme too.
     let stage = find(&view, "player_stage").remove(0);
-    presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &stage, &[1000], remedy_ui_core::input::PointerKind::Mouse);
     s.idle(300);
     assert_eq!(asked_for(), [30, 30, 30, 30]);
     let problems = remedy_ui_devtools::audit(&s.ui);
@@ -2741,11 +2741,11 @@ fn after_a_failure_play_k_space_and_a_click_ask_the_app_to_try_again() {
 /// A pointer event at `fraction` of the seek bar's track (as its thumb is placed).
 fn on_bar(
     view: &El,
-    phase: remedy_ui_input::PointerPhase,
+    phase: remedy_ui_core::input::PointerPhase,
     fraction: f32,
     pressed: bool,
-) -> remedy_ui_input::PointerEvent {
-    use remedy_ui_input::{Buttons, PointerEvent};
+) -> remedy_ui_core::input::PointerEvent {
+    use remedy_ui_core::input::{Buttons, PointerEvent};
     let b = el(view, "Seek").bounds().unwrap_or_else(|| unreachable!("laid out"));
     let r = (b.height() * 0.3).max(5.0);
     let x = b.min.x + r + (b.width() - 2.0 * r) * fraction;
@@ -2755,7 +2755,7 @@ fn on_bar(
 
 /// Presses the seek bar at `from`, drags it through `to`, and lets go at the last.
 fn drag(s: &mut Screen, view: &El, from: f32, to: &[f32]) {
-    use remedy_ui_input::PointerPhase::{Down, Move, Up};
+    use remedy_ui_core::input::PointerPhase::{Down, Move, Up};
     s.ui.pointer(&on_bar(view, Down, from, true));
     for &f in to {
         s.ui.pointer(&on_bar(view, Move, f, true));
@@ -2766,7 +2766,7 @@ fn drag(s: &mut Screen, view: &El, from: f32, to: &[f32]) {
 
 #[test]
 fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
-    use remedy_ui_input::PointerPhase::{Cancel, Down, Move, Up};
+    use remedy_ui_core::input::PointerPhase::{Cancel, Down, Move, Up};
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
     s.pump();
@@ -2803,7 +2803,7 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
 
     // Fingers drag the same way.
     let touch =
-        |phase, f, pressed| on_bar(&view, phase, f, pressed).with_kind(remedy_ui_input::PointerKind::Touch);
+        |phase, f, pressed| on_bar(&view, phase, f, pressed).with_kind(remedy_ui_core::input::PointerKind::Touch);
     s.ui.pointer(&touch(Down, 0.1, true));
     s.ui.pointer(&touch(Move, 0.2005, true));
     s.pump();
@@ -2844,7 +2844,7 @@ fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
     let mut s = Screen::new();
     let (p, view, asked) = film(&mut s);
     s.pump();
-    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.50005, false));
+    s.ui.pointer(&on_bar(&view, remedy_ui_core::input::PointerPhase::Move, 0.50005, false));
     s.pump();
     assert!(
         texts(&view, "player_tip").iter().any(|t| t == "1:30:46"),
@@ -2865,7 +2865,7 @@ fn a_tvs_volume_waits_for_the_tv_and_goes_once_it_rests() {
     p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
     s.pump();
     let disabled = |v: &El| {
-        el(v, "TV volume").info().is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+        el(v, "TV volume").info().is_some_and(|i| i.states.contains(remedy_ui_core::style::States::DISABLED))
     };
     assert!(!p.volume_known() && disabled(&view), "unknown until the TV says");
     el(&view, "Mute the TV").focus();
@@ -2899,7 +2899,7 @@ fn a_big_play_glyph_shows_over_a_paused_picture_and_plays() {
     assert!(shown(&view), "paused");
     // A click on it plays, in the classic scheme too.
     let glyph = find(&view, "player_big_play").remove(0);
-    presses(&mut s, &glyph, &[1000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &glyph, &[1000], remedy_ui_core::input::PointerKind::Mouse);
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
     assert!(!shown(&view));
     p.pause();
@@ -3239,8 +3239,8 @@ fn audit_clean(s: &mut Screen) {
 }
 
 /// The open menu's entries as a screen reader meets them: role, name, checked.
-fn menu_entries(ui: &Ui) -> Vec<(remedy_ui_a11y::Role, String, Option<bool>)> {
-    use remedy_ui_a11y::Role;
+fn menu_entries(ui: &Ui) -> Vec<(remedy_ui_core::a11y::Role, String, Option<bool>)> {
+    use remedy_ui_core::a11y::Role;
     ui.reader_view()
         .into_iter()
         .filter(|n| matches!(n.role, Role::MenuItem | Role::MenuItemRadio))
@@ -3262,7 +3262,7 @@ fn english() -> SubtitleTrack {
 
 #[test]
 fn one_captions_button_says_what_shows_and_its_menu_picks_and_times() {
-    use remedy_ui_a11y::Role;
+    use remedy_ui_core::a11y::Role;
     let mut s = Screen::new();
     let (p, view) = scripted(&mut s);
     // Nothing to pick: no button.
@@ -3632,7 +3632,7 @@ fn full_screen_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Pl
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
     s.pump();
     let at = middle(&part(&view, "player_stage"));
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, at));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, at));
     s.pump();
     (p, view)
 }
@@ -3671,11 +3671,11 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert_eq!(p.state(), PlaybackState::Playing);
 
     // The pointer moving wakes them.
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&chrome)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&chrome)));
     s.pump();
     assert!(p.controls_shown() && !s.ui.cursor_hidden());
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(
-        remedy_ui_input::PointerPhase::Move,
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
+        remedy_ui_core::input::PointerPhase::Move,
         middle(&part(&view, "player_stage")),
     ));
     rested(&mut s);
@@ -3686,14 +3686,14 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert!(p.controls_shown());
     rested(&mut s);
     // A tap on the rested picture brings them back and does not pause (Portal's would).
-    presses(&mut s, &part(&view, "player_stage"), &[5000], remedy_ui_input::PointerKind::Touch);
+    presses(&mut s, &part(&view, "player_stage"), &[5000], remedy_ui_core::input::PointerKind::Touch);
     assert!(p.controls_shown());
     s.idle(300);
     assert_eq!(p.state(), PlaybackState::Playing, "a tap that only woke the controls");
     rested(&mut s);
     // A press on the rested bar wakes it rather than pressing what cannot be seen.
     let play = named(&view, "Pause").unwrap_or_else(|| unreachable!("Pause"));
-    presses(&mut s, &play, &[9000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &play, &[9000], remedy_ui_core::input::PointerKind::Mouse);
     assert!(p.controls_shown());
     assert_eq!(p.state(), PlaybackState::Playing, "the hidden Pause was not pressed");
 
@@ -3734,26 +3734,26 @@ fn full_screen_controls_stay_while_something_holds_them() {
     assert!(!p.controls_shown());
     // The pointer over the bar.
     let chrome = part(&view, "player_chrome");
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&chrome)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&chrome)));
     s.advance(long);
     assert!(p.controls_shown(), "hovered");
     // Scrubbing.
-    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Down, 0.5, true));
-    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.6, true));
+    s.ui.pointer(&on_bar(&view, remedy_ui_core::input::PointerPhase::Down, 0.5, true));
+    s.ui.pointer(&on_bar(&view, remedy_ui_core::input::PointerPhase::Move, 0.6, true));
     assert!(p.scrubbing().is_some());
     s.ui.pointer(
-        &remedy_ui_input::PointerEvent::new(
-            remedy_ui_input::PointerPhase::Move,
+        &remedy_ui_core::input::PointerEvent::new(
+            remedy_ui_core::input::PointerPhase::Move,
             middle(&part(&view, "player_stage")),
         )
-        .with_buttons(remedy_ui_input::Buttons::PRIMARY),
+        .with_buttons(remedy_ui_core::input::Buttons::PRIMARY),
     );
     s.advance(long);
     assert!(p.controls_shown(), "scrubbing");
-    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Up, 0.6, false));
+    s.ui.pointer(&on_bar(&view, remedy_ui_core::input::PointerPhase::Up, 0.6, false));
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(
-        remedy_ui_input::PointerPhase::Move,
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(
+        remedy_ui_core::input::PointerPhase::Move,
         middle(&part(&view, "player_stage")),
     ));
     s.pump();
@@ -3847,17 +3847,17 @@ fn in_full_screen_up_next_floats_over_the_picture_and_keeps_its_keys() {
     // It does not fade with the bar, nor move. (The pointer away from it: over the card it
     // holds the controls.)
     let away = remedy_ui_core::Point::new(st.min.x + 10.0, st.min.y + st.height() / 2.0);
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, away));
     rested(&mut s);
     s.idle(400);
     assert!(!p.controls_shown());
     assert_eq!(card.info().map(|i| (i.hidden, i.style.opacity)), Some((false, 1.0)));
     assert_eq!(card.bounds().unwrap_or_default(), c, "it stays where it was");
     // Under the pointer it holds the controls.
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&card)));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, middle(&card)));
     s.advance(Duration::from_secs(8));
     assert!(p.controls_shown(), "hovered");
-    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    s.ui.pointer(&remedy_ui_core::input::PointerEvent::new(remedy_ui_core::input::PointerPhase::Move, away));
     rested(&mut s);
     assert!(!p.controls_shown());
     // The keyboard reaches it, which wakes the controls; screen readers read it.
@@ -4218,7 +4218,7 @@ fn keys_from_the_window_reach_the_player_and_fields_menus_and_dialogs_keep_their
             s.wait("paused", |_| p.state() == PlaybackState::Paused);
         }
         // Modifiers are never the player's.
-        let ctrl = remedy_ui_input::Modifiers { ctrl: true, ..Default::default() };
+        let ctrl = remedy_ui_core::input::Modifiers { ctrl: true, ..Default::default() };
         assert!(!s.ui.key(&KeyEvent::press(Key::Character("k".into())).with_modifiers(ctrl).with_text(None)));
 
         // A text field keeps every key, the player's letters and the arrows too.

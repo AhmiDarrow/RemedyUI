@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_text::RichText;
 use remedy_ui_view::{CodeColors, El, FieldKind, TextField, Ui};
 use remedy_ui_widgets_core as w;
@@ -22,7 +22,7 @@ pub fn code_editor(ui: &Ui, label: impl Into<String>, text: &str, options: CodeO
     let _ = field.edit_code(|e| e.set_selection(0, 0));
     // Colors: only the lines an edit touched are colored again.
     let highlighter = Rc::new(RefCell::new(Highlighter::new(&options.language)));
-    let colors: CodeColors = Rc::new(move |text: &str, theme: &remedy_ui_style::Theme| {
+    let colors: CodeColors = Rc::new(move |text: &str, theme: &remedy_ui_core::style::Theme| {
         let mut h = highlighter.borrow_mut();
         let mut out = Vec::new();
         let mut start = 0;

@@ -9,11 +9,11 @@ use std::cell::{Cell, RefCell};
 use std::hash::Hash;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Insets, Size, Vec2};
-use remedy_ui_input::Key;
-use remedy_ui_layout::{AUTO, JumpAlign, Length, Position, VirtualList};
-use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_core::input::Key;
+use remedy_ui_core::layout::{AUTO, JumpAlign, Length, Position, VirtualList};
+use remedy_ui_core::reactive::{Signal, untrack};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -209,7 +209,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                             w::text(&ui2, today.clone())
                                 .variant("muted")
                                 .semantics(Semantics::new(Role::Heading(3)).label(today))
-                                .layout(move |l| l.align_self = Some(remedy_ui_layout::Align::Center))
+                                .layout(move |l| l.align_self = Some(remedy_ui_core::layout::Align::Center))
                                 .padding(Insets::symmetric(unit * 2.0, 0.0)),
                         );
                     }
@@ -348,7 +348,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         let _ = b2
             .clone()
             .hidden(at_end.get())
-            .semantics(Semantics::new(Role::Button).label(spoken).action(remedy_ui_a11y::Action::Click));
+            .semantics(Semantics::new(Role::Button).label(spoken).action(remedy_ui_core::a11y::Action::Click));
     });
     let button = button.layout(|l| {
         l.position = Position::Absolute;
@@ -358,7 +358,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     let pinned = w::text(ui, "").variant("muted").text(move || first_day.get()).layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 8.0, start: AUTO, end: AUTO, bottom: AUTO };
-        l.align_self = Some(remedy_ui_layout::Align::Center);
+        l.align_self = Some(remedy_ui_core::layout::Align::Center);
     });
     let (p2, fd) = (pinned.clone(), first_day);
     let pinned = pinned.pass_through().bind(move || {
@@ -370,7 +370,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .column()
         .grow(1.0)
         .fill_width()
-        .align(remedy_ui_layout::Align::Center)
+        .align(remedy_ui_core::layout::Align::Center)
         .layout(|l| l.min_height = Length::Px(0.0))
         .child(scroller)
         .child(pinned)

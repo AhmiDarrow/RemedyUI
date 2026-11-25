@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub use remedy_ui_host::MemoryPressure;
+pub use remedy_ui_core::host::MemoryPressure;
 
 /// The machine's physical memory in bytes (0: not known).
 static TOTAL_MEMORY: AtomicU64 = AtomicU64::new(0);

@@ -2,9 +2,9 @@
 //! keyboard focus goes in, and reachable by Tab and screen readers while folded.
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Key, KeyEvent, PointerEvent, PointerPhase};
-use remedy_ui_layout::Align;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_core::layout::Align;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;

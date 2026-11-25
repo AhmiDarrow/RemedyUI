@@ -26,7 +26,7 @@ pub use sheet::sheet;
 pub use tokens::{TokenError, from_tokens, to_tokens};
 
 use remedy_ui_core::Color;
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 
 fn hex(s: &str) -> Color {
     Color::from_hex(s).unwrap_or(Color::BLACK)

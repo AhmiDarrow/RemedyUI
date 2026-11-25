@@ -1,7 +1,7 @@
 //! What the terminal sends the program: keys as xterm encodes them, pastes, pointer reports
 //! and focus changes.
 
-use remedy_ui_input::{Key, KeyEvent, Modifiers};
+use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
 
 use crate::term::{Modes, MouseEncoding, MouseMode};
 

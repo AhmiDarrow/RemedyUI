@@ -71,13 +71,13 @@ fn installed_svg_goes_through_the_image_loader_at_the_size_shown() {
     );
     assert_eq!(d.source_size, (10, 10));
     // Through the loader, asked for a 64-pixel box.
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::Bytes(Arc::from(SQUARE.as_bytes())), Some((64, 64)), false, state);
     let start = Instant::now();
-    while !remedy_ui_reactive::has_posted() && start.elapsed() < Duration::from_secs(10) {
+    while !remedy_ui_core::reactive::has_posted() && start.elapsed() < Duration::from_secs(10) {
         std::thread::sleep(Duration::from_millis(2));
     }
-    let _ = remedy_ui_reactive::run_posted();
+    let _ = remedy_ui_core::reactive::run_posted();
     match state.get_untracked().ok() {
         Some(ImageState::Ready(img, natural)) => {
             assert_eq!(natural, (10, 10));
@@ -128,13 +128,13 @@ fn svg_behind_a_long_prolog_is_recognised_up_to_the_sniff_limit() {
     // A file goes through the loader's header read, which buffers less than the prolog.
     let path = std::env::temp_dir().join(format!("remedy-svg-long-{}.svg", std::process::id()));
     std::fs::write(&path, &long).unwrap_or_else(|e| unreachable!("{e}"));
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     remedy_ui_media_image::probe(&Source::File(path.clone()), state);
     let start = Instant::now();
     while state.with_untracked(|s| matches!(s, ImageState::Loading)).unwrap_or(false)
         && start.elapsed() < Duration::from_secs(10)
     {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         std::thread::sleep(Duration::from_millis(2));
     }
     let _ = std::fs::remove_file(&path);

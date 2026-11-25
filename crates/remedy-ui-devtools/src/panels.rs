@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Insets};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::StylePatch;
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::StylePatch;
 use remedy_ui_view::{El, ElementId, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -45,7 +45,7 @@ pub(crate) fn budget_of(hz: f64) -> Duration {
 
 fn warn_color(ui: &Ui) -> Color {
     let t = ui.theme();
-    remedy_ui_style::ensure_contrast(t.colors.danger, t.colors.bg, 4.5)
+    remedy_ui_core::style::ensure_contrast(t.colors.danger, t.colors.bg, 4.5)
 }
 
 fn note(ui: &Ui, s: impl Into<String>) -> El {
@@ -487,7 +487,7 @@ impl RemoteState {
     /// Runs `requests` against the connection on a thread of its own and hands each answer
     /// back to the window's thread.
     fn fetch(&self, requests: Vec<RemoteRequest>) {
-        let Ok(waker) = remedy_ui_reactive::waker() else { return };
+        let Ok(waker) = remedy_ui_core::reactive::waker() else { return };
         let me = self.clone_send();
         let client = self.client.clone();
         let _ = remedy_ui_core::exec::spawn("remedy-devtools-remote", move || {
@@ -585,7 +585,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
             return;
         };
         let secret = t2.take_secret().expose().to_owned();
-        let Ok(waker) = remedy_ui_reactive::waker() else { return };
+        let Ok(waker) = remedy_ui_core::reactive::waker() else { return };
         s2.status.set(format!("Connecting to {addr}…"));
         let (client, sig) = (s2.client.clone(), s2.clone_send());
         let _ = remedy_ui_core::exec::spawn("remedy-devtools-connect", move || {
@@ -661,11 +661,11 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
                         ]);
                     })
                     .semantics(
-                        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::ListItem)
+                        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::ListItem)
                             .label(e.label.clone())
                             .selected(picked == Some(id)),
                     );
-                row.state(remedy_ui_style::States::SELECTED, picked == Some(id));
+                row.state(remedy_ui_core::style::States::SELECTED, picked == Some(id));
                 col = col.child(row);
             }
         });

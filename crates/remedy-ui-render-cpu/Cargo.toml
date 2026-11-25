@@ -20,7 +20,7 @@ remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 vello_cpu = { package = "remedy-vello-cpu", path = "../../vendor/vello_cpu", version = "=0.4.0", default-features = false, features = ["std", "u8_pipeline"] }
 
 [dev-dependencies]
-remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-print", "remedy-emoji"] }
 
 [lints]

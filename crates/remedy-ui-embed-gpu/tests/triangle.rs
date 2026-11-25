@@ -11,7 +11,7 @@ use std::rc::Rc;
 use common::*;
 use remedy_ui_core::Point;
 use remedy_ui_embed_gpu::*;
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 
 /// Checks the triangle in the composed frame at angle 0, then turned half a circle.
 fn rotates(gpu: bool) {
@@ -140,7 +140,7 @@ fn pointer_keys_and_focus_reach_the_content() {
     assert!(inputs.contains(&EmbedInput::Key(key)), "keys while focused");
     // Screen readers get an image with the label.
     let sem = el.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
-    assert_eq!(sem.role(), remedy_ui_a11y::Role::Image);
+    assert_eq!(sem.role(), remedy_ui_core::a11y::Role::Image);
     assert_eq!(sem.name(), Some("Spinning triangle"));
 }
 

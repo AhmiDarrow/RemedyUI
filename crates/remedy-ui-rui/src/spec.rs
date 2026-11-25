@@ -102,13 +102,13 @@ impl Kind {
 
 /// A spacing word (`s3`, `s0_5`, `s12`) as the theme's spacing token: the scale every Remedy
 /// app shares (design 13), so markup and Rust use the same steps.
-pub fn space_token(token: &str) -> Option<remedy_ui_style::Space> {
-    remedy_ui_style::Space::from_name(token)
+pub fn space_token(token: &str) -> Option<remedy_ui_core::style::Space> {
+    remedy_ui_core::style::Space::from_name(token)
 }
 
 /// The spacing words markup takes, in order, for messages.
 pub fn space_names() -> String {
-    remedy_ui_style::Space::ALL.iter().map(|s| s.name()).collect::<Vec<_>>().join(", ")
+    remedy_ui_core::style::Space::ALL.iter().map(|s| s.name()).collect::<Vec<_>>().join(", ")
 }
 
 /// A slider's step when the file gives none: a hundredth of the range.

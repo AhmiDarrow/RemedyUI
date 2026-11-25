@@ -50,9 +50,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Rect;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Placement, Ui};
 
 pub use serde_json;

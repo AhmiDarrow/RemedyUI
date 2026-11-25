@@ -2,11 +2,11 @@
 
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Current, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Current, Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::{States, StylePatch};
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::{States, StylePatch};
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
 

@@ -7,9 +7,9 @@
 use std::rc::Rc;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_layout::{Display, Track};
+use remedy_ui_core::layout::{Display, Track};
 use remedy_ui_text::{RichText, TextStylePatch};
 use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
@@ -22,7 +22,7 @@ pub type OpenLink = Rc<dyn Fn(&str)>;
 ///
 /// ```
 /// # use remedy_ui_view::Ui;
-/// # use remedy_ui_reactive::Signal;
+/// # use remedy_ui_core::reactive::Signal;
 /// # fn demo(ui: &Ui) {
 /// let note = remedy_ui_doc_rich::markdown(ui, "# Notes\n\nPlain *Markdown*.", |_| {});
 /// let reply = Signal::new(String::from("Thinking"));
@@ -308,9 +308,9 @@ impl Builder<'_> {
                         Semantics::new(if head { Role::ColumnHeader } else { Role::Cell }).label(plain),
                     );
                 match align {
-                    Alignment::Right => cell.layout(|l| l.align_self = Some(remedy_ui_layout::Align::End)),
+                    Alignment::Right => cell.layout(|l| l.align_self = Some(remedy_ui_core::layout::Align::End)),
                     Alignment::Center => {
-                        cell.layout(|l| l.align_self = Some(remedy_ui_layout::Align::Center))
+                        cell.layout(|l| l.align_self = Some(remedy_ui_core::layout::Align::Center))
                     }
                     _ => cell,
                 }
@@ -554,7 +554,7 @@ impl Builder<'_> {
     fn end_link(&mut self) {
         let accent = self.ui.theme().colors.accent;
         let bg = self.ui.theme().colors.bg;
-        let color = remedy_ui_style::ensure_contrast(accent, bg, 4.5);
+        let color = remedy_ui_core::style::ensure_contrast(accent, bg, 4.5);
         let i = self.inline();
         let Some((start, dest)) = i.link.take() else { return };
         let end = i.text.len();

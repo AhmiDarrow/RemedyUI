@@ -79,11 +79,11 @@ mod linux {
     use remedy_ui_bridge_winit::winit::window::Window;
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_core::Color;
-    use remedy_ui_host::{
+    use remedy_ui_core::host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon,
         Unsupported, Waker, WindowIcon, WindowOptions,
     };
-    use remedy_ui_input::Platform;
+    use remedy_ui_core::input::Platform;
     use zbus::{OwnedVariant, Variant as Value};
 
     /// Linux's side of the host contract.
@@ -454,7 +454,7 @@ mod linux {
 
         fn show_notification(
             &mut self,
-            notification: &remedy_ui_host::Notification,
+            notification: &remedy_ui_core::host::Notification,
         ) -> Result<(), Unsupported> {
             self.notifier.show(notification)
         }
@@ -467,7 +467,7 @@ mod linux {
             &mut self,
             _windows: &[&Window],
             app_id: &str,
-            badge: Option<remedy_ui_host::Badge>,
+            badge: Option<remedy_ui_core::host::Badge>,
         ) -> Result<(), Unsupported> {
             self.badge.set(app_id, badge)
         }
@@ -475,8 +475,8 @@ mod linux {
         fn share(
             &mut self,
             window: Option<&Window>,
-            share: &remedy_ui_host::ShareOptions,
-        ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+            share: &remedy_ui_core::host::ShareOptions,
+        ) -> Result<remedy_ui_core::host::ShareStarted, Unsupported> {
             let _ = (window, share);
             Err(Unsupported::new(
                 "sharing",

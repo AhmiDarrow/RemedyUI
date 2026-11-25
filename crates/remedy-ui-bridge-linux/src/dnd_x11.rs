@@ -9,7 +9,7 @@
 
 use std::time::{Duration, Instant};
 
-use remedy_ui_host::{DragData, DropEffect, Unsupported};
+use remedy_ui_core::host::{DragData, DropEffect, Unsupported};
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{

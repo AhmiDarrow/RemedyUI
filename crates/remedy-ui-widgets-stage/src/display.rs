@@ -4,11 +4,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect, Size};
-use remedy_ui_layout::Length;
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::untrack;
+use remedy_ui_core::reactive::untrack;
 use remedy_ui_view::{El, IntoProp, PaintCx, RichText, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
@@ -177,7 +177,7 @@ impl State {
             let cell = ui
                 .el("display_flap")
                 .row()
-                .justify(remedy_ui_layout::Justify::Center)
+                .justify(remedy_ui_core::layout::Justify::Center)
                 .width(self.flap_w)
                 .layout(|l| l.shrink = 0.0)
                 .paint(move |cx| flap(cx, &s, i))
@@ -233,7 +233,7 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
         .variant(board.variant())
         .row()
         .clip()
-        .padding(remedy_ui_style::Pad::xy(state.pad, u * 2.0))
+        .padding(remedy_ui_core::style::Pad::xy(state.pad, u * 2.0))
         .layout(|l| l.min_width = Length::Px(0.0))
         .child(line.clone());
 

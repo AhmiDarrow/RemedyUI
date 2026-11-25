@@ -160,7 +160,7 @@ fn until(ui: &Ui, done: impl Fn() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(10) {
         frame(ui);
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if done() {
             frame(ui);
             return true;
@@ -243,7 +243,7 @@ fn a_no_cache_image_is_revalidated_with_its_etag() {
     ui.root().clear();
     frame(&ui);
     forget_remembered();
-    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::Url(server.url("/etag.png")), Some((20, 40)), false, state);
     assert!(until(&ui, || matches!(state.get_untracked().ok(), Some(ImageState::Ready(..)))));
     assert!(server.sent("/etag.png", 304), "asked with If-None-Match, answered Not Modified");
@@ -260,7 +260,7 @@ fn a_304_brings_new_validators() {
     let url = server.url("/rotate.png");
     for _ in 0..3 {
         forget_remembered();
-        let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+        let state = remedy_ui_core::reactive::Signal::new(ImageState::Loading);
         let _req = load(&Source::Url(url.clone()), Some((20, 40)), false, state);
         assert!(until(&ui, || matches!(state.get_untracked().ok(), Some(ImageState::Ready(..)))));
         // Let go of the pixels, so the next load goes back to the server.

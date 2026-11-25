@@ -12,7 +12,7 @@
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::Duration;
 
-use remedy_ui_host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
+use remedy_ui_core::host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
@@ -818,7 +818,7 @@ mod tests {
     fn tray() -> TrayIcon {
         TrayIcon::new(
             "App",
-            remedy_ui_host::TrayImage { size: 2, rgba: vec![255; 16] },
+            remedy_ui_core::host::TrayImage { size: 2, rgba: vec![255; 16] },
             vec![
                 TrayItem::Item { id: 1, label: "&Open".into(), enabled: true, default: true },
                 TrayItem::Separator,

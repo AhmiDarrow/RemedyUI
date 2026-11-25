@@ -37,10 +37,10 @@ use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Point, Rect};
 use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke};
-use remedy_ui_reactive::{Effect, Signal};
+use remedy_ui_core::reactive::{Effect, Signal};
 use remedy_ui_view::{El, Ui, show};
 
 pub use decode::{
@@ -230,11 +230,11 @@ pub fn image_ext(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, opti
 /// Makes `el` fill its parent where it has no size of its own.
 fn fill(el: El) -> El {
     el.layout(|l| {
-        if l.width == remedy_ui_layout::Length::Auto {
-            l.width = remedy_ui_layout::Length::Percent(1.0);
+        if l.width == remedy_ui_core::layout::Length::Auto {
+            l.width = remedy_ui_core::layout::Length::Percent(1.0);
         }
-        if l.height == remedy_ui_layout::Length::Auto {
-            l.height = remedy_ui_layout::Length::Percent(1.0);
+        if l.height == remedy_ui_core::layout::Length::Auto {
+            l.height = remedy_ui_core::layout::Length::Percent(1.0);
         }
     })
 }
@@ -362,9 +362,9 @@ fn build(ui: &Ui, source: Source, alt: String, fit: Fit, loader: Loader, options
                 if l.aspect_ratio.is_none() {
                     l.aspect_ratio = Some(w.max(1) as f32 / h.max(1) as f32);
                 }
-                if l.width == remedy_ui_layout::Length::Auto && l.height == remedy_ui_layout::Length::Auto {
-                    l.width = remedy_ui_layout::Length::Px(w as f32 / scale);
-                    l.max_width = remedy_ui_layout::Length::Percent(1.0);
+                if l.width == remedy_ui_core::layout::Length::Auto && l.height == remedy_ui_core::layout::Length::Auto {
+                    l.width = remedy_ui_core::layout::Length::Px(w as f32 / scale);
+                    l.max_width = remedy_ui_core::layout::Length::Percent(1.0);
                 }
             });
         }

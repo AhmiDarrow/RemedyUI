@@ -6,8 +6,8 @@ use std::time::Duration;
 use remedy_ui_bridge_headless::HeadlessHost;
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, Point, Rect, Size, Vec2};
-use remedy_ui_host::{App, Host, HostEvent, ImeEvent, Pixels, TextInputState, WindowId, WindowOptions};
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_core::host::{App, Host, HostEvent, ImeEvent, Pixels, TextInputState, WindowId, WindowOptions};
+use remedy_ui_core::input::ScrollPhysics;
 use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 
@@ -225,7 +225,7 @@ fn resizing_rebuilds_and_redraws_everything() {
 
 #[test]
 fn tray_menus_checks_submenus_and_urgency_are_recorded() {
-    use remedy_ui_host::{Notification, TrayIcon, TrayImage, TrayItem, Urgency};
+    use remedy_ui_core::host::{Notification, TrayIcon, TrayImage, TrayItem, Urgency};
     let mut host = HeadlessHost::new();
     let menu = vec![
         TrayItem::Item { id: 1, label: "Open".into(), enabled: true, default: true },

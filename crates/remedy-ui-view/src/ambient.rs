@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Rect};
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::Request;
 use crate::element::{El, Inner, PaintCx, Ui};
@@ -195,7 +195,7 @@ pub(crate) struct AmbientState {
     pub(crate) policy: AmbientPolicy,
     pub(crate) focused: bool,
     pub(crate) power_saving: bool,
-    pub(crate) rate: remedy_ui_reactive::Signal<Option<AmbientRate>>,
+    pub(crate) rate: remedy_ui_core::reactive::Signal<Option<AmbientRate>>,
     /// Painters due again, by when (frame clock).
     pub(crate) wakes: HashMap<ElementId, Duration>,
     /// The timer serving the earliest wake, and its time.
@@ -214,7 +214,7 @@ impl Default for AmbientState {
             policy,
             focused: true,
             power_saving: false,
-            rate: remedy_ui_reactive::Signal::new(policy.rate(a)),
+            rate: remedy_ui_core::reactive::Signal::new(policy.rate(a)),
             wakes: HashMap::new(),
             timer: None,
             parked_paint: HashMap::new(),

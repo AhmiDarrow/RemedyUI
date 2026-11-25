@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_host::{Badge, Unsupported};
+use remedy_ui_core::host::{Badge, Unsupported};
 use zbus::Variant as Value;
 
 const IFACE: &str = "com.canonical.Unity.LauncherEntry";
@@ -86,7 +86,7 @@ pub(crate) mod tests {
     use std::io::BufRead;
     use std::pin::Pin;
 
-    use remedy_ui_host::Badge;
+    use remedy_ui_core::host::Badge;
     use zbus::OwnedVariant;
 
     use super::LauncherBadge;

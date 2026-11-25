@@ -12,12 +12,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     App, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge,
     SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon,
     WindowId, WindowOptions,
 };
-use remedy_ui_input::{Modifiers, PinchEvent, PinchPhase, Platform, WheelEvent};
+use remedy_ui_core::input::{Modifiers, PinchEvent, PinchPhase, Platform, WheelEvent};
 
 /// A window in memory.
 #[derive(Clone, Debug)]
@@ -35,7 +35,7 @@ pub struct HeadlessWindow {
     maximized: bool,
     fullscreen: bool,
     cursor_hidden: bool,
-    cursor: remedy_ui_host::Cursor,
+    cursor: remedy_ui_core::host::Cursor,
     centered: bool,
 }
 
@@ -81,7 +81,7 @@ impl HeadlessWindow {
     }
 
     /// The shape the mouse pointer has over it ([`Host::set_cursor`]).
-    pub fn cursor(&self) -> remedy_ui_host::Cursor {
+    pub fn cursor(&self) -> remedy_ui_core::host::Cursor {
         self.cursor
     }
 
@@ -112,8 +112,8 @@ impl HeadlessWindow {
 pub struct HeadlessHost {
     clock: Duration,
     /// The wall clock when `clock` was zero, and the UTC offset.
-    wall: remedy_ui_host::LocalTime,
-    time_zone: remedy_ui_host::TimeZone,
+    wall: remedy_ui_core::host::LocalTime,
+    time_zone: remedy_ui_core::host::TimeZone,
     refresh: Duration,
     scale: f32,
     settings: SystemSettings,
@@ -137,7 +137,7 @@ pub struct HeadlessHost {
     focused: Option<WindowId>,
     interactions: Vec<(WindowId, Option<ResizeEdge>)>,
     tray: Option<TrayIcon>,
-    a11y: BTreeMap<WindowId, Vec<remedy_ui_host::accesskit::TreeUpdate>>,
+    a11y: BTreeMap<WindowId, Vec<remedy_ui_core::host::accesskit::TreeUpdate>>,
     dialogs: Vec<FileDialog>,
     dialog_answers: VecDeque<Vec<std::path::PathBuf>>,
     dialogs_answer_later: bool,
@@ -145,18 +145,18 @@ pub struct HeadlessHost {
     opened: Vec<String>,
     drag_answers: VecDeque<DropEffect>,
     drop_effects: BTreeMap<WindowId, DropEffect>,
-    permissions: Vec<remedy_ui_host::Permission>,
+    permissions: Vec<remedy_ui_core::host::Permission>,
     permission_answers: VecDeque<bool>,
     permissions_answer_later: bool,
-    notifications: Vec<remedy_ui_host::Notification>,
-    badge: Option<(String, remedy_ui_host::Badge)>,
+    notifications: Vec<remedy_ui_core::host::Notification>,
+    badge: Option<(String, remedy_ui_core::host::Badge)>,
     withdrawn: Vec<u64>,
     notifications_off: bool,
-    foreground: Option<remedy_ui_host::ForegroundTask>,
+    foreground: Option<remedy_ui_core::host::ForegroundTask>,
     foreground_refused: Option<String>,
-    shares: Vec<(Option<WindowId>, remedy_ui_host::ShareOptions)>,
+    shares: Vec<(Option<WindowId>, remedy_ui_core::host::ShareOptions)>,
     prints: Vec<(Option<WindowId>, String, String)>,
-    share_answers: VecDeque<remedy_ui_host::ShareOutcome>,
+    share_answers: VecDeque<remedy_ui_core::host::ShareOutcome>,
     shares_answer_later: bool,
 }
 
@@ -173,8 +173,8 @@ impl HeadlessHost {
         HeadlessHost {
             clock: Duration::ZERO,
             // 2026-01-01T00:00:00Z: tests see the same dates on every machine.
-            wall: remedy_ui_host::LocalTime { unix_seconds: 1_767_225_600, utc_offset: 0 },
-            time_zone: remedy_ui_host::TimeZone::default(),
+            wall: remedy_ui_core::host::LocalTime { unix_seconds: 1_767_225_600, utc_offset: 0 },
+            time_zone: remedy_ui_core::host::TimeZone::default(),
             refresh: Duration::from_nanos(16_666_667),
             scale: 1.0,
             settings: SystemSettings::default(),
@@ -372,13 +372,13 @@ impl HeadlessHost {
     }
 
     /// Accessibility updates a window sent, oldest first (drained).
-    pub fn take_accessibility(&mut self, window: WindowId) -> Vec<remedy_ui_host::accesskit::TreeUpdate> {
+    pub fn take_accessibility(&mut self, window: WindowId) -> Vec<remedy_ui_core::host::accesskit::TreeUpdate> {
         self.a11y.remove(&window).unwrap_or_default()
     }
 
     /// Sets the wall clock (now) and the UTC offset; it then moves with the host clock.
     pub fn set_local_time(&mut self, unix_seconds: i64, utc_offset: i32) {
-        self.wall = remedy_ui_host::LocalTime {
+        self.wall = remedy_ui_core::host::LocalTime {
             unix_seconds: unix_seconds - self.clock.as_secs() as i64,
             utc_offset,
         };
@@ -386,7 +386,7 @@ impl HeadlessHost {
 
     /// Sets the time zone windows made after this get, for offsets at other instants
     /// ([`Host::time_zone`]). By default it cannot say, and today's offset stands in.
-    pub fn set_time_zone(&mut self, zone: remedy_ui_host::TimeZone) {
+    pub fn set_time_zone(&mut self, zone: remedy_ui_core::host::TimeZone) {
         self.time_zone = zone;
     }
 
@@ -443,18 +443,18 @@ impl HeadlessHost {
     }
 
     /// The permissions the app asked for, oldest first.
-    pub fn permission_requests(&self) -> &[remedy_ui_host::Permission] {
+    pub fn permission_requests(&self) -> &[remedy_ui_core::host::Permission] {
         &self.permissions
     }
 
     /// The notifications the app showed, oldest first (a replacement is listed again).
     /// Answer one with [`HostEvent::Notification`] through [`HeadlessHost::send`].
-    pub fn notifications(&self) -> &[remedy_ui_host::Notification] {
+    pub fn notifications(&self) -> &[remedy_ui_core::host::Notification] {
         &self.notifications
     }
 
     /// The badge the app shows now, with the app id it named.
-    pub fn badge(&self) -> Option<(&str, remedy_ui_host::Badge)> {
+    pub fn badge(&self) -> Option<(&str, remedy_ui_core::host::Badge)> {
         self.badge.as_ref().map(|(id, b)| (id.as_str(), *b))
     }
 
@@ -471,7 +471,7 @@ impl HeadlessHost {
     /// The work [`Host::start_foreground`] keeps running out of sight, while it runs (`None`
     /// after [`Host::stop_foreground`]). End it from the platform's side with
     /// [`HostEvent::ForegroundStopped`] through [`HeadlessHost::send`].
-    pub fn foreground(&self) -> Option<&remedy_ui_host::ForegroundTask> {
+    pub fn foreground(&self) -> Option<&remedy_ui_core::host::ForegroundTask> {
         self.foreground.as_ref()
     }
 
@@ -482,8 +482,8 @@ impl HeadlessHost {
     }
 
     /// Answers the next share: what the person does with the share sheet. Without a scripted
-    /// answer, a share is [`ShareOutcome::Shared`](remedy_ui_host::ShareOutcome::Shared).
-    pub fn answer_share(&mut self, outcome: remedy_ui_host::ShareOutcome) {
+    /// answer, a share is [`ShareOutcome::Shared`](remedy_ui_core::host::ShareOutcome::Shared).
+    pub fn answer_share(&mut self, outcome: remedy_ui_core::host::ShareOutcome) {
         self.share_answers.push_back(outcome);
     }
 
@@ -500,7 +500,7 @@ impl HeadlessHost {
     }
 
     /// What the app shared, and over which window, oldest first.
-    pub fn shares(&self) -> &[(Option<WindowId>, remedy_ui_host::ShareOptions)] {
+    pub fn shares(&self) -> &[(Option<WindowId>, remedy_ui_core::host::ShareOptions)] {
         &self.shares
     }
 
@@ -582,14 +582,14 @@ impl Host for HeadlessHost {
         self.clock
     }
 
-    fn local_time(&self) -> remedy_ui_host::LocalTime {
-        remedy_ui_host::LocalTime {
+    fn local_time(&self) -> remedy_ui_core::host::LocalTime {
+        remedy_ui_core::host::LocalTime {
             unix_seconds: self.wall.unix_seconds + self.clock.as_secs() as i64,
             utc_offset: self.wall.utc_offset,
         }
     }
 
-    fn time_zone(&self) -> remedy_ui_host::TimeZone {
+    fn time_zone(&self) -> remedy_ui_core::host::TimeZone {
         self.time_zone.clone()
     }
 
@@ -618,7 +618,7 @@ impl Host for HeadlessHost {
             maximized: false,
             fullscreen: false,
             cursor_hidden: false,
-            cursor: remedy_ui_host::Cursor::Default,
+            cursor: remedy_ui_core::host::Cursor::Default,
             centered: false,
         };
         Self::apply_size(&mut w, options.size);
@@ -766,7 +766,7 @@ impl Host for HeadlessHost {
         }
     }
 
-    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_core::host::Cursor) {
         if let Some(w) = self.window_mut(window) {
             w.cursor = cursor;
         }
@@ -858,7 +858,7 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
+    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_core::host::accesskit::TreeUpdate) {
         self.a11y.entry(window).or_default().push(update);
     }
 
@@ -871,18 +871,18 @@ impl Host for HeadlessHost {
         &mut self,
         _window: Option<WindowId>,
         dialog: &FileDialog,
-    ) -> Result<remedy_ui_host::DialogStarted, Unsupported> {
+    ) -> Result<remedy_ui_core::host::DialogStarted, Unsupported> {
         self.dialogs.push(dialog.clone());
         if self.dialogs_answer_later {
             // As a mobile picker: the dialog stays open until the test answers it.
-            let id = remedy_ui_host::DialogId(u64::try_from(self.dialogs.len()).unwrap_or(u64::MAX));
-            return Ok(remedy_ui_host::DialogStarted::Pending(id));
+            let id = remedy_ui_core::host::DialogId(u64::try_from(self.dialogs.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_core::host::DialogStarted::Pending(id));
         }
         // With no scripted answer, the user cancels.
-        Ok(remedy_ui_host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
+        Ok(remedy_ui_core::host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
     }
 
-    fn show_notification(&mut self, notification: &remedy_ui_host::Notification) -> Result<(), Unsupported> {
+    fn show_notification(&mut self, notification: &remedy_ui_core::host::Notification) -> Result<(), Unsupported> {
         if self.notifications_off {
             return Err(Unsupported::new("system notifications", "turned off for this app"));
         }
@@ -895,12 +895,12 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
-    fn set_badge(&mut self, app_id: &str, badge: Option<remedy_ui_host::Badge>) -> Result<(), Unsupported> {
+    fn set_badge(&mut self, app_id: &str, badge: Option<remedy_ui_core::host::Badge>) -> Result<(), Unsupported> {
         self.badge = badge.map(|b| (app_id.to_owned(), b));
         Ok(())
     }
 
-    fn start_foreground(&mut self, task: &remedy_ui_host::ForegroundTask) -> Result<(), Unsupported> {
+    fn start_foreground(&mut self, task: &remedy_ui_core::host::ForegroundTask) -> Result<(), Unsupported> {
         if let Some(reason) = &self.foreground_refused {
             return Err(Unsupported::new("foreground work", reason.clone()));
         }
@@ -915,28 +915,28 @@ impl Host for HeadlessHost {
 
     fn request_permission(
         &mut self,
-        permission: remedy_ui_host::Permission,
-    ) -> Result<remedy_ui_host::PermissionStarted, Unsupported> {
+        permission: remedy_ui_core::host::Permission,
+    ) -> Result<remedy_ui_core::host::PermissionStarted, Unsupported> {
         self.permissions.push(permission);
         if self.permissions_answer_later {
-            let id = remedy_ui_host::PermissionId(u64::try_from(self.permissions.len()).unwrap_or(u64::MAX));
-            return Ok(remedy_ui_host::PermissionStarted::Pending(id));
+            let id = remedy_ui_core::host::PermissionId(u64::try_from(self.permissions.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_core::host::PermissionStarted::Pending(id));
         }
-        Ok(remedy_ui_host::PermissionStarted::Finished(self.permission_answers.pop_front().unwrap_or(true)))
+        Ok(remedy_ui_core::host::PermissionStarted::Finished(self.permission_answers.pop_front().unwrap_or(true)))
     }
 
     fn share(
         &mut self,
         window: Option<WindowId>,
-        share: &remedy_ui_host::ShareOptions,
-    ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+        share: &remedy_ui_core::host::ShareOptions,
+    ) -> Result<remedy_ui_core::host::ShareStarted, Unsupported> {
         self.shares.push((window, share.clone()));
         if self.shares_answer_later {
-            let id = remedy_ui_host::ShareId(u64::try_from(self.shares.len()).unwrap_or(u64::MAX));
-            return Ok(remedy_ui_host::ShareStarted::Pending(id));
+            let id = remedy_ui_core::host::ShareId(u64::try_from(self.shares.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_core::host::ShareStarted::Pending(id));
         }
-        let outcome = self.share_answers.pop_front().unwrap_or(remedy_ui_host::ShareOutcome::Shared);
-        Ok(remedy_ui_host::ShareStarted::Finished(outcome))
+        let outcome = self.share_answers.pop_front().unwrap_or(remedy_ui_core::host::ShareOutcome::Shared);
+        Ok(remedy_ui_core::host::ShareStarted::Finished(outcome))
     }
 
     fn print_html(&mut self, window: Option<WindowId>, title: &str, html: &str) -> Result<(), Unsupported> {
@@ -956,7 +956,7 @@ impl Host for HeadlessHost {
     }
 
     fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
-        if !remedy_ui_host::is_openable_url(url) {
+        if !remedy_ui_core::host::is_openable_url(url) {
             return Err(Unsupported::new("opening links", "only web and mail links open"));
         }
         self.opened.push(url.to_owned());

@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
 
@@ -90,7 +90,7 @@ pub fn audit(ui: &Ui) -> Vec<String> {
 }
 
 /// Every element under `el` whose semantics have role `role`.
-pub fn with_role(el: &El, role: remedy_ui_a11y::Role) -> Vec<El> {
+pub fn with_role(el: &El, role: remedy_ui_core::a11y::Role) -> Vec<El> {
     let mut out = Vec::new();
     let mut stack = vec![el.clone()];
     while let Some(e) = stack.pop() {

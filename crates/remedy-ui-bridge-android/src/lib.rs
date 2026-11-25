@@ -26,8 +26,8 @@
 //! - capture protection with `FLAG_SECURE`;
 //! - the safe area: the window is laid out edge to edge (the surface already is), and the
 //!   system bars, display cutouts and on-screen keyboard it leaves covered are reported and
-//!   kept up to date ([`remedy_ui_host::SafeArea`]); the engine keeps content inside it;
-//! - back navigation: the back button and gesture arrive as [`remedy_ui_input::Key::Back`];
+//!   kept up to date ([`remedy_ui_core::host::SafeArea`]); the engine keeps content inside it;
+//! - back navigation: the back button and gesture arrive as [`remedy_ui_core::input::Key::Back`];
 //! - memory: `onTrimMemory` levels and low-memory calls become memory pressure, and the
 //!   device's memory comes from `/proc/meminfo`;
 //! - system settings, followed as they change: dark mode, font scale, locale, reduced motion
@@ -56,7 +56,7 @@
 //!   persisted state live;
 //! - the system log (`log`), since Android discards a native app's standard output.
 //!
-//! What Android cannot do reports [`remedy_ui_host::Unsupported`]: the tray (Android has
+//! What Android cannot do reports [`remedy_ui_core::host::Unsupported`]: the tray (Android has
 //! none), choosing folders (a chosen folder is a document tree reachable only through content
 //! URIs, never a path), dragging files out (other apps read shared files only through a
 //! content provider the app declares, not paths), and emptying the clipboard before Android 9

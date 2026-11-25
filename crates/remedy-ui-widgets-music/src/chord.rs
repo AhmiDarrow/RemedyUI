@@ -1,10 +1,10 @@
 //! Chord diagrams: the box with strings, frets, fingers, barres, and open and muted strings.
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect, Vec2};
-use remedy_ui_layout::Length;
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, TextPaint, Ui};
 
 /// What a string does in a chord.
@@ -335,7 +335,7 @@ pub fn chord_diagram(
             Some(text) => Some((center, text)),
             None => finger(center, f),
         };
-        let root_ink = remedy_ui_style::ensure_contrast(c.bg, c.warn, 4.5);
+        let root_ink = remedy_ui_core::style::ensure_contrast(c.bg, c.warn, 4.5);
         // The text on each dot, and whether the dot is a root (its ink differs).
         let mut labels: Vec<(Point, String, bool)> = Vec::new();
         // Barres under the dots.

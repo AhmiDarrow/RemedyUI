@@ -55,9 +55,9 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use remedy_ui_host::FileDialog;
-use remedy_ui_input::Clash;
-use remedy_ui_reactive::{Scope, Signal};
+use remedy_ui_core::host::FileDialog;
+use remedy_ui_core::input::Clash;
+use remedy_ui_core::reactive::{Scope, Signal};
 use remedy_ui_view::{Ui, WeakUi};
 
 pub use page::{layouts_editor, notices_view, settings_page, text_editor, toolbars_editor};
@@ -88,7 +88,7 @@ pub(crate) fn trf(ui: &Ui, id: &str, args: &[(&str, StrArg)]) -> String {
 
 /// The window's locale now (not tracked).
 pub(crate) fn locale_of(ui: &Ui) -> String {
-    remedy_ui_reactive::untrack(|| ui.locale())
+    remedy_ui_core::reactive::untrack(|| ui.locale())
 }
 
 /// Message `id` with placeholder values in the window's locale now (not tracked: for undo

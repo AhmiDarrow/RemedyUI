@@ -604,8 +604,8 @@ impl Java {
         caret: (f32, f32, f32),
         secret: bool,
         multiline: bool,
-        purpose: remedy_ui_host::InputPurpose,
-        enter: remedy_ui_host::EnterKey,
+        purpose: remedy_ui_core::host::InputPurpose,
+        enter: remedy_ui_core::host::EnterKey,
     ) -> Result<(), String> {
         let purpose = convert::purpose_code(purpose);
         let action = convert::ime_action(enter);
@@ -675,12 +675,12 @@ impl Java {
         &self,
         app: &AndroidApp,
         request: u64,
-        share: &remedy_ui_host::ShareOptions,
+        share: &remedy_ui_core::host::ShareOptions,
     ) -> Result<(), String> {
         let id = jlong::try_from(request).map_err(|e| e.to_string())?;
         let title = share.title.clone();
         let text = share.text.clone();
-        let names: Vec<String> = share.files.iter().map(remedy_ui_host::ShareFile::safe_name).collect();
+        let names: Vec<String> = share.files.iter().map(remedy_ui_core::host::ShareFile::safe_name).collect();
         let types: Vec<String> = share.files.iter().map(|f| f.mime_type().to_owned()).collect();
         let contents: Vec<Vec<u8>> = share.files.iter().map(|f| f.bytes.clone()).collect();
         let mime = share.mime_type();
@@ -720,7 +720,7 @@ impl Java {
                 // The app is told, so it never waits on a chooser that did not open.
                 notify(Notice::Share(
                     request,
-                    remedy_ui_host::ShareOutcome::Unsupported(remedy_ui_host::Unsupported::new(
+                    remedy_ui_core::host::ShareOutcome::Unsupported(remedy_ui_core::host::Unsupported::new(
                         "sharing",
                         "the share could not reach the chooser",
                     )),
@@ -828,7 +828,7 @@ impl Java {
     fn notification_call(
         &self,
         method: &str,
-        n: &remedy_ui_host::Notification,
+        n: &remedy_ui_core::host::Notification,
         extra: Option<jint>,
     ) -> Result<(), String> {
         let class = self.bridge_class()?;
@@ -861,8 +861,8 @@ impl Java {
                 JValue::Object(&pixels),
                 JValue::Int(side),
                 JValue::Int(match n.urgency {
-                    remedy_ui_host::Urgency::Warning => 1,
-                    remedy_ui_host::Urgency::Error => 2,
+                    remedy_ui_core::host::Urgency::Warning => 1,
+                    remedy_ui_core::host::Urgency::Error => 2,
                     _ => 0,
                 }),
             ];
@@ -881,7 +881,7 @@ impl Java {
     }
 
     /// Shows or replaces a notification; fails when the person turned them off.
-    pub(crate) fn show_notification(&self, n: &remedy_ui_host::Notification) -> Result<(), String> {
+    pub(crate) fn show_notification(&self, n: &remedy_ui_core::host::Notification) -> Result<(), String> {
         self.notification_call("showNotification", n, None)
     }
 
@@ -919,7 +919,7 @@ impl Java {
     /// what Android would refuse.
     pub(crate) fn start_foreground(
         &self,
-        n: &remedy_ui_host::Notification,
+        n: &remedy_ui_core::host::Notification,
         types: i32,
     ) -> Result<(), String> {
         self.notification_call("startForeground", n, Some(types))
@@ -966,8 +966,8 @@ impl Java {
     /// Serves the activity's drawing view to assistive technology through AccessKit.
     pub(crate) fn accessibility(
         &self,
-        activation: impl remedy_ui_host::accesskit::ActivationHandler + Send + 'static,
-        action: impl remedy_ui_host::accesskit::ActionHandler + Send + 'static,
+        activation: impl remedy_ui_core::host::accesskit::ActivationHandler + Send + 'static,
+        action: impl remedy_ui_core::host::accesskit::ActionHandler + Send + 'static,
     ) -> Result<accesskit_android::InjectingAdapter, String> {
         let class = self.bridge_class()?;
         self.call(|env, a| {
@@ -1078,12 +1078,12 @@ extern "system" fn ime_preedit(
     let text = jstring(&mut env, &text).unwrap_or_default();
     let c = usize::try_from(cursor).unwrap_or(0).min(text.len());
     let cursor = text.is_char_boundary(c).then_some(c..c);
-    notify(Notice::Ime(remedy_ui_host::ImeEvent::Preedit { text, cursor }));
+    notify(Notice::Ime(remedy_ui_core::host::ImeEvent::Preedit { text, cursor }));
 }
 
 extern "system" fn ime_commit(mut env: JNIEnv<'_>, _class: JClass<'_>, _handle: jlong, text: JString<'_>) {
     let text = jstring(&mut env, &text).unwrap_or_default();
-    notify(Notice::Ime(remedy_ui_host::ImeEvent::Commit(text)));
+    notify(Notice::Ime(remedy_ui_core::host::ImeEvent::Commit(text)));
 }
 
 extern "system" fn ime_delete(
@@ -1093,7 +1093,7 @@ extern "system" fn ime_delete(
     before: jint,
     after: jint,
 ) {
-    notify(Notice::Ime(remedy_ui_host::ImeEvent::DeleteSurrounding {
+    notify(Notice::Ime(remedy_ui_core::host::ImeEvent::DeleteSurrounding {
         before: usize::try_from(before).unwrap_or(0),
         after: usize::try_from(after).unwrap_or(0),
     }));
@@ -1146,9 +1146,9 @@ extern "system" fn share_done(
     let why = jstring(&mut env, &error);
     let _ = env.exception_clear();
     let outcome = match outcome {
-        0 => remedy_ui_host::ShareOutcome::Shared,
-        1 => remedy_ui_host::ShareOutcome::Cancelled,
-        _ => remedy_ui_host::ShareOutcome::Unsupported(remedy_ui_host::Unsupported::new(
+        0 => remedy_ui_core::host::ShareOutcome::Shared,
+        1 => remedy_ui_core::host::ShareOutcome::Cancelled,
+        _ => remedy_ui_core::host::ShareOutcome::Unsupported(remedy_ui_core::host::Unsupported::new(
             "sharing",
             why.unwrap_or_else(|| "the chooser failed".into()),
         )),

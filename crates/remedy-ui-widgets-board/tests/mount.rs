@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use remedy_ui_core::Size;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_script::{
     Action, Language, Limits, Node, ScriptError, ScriptWidget, SettingSpec, describe_with, serde_json,
 };

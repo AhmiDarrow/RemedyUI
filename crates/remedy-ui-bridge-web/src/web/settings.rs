@@ -1,7 +1,7 @@
 //! The page's settings: media queries, the language, the user's text size and accent color,
 //! followed as they change; and the screen's safe area.
 
-use remedy_ui_host::{HostEvent, SafeArea};
+use remedy_ui_core::host::{HostEvent, SafeArea};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 

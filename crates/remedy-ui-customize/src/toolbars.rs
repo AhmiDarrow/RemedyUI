@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use remedy_ui_reactive::{Effect, Signal, untrack};
+use remedy_ui_core::reactive::{Effect, Signal, untrack};
 use remedy_ui_view::Ui;
 use remedy_ui_widgets_nav::Commands;
 use serde_json::Value;

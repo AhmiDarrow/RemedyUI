@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth, Size};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::layout::Length;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
-use remedy_ui_style::{States, Style, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::style::{States, Style, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 

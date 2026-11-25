@@ -4,10 +4,10 @@
 
 use remedy_ui_compositor::{Layer, LayerTree};
 use remedy_ui_core::{Size, Vec2};
-use remedy_ui_input::{Key, KeyEvent};
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::{Key, KeyEvent};
+use remedy_ui_core::layout::Length;
 use remedy_ui_paint::Item;
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, LAZY_MIN_BYTES};
 use remedy_ui_view::{FieldKind, Ui};
 

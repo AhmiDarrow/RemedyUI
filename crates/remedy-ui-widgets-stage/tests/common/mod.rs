@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};

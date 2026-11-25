@@ -410,7 +410,7 @@ fn settle(ui: &Ui, until: impl Fn() -> bool) {
     while start.elapsed() < Duration::from_secs(60) {
         let _ = ui.frame(Size::new(800.0, 600.0), 1.0);
         let _ = ui.take_requests();
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if until() {
             break;
         }

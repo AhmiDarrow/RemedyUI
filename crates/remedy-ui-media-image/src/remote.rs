@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 
-use remedy_ui_reactive::Cancel;
+use remedy_ui_core::reactive::Cancel;
 
 use crate::decode::DecodeError;
 
@@ -592,7 +592,7 @@ pub(crate) fn fetch(url: &str, done: impl FnOnce(Got) + 'static) -> Fetching {
     let me = Fetching { url: url.to_owned(), id, detached: false };
     let Some(cancel) = start else { return me };
     let url = url.to_owned();
-    let Ok(waker) = remedy_ui_reactive::waker() else {
+    let Ok(waker) = remedy_ui_core::reactive::waker() else {
         // No runtime to answer through: wait here.
         let got = blocking(&url);
         land(&url, id, got);

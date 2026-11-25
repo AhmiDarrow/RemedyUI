@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::{CornerRadii, Point, Rect, Size, Vec2};
-use remedy_ui_input::{ScrollAxis, ScrollPhysics};
-use remedy_ui_motion::{Animation, Motion};
+use remedy_ui_core::input::{ScrollAxis, ScrollPhysics};
+use remedy_ui_core::motion::{Animation, Motion};
 use remedy_ui_paint::{Affine, DisplayList};
 
 use crate::damage::Damage;

@@ -7,9 +7,9 @@ use std::ops::Range;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Rect, Size, Vec2};
-use remedy_ui_host::SystemSettings;
-use remedy_ui_host::accesskit::{Node, Role, Toggled};
-use remedy_ui_input::{Buttons, Key, Modifiers, PadButtons, Platform, PointerKind};
+use remedy_ui_core::host::SystemSettings;
+use remedy_ui_core::host::accesskit::{Node, Role, Toggled};
+use remedy_ui_core::input::{Buttons, Key, Modifiers, PadButtons, Platform, PointerKind};
 
 /// CSS pixels one DOM "line" scrolls (`WheelEvent.DOM_DELTA_LINE`): a line of 16 px
 /// interface text. A wheel notch is usually three lines, 48 px, as on the desktop bridges.
@@ -355,7 +355,7 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
         (
             "aria-haspopup",
             node.has_popup().map(|p| {
-                use remedy_ui_host::accesskit::HasPopup as P;
+                use remedy_ui_core::host::accesskit::HasPopup as P;
                 match p {
                     P::Menu => "menu",
                     P::Listbox => "listbox",
@@ -382,16 +382,16 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
         (
             "aria-live",
             node.live().and_then(|l| match l {
-                remedy_ui_host::accesskit::Live::Off => None,
-                remedy_ui_host::accesskit::Live::Polite => Some("polite".to_owned()),
-                remedy_ui_host::accesskit::Live::Assertive => Some("assertive".to_owned()),
+                remedy_ui_core::host::accesskit::Live::Off => None,
+                remedy_ui_core::host::accesskit::Live::Polite => Some("polite".to_owned()),
+                remedy_ui_core::host::accesskit::Live::Assertive => Some("assertive".to_owned()),
             }),
         ),
         ("aria-hidden", flag(node.is_hidden())),
         (
             "aria-current",
             node.aria_current().and_then(|c| {
-                use remedy_ui_host::accesskit::AriaCurrent as C;
+                use remedy_ui_core::host::accesskit::AriaCurrent as C;
                 match c {
                     C::False => None,
                     C::True => Some("true"),
@@ -574,7 +574,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     s.locales = if listed.is_empty() { vec![s.locale.clone()] } else { listed };
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
-    s.pointer = Some(remedy_ui_host::PointerCaps::new(page.hover, page.fine_pointer));
+    s.pointer = Some(remedy_ui_core::host::PointerCaps::new(page.hover, page.fine_pointer));
     s
 }
 
@@ -851,7 +851,7 @@ mod tests {
         let a = aria_attributes(&d);
         assert!(a.contains(&("aria-modal", Some("true".to_owned()))));
         let mut b = Node::new(Role::Button);
-        b.set_has_popup(remedy_ui_host::accesskit::HasPopup::Dialog);
+        b.set_has_popup(remedy_ui_core::host::accesskit::HasPopup::Dialog);
         let a = aria_attributes(&b);
         assert!(a.contains(&("aria-haspopup", Some("dialog".to_owned()))));
         assert!(aria_attributes(&Node::new(Role::Button)).contains(&("aria-haspopup", None)));
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(aria_role(Role::Navigation), Some("navigation"));
         assert_eq!(aria_role(Role::Main), Some("main"));
         let mut c = Node::new(Role::Link);
-        c.set_aria_current(remedy_ui_host::accesskit::AriaCurrent::Page);
+        c.set_aria_current(remedy_ui_core::host::accesskit::AriaCurrent::Page);
         let a = aria_attributes(&c);
         let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
         assert_eq!(get("aria-current").as_deref(), Some("page"));
@@ -933,7 +933,7 @@ mod tests {
         assert_eq!(s.locales, ["de-DE", "fr", "en"], "navigator.languages in order, blanks dropped");
         assert!(s.reduced_motion);
         assert!(s.spatial_navigation, "a touch-only browser moves focus with arrows");
-        assert_eq!(s.pointer, Some(remedy_ui_host::PointerCaps::PEN), "fine but not hovering");
+        assert_eq!(s.pointer, Some(remedy_ui_core::host::PointerCaps::PEN), "fine but not hovering");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
         let quiet = settings(&PageSettings {
             prefers_dark: false,

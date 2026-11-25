@@ -1,11 +1,11 @@
 //! A pane docked on the start or end of a row, with a resizable divider and a
 //! collapse strip.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::{Buttons, Key, PointerPhase};
-use remedy_ui_layout::{Align, Justify, Length};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Buttons, Key, PointerPhase};
+use remedy_ui_core::layout::{Align, Justify, Length};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 /// Which side of the row the docked pane sits on, in the container's start/end

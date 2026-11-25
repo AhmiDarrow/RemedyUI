@@ -2,9 +2,9 @@
 
 use std::time::Duration;
 
-use remedy_ui_a11y::Role;
+use remedy_ui_core::a11y::Role;
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{Request, Ui};
 use remedy_ui_widgets_core as w;
@@ -94,7 +94,7 @@ fn a_secret_fields_context_menu_disables_cut_and_copy() {
     field.el().focus();
     t.frame();
     for c in ['s', 'e', 'c', 'r', 'e', 't'] {
-        let _ = t.ui.key(&remedy_ui_input::KeyEvent::press(remedy_ui_input::Key::char(c)));
+        let _ = t.ui.key(&remedy_ui_core::input::KeyEvent::press(remedy_ui_core::input::Key::char(c)));
     }
     t.frame();
     field.select_all();

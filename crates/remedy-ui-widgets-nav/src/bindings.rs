@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use remedy_ui_input::Chord;
+use remedy_ui_core::input::Chord;
 use serde_json::Value;
 
 /// Why text is not a set of bindings: what was wrong, naming the command where there is one.
@@ -37,14 +37,14 @@ impl std::error::Error for BindingsError {}
 /// ```
 /// use std::collections::HashMap;
 ///
-/// use remedy_ui_input::Chord;
+/// use remedy_ui_core::input::Chord;
 /// use remedy_ui_widgets_nav::{bindings_from_json, bindings_to_json};
 ///
 /// let mut b = HashMap::new();
 /// b.insert("file.save".to_owned(), vec!["Ctrl+S".parse::<Chord>()?]);
 /// let text = bindings_to_json(&b);
 /// assert_eq!(bindings_from_json(&text).ok(), Some(b));
-/// # Ok::<(), remedy_ui_input::ChordError>(())
+/// # Ok::<(), remedy_ui_core::input::ChordError>(())
 /// ```
 pub fn bindings_to_json(bindings: &HashMap<String, Vec<Chord>>) -> String {
     let sorted: BTreeMap<&String, Vec<String>> =
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn rebindings_export_and_import_between_apps() {
-        use remedy_ui_input::{Key, Modifiers};
+        use remedy_ui_core::input::{Key, Modifiers};
         let ctrl = |c: char| Chord::new(Modifiers::CTRL, Key::char(c));
         let a = crate::Commands::new();
         a.add("file.save", "Save", vec![ctrl('s')], None, || {});

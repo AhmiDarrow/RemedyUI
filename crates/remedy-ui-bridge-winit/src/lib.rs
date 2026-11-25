@@ -19,13 +19,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     AccessibilityEvent, App, Badge, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog,
     ForegroundTask, Host, HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted,
     Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState, TimerId,
     TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
-use remedy_ui_input::{
+use remedy_ui_core::input::{
     Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
     WheelEvent,
 };
@@ -253,7 +253,7 @@ pub trait PlatformHooks: 'static {
         false
     }
     /// Sends an accessibility update for a window [`PlatformHooks::start_accessibility`] took.
-    fn update_accessibility(&mut self, window: &Window, update: remedy_ui_host::accesskit::TreeUpdate) {
+    fn update_accessibility(&mut self, window: &Window, update: remedy_ui_core::host::accesskit::TreeUpdate) {
         let _ = (window, update);
     }
     /// The edges of `window` that system interface covers, in logical pixels.
@@ -429,19 +429,19 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.total_memory()
     }
 
-    fn local_time(&self) -> remedy_ui_host::LocalTime {
+    fn local_time(&self) -> remedy_ui_core::host::LocalTime {
         let unix_seconds = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
             Ok(d) => d.as_secs() as i64,
             Err(e) => -(e.duration().as_secs() as i64),
         };
-        remedy_ui_host::LocalTime {
+        remedy_ui_core::host::LocalTime {
             unix_seconds,
             utc_offset: self.hooks.utc_offset(unix_seconds).unwrap_or(0),
         }
     }
 
-    fn time_zone(&self) -> remedy_ui_host::TimeZone {
-        remedy_ui_host::TimeZone::new(self.hooks.utc_offsets())
+    fn time_zone(&self) -> remedy_ui_core::host::TimeZone {
+        remedy_ui_core::host::TimeZone::new(self.hooks.utc_offsets())
     }
 
     fn create_window(&mut self, options: &WindowOptions) -> Result<WindowId, Unsupported> {
@@ -712,7 +712,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.set_cursor_hidden(&w.window, hidden);
     }
 
-    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_host::Cursor) {
+    fn set_cursor(&mut self, window: WindowId, cursor: remedy_ui_core::host::Cursor) {
         let Some(wid) = self.state.ids.get(&window) else { return };
         let Some((_, w)) = self.state.windows.get(wid) else { return };
         w.window.set_cursor(cursor_icon(cursor));
@@ -888,7 +888,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.set_tray(tray)
     }
 
-    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
+    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_core::host::accesskit::TreeUpdate) {
         let Some(wid) = self.state.ids.get(&window).copied() else { return };
         let Some((_, w)) = self.state.windows.get_mut(&wid) else { return };
         match w.a11y.as_mut() {
@@ -922,7 +922,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.withdraw_notification(id)
     }
 
-    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_input::GamepadTuning) {
+    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_core::input::GamepadTuning) {
         if let Some(pads) = &self.state.pads {
             pads.set_tuning(tuning);
         }
@@ -967,7 +967,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     }
 
     fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
-        if !remedy_ui_host::is_openable_url(url) {
+        if !remedy_ui_core::host::is_openable_url(url) {
             return Err(Unsupported::new("opening links", "only web and mail links open"));
         }
         self.hooks.open_url(url)
@@ -1515,8 +1515,8 @@ pub fn run<A: App, H: PlatformHooks>(app: A, hooks: H) -> Result<(), RunError> {
 }
 
 /// winit's name for a pointer shape (both follow CSS).
-fn cursor_icon(cursor: remedy_ui_host::Cursor) -> CursorIcon {
-    use remedy_ui_host::Cursor;
+fn cursor_icon(cursor: remedy_ui_core::host::Cursor) -> CursorIcon {
+    use remedy_ui_core::host::Cursor;
     match cursor {
         Cursor::Default => CursorIcon::Default,
         Cursor::Pointer => CursorIcon::Pointer,

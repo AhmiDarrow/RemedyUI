@@ -13,13 +13,12 @@ categories.workspace = true
 
 [dependencies]
 # Gamepad events are read the same way everywhere, so that part is tested on every platform.
-remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 
 # The rest of the bridge is empty on other platforms, so what it uses is platform-specific.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"] }
 libc = { version = "=0.2.191" }
 zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }

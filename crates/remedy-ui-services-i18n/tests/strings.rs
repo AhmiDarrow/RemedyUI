@@ -16,8 +16,8 @@ fn number_errors_are_told_in_the_window_language() {
     assert_eq!(DecimalError::Empty.message_in("fr-CA"), "Saisissez un nombre");
     assert_eq!(DecimalError::Overflow.message_in("ja"), "桁数が多すぎます");
     let ui = Ui::new(
-        remedy_ui_style::Theme::dark_forest(),
-        remedy_ui_style::StyleSheet::new(),
+        remedy_ui_core::style::Theme::dark_forest(),
+        remedy_ui_core::style::StyleSheet::new(),
         remedy_ui_text::FontCollection::new(),
     );
     let err = Decimal::parse("12a").err().unwrap_or_else(|| unreachable!("not a number"));

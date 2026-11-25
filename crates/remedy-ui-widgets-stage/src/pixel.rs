@@ -6,10 +6,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size};
 use remedy_ui_paint::{Image, Item, Sampling};
-use remedy_ui_style::Theme;
+use remedy_ui_core::style::Theme;
 use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
@@ -38,7 +38,7 @@ struct ArtState {
 /// role follows the skin, a fixed color stays.
 ///
 /// ```
-/// use remedy_ui_style::ColorRole;
+/// use remedy_ui_core::style::ColorRole;
 /// use remedy_ui_widgets_stage::{Ink, PixelArt};
 ///
 /// let lamp = PixelArt::new([('#', Ink::from(ColorRole::Line)), ('o', Ink::from(ColorRole::Warn))])

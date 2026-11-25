@@ -223,7 +223,7 @@ pub(crate) fn run(
     priority: Arc<AtomicU64>,
     job: impl FnOnce(&Cancel) -> Done + Send + 'static,
 ) {
-    let Ok(waker) = remedy_ui_reactive::waker() else {
+    let Ok(waker) = remedy_ui_core::reactive::waker() else {
         let done = job(&cancel);
         deliver(viewer, done);
         return;

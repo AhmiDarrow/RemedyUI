@@ -1,7 +1,7 @@
 //! What a Linux gamepad's evdev events mean: its d-pad (buttons or a hat), left stick, A and B
 //! as one [`PadState`]. Plain data, so it is tested on every platform.
 
-use remedy_ui_input::{PadButtons, PadState};
+use remedy_ui_core::input::{PadButtons, PadState};
 
 pub(crate) const EV_SYN: u16 = 0x00;
 pub(crate) const EV_KEY: u16 = 0x01;

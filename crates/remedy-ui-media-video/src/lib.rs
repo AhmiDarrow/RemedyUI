@@ -15,14 +15,14 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_paint::{Brush, Item};
 pub use remedy_ui_paint::{
     CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuAdapter, GpuFrame, GpuPicture,
     GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter, gpu_video_dma_buf_modifiers,
 };
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 /// How the picture fills its element.
@@ -69,7 +69,7 @@ struct Shared {
 #[derive(Clone)]
 pub struct VideoSink {
     shared: Arc<Shared>,
-    waker: Option<remedy_ui_reactive::Waker>,
+    waker: Option<remedy_ui_core::reactive::Waker>,
 }
 
 thread_local! {
@@ -305,7 +305,7 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
     };
     let take: Rc<dyn Fn()> = Rc::new(take);
     SURFACES.with(|s| s.borrow_mut().insert(shared.stream, Rc::downgrade(&take)));
-    let waker = remedy_ui_reactive::waker().ok();
+    let waker = remedy_ui_core::reactive::waker().ok();
     let label = label.into();
     let counted = shared.clone();
     let closing = shared.clone();

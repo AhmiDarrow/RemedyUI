@@ -8,12 +8,12 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Point, Rect, Size, Vec2};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
-use remedy_ui_layout::{AUTO, Length, Position};
-use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
+use remedy_ui_core::layout::{AUTO, Length, Position};
+use remedy_ui_core::reactive::{Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{Drag, DropEffect, El, Ui};
 
 use crate::model::Selection;

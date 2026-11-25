@@ -3,7 +3,7 @@
 //! shows overlays for the window's DPI. Screen readers get the badge's text as its
 //! description.
 
-use remedy_ui_host::{Badge, Unsupported};
+use remedy_ui_core::host::{Badge, Unsupported};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::UI::Shell::{ITaskbarList3, TaskbarList};

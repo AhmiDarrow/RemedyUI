@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use remedy_ui_paint::Image;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 
 use crate::decode::{
     DecodeError, Decoded, decode, dimensions, dimensions_from, fitted_scalable, format_of, router,
@@ -415,7 +415,7 @@ fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
 
 /// [`decode_start`] with the engine's own decoder, on the image workers.
 fn decode_here(source: Source, key: Key, cancelled: Arc<AtomicBool>, held: Option<Weak<[u8]>>) {
-    let Ok(waker) = remedy_ui_reactive::waker() else {
+    let Ok(waker) = remedy_ui_core::reactive::waker() else {
         let result = decode_job(&source, &key_box(&key), key.cover);
         finish(key, held, result);
         return;
@@ -496,7 +496,7 @@ fn finish(key: Key, held: Option<Weak<[u8]>>, result: JobResult) {
 }
 
 fn revalidate(path: PathBuf, old: Stamp, key: Key, source: Source, state: Signal<ImageState>) {
-    let Ok(waker) = remedy_ui_reactive::waker() else { return };
+    let Ok(waker) = remedy_ui_core::reactive::waker() else { return };
     let cancelled = Arc::new(AtomicBool::new(false));
     spawn(cancelled, move || {
         if stamp(&path) == Some(old) {
@@ -594,7 +594,7 @@ fn size_job(
             let _ = state.try_set(r.map_or_else(ImageState::Failed, ImageState::Sized));
         }
     };
-    let Ok(waker) = remedy_ui_reactive::waker() else {
+    let Ok(waker) = remedy_ui_core::reactive::waker() else {
         if let Some(r) = read() {
             apply(r);
         }

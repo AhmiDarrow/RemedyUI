@@ -6,7 +6,7 @@ use std::io::Read as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
-use remedy_ui_host::{PointerCaps, Waker};
+use remedy_ui_core::host::{PointerCaps, Waker};
 
 /// What the pointing hardware attached can do, or `None` where the kernel lists none (or
 /// cannot be read: a sandbox).

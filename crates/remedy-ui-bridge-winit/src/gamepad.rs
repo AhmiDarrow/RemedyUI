@@ -5,8 +5,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use remedy_ui_host::Waker;
-use remedy_ui_input::{GamepadKeys, GamepadTuning, KeyEvent, PadState};
+use remedy_ui_core::host::Waker;
+use remedy_ui_core::input::{GamepadKeys, GamepadTuning, KeyEvent, PadState};
 
 /// The platform's gamepads, read on the bridge's own thread.
 pub trait PadSource: Send + 'static {
@@ -104,7 +104,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;
 
-    use remedy_ui_input::{Key, PadButtons};
+    use remedy_ui_core::input::{Key, PadButtons};
 
     use super::*;
 

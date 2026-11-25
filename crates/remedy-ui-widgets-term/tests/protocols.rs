@@ -2,7 +2,7 @@
 //! right margins, 132 columns, the kitty keyboard protocol, the shell's working directory
 //! and prompt marks, emoji sequences, and scrollback given back under memory pressure.
 
-use remedy_ui_input::{Key, KeyEvent, Modifiers};
+use remedy_ui_core::input::{Key, KeyEvent, Modifiers};
 use remedy_ui_widgets_term::*;
 
 fn emu(cols: usize, rows: usize, input: &str) -> Emulator {

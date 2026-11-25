@@ -253,7 +253,7 @@ pub(crate) fn a_hostile_animation_shows_its_error_state_while_a_good_one_plays()
 
     let mut timers: Vec<u64> = Vec::new();
     let pump = |ui: &remedy_ui_view::Ui, timers: &mut Vec<u64>| {
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
         for r in ui.take_requests() {
             match r {

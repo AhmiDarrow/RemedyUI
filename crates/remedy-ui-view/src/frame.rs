@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::a11y::{Role, Semantics};
 use remedy_ui_compositor::{Layer, LayerId, LayerTree, ScrollSnap, SnapPoint};
 use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
 use remedy_ui_paint::{Affine, Brush, DisplayList, GlyphRun, Item};
-use remedy_ui_style::{BorderStyle, States, StyleKey};
+use remedy_ui_core::style::{BorderStyle, States, StyleKey};
 use remedy_ui_text::{Antialias, Hinting, Paragraph};
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::element::{ElData, Inner, PaintCx, Ui, root_key};
 
@@ -68,14 +68,14 @@ struct StickCx {
 /// The physical sides an element sticks to (start and end following its parent's direction,
 /// right to left when `parent_rtl` says so), from its style sheet or its layout; `None` when
 /// it is not sticky.
-fn sticky_sides(d: &ElData, parent_rtl: impl FnOnce() -> bool) -> Option<remedy_ui_style::StickyInsets> {
+fn sticky_sides(d: &ElData, parent_rtl: impl FnOnce() -> bool) -> Option<remedy_ui_core::style::StickyInsets> {
     let side = |v: f32| v.is_finite().then_some(v);
     let sheet = d.resolved.sticky.sticks();
     let s = if sheet {
         d.resolved.sticky
-    } else if d.layout.position == remedy_ui_layout::Position::Sticky {
+    } else if d.layout.position == remedy_ui_core::layout::Position::Sticky {
         let i = d.layout.inset;
-        remedy_ui_style::StickyInsets {
+        remedy_ui_core::style::StickyInsets {
             top: side(i.top),
             end: side(i.end),
             bottom: side(i.bottom),
@@ -86,7 +86,7 @@ fn sticky_sides(d: &ElData, parent_rtl: impl FnOnce() -> bool) -> Option<remedy_
     };
     let physical = d.layout.inset_physical && !sheet;
     Some(if !physical && parent_rtl() {
-        remedy_ui_style::StickyInsets { start: s.end, end: s.start, ..s }
+        remedy_ui_core::style::StickyInsets { start: s.end, end: s.start, ..s }
     } else {
         s
     })
@@ -121,14 +121,14 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
 /// ```
 /// use remedy_ui_core::Size;
 /// use remedy_ui_paint::Brush;
-/// use remedy_ui_style::{Gradient, Theme};
+/// use remedy_ui_core::style::{Gradient, Theme};
 ///
 /// let g = Gradient::parse("radial-gradient(ellipse at center, #fff, transparent)").unwrap();
 /// let b = remedy_ui_view::gradient_brush(&g, Size::new(200.0, 100.0), &Theme::dark_forest());
 /// assert!(matches!(b, Brush::Elliptical { .. }));
 /// ```
-pub fn gradient_brush(g: &remedy_ui_style::Gradient, size: Size, theme: &remedy_ui_style::Theme) -> Brush {
-    use remedy_ui_style::GradientGeometry as G;
+pub fn gradient_brush(g: &remedy_ui_core::style::Gradient, size: Size, theme: &remedy_ui_core::style::Theme) -> Brush {
+    use remedy_ui_core::style::GradientGeometry as G;
     let stops: Vec<_> =
         g.stops(theme).into_iter().map(|(offset, color)| remedy_ui_paint::Stop { offset, color }).collect();
     match g.geometry(size) {
@@ -141,7 +141,7 @@ pub fn gradient_brush(g: &remedy_ui_style::Gradient, size: Size, theme: &remedy_
     }
 }
 
-pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
+pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_core::style::Theme) -> remedy_ui_text::TextStyle {
     {
         let mut v_ = remedy_ui_text::TextStyle::default();
         v_.families = theme.families(d.resolved.mono, d.resolved.heading);
@@ -168,7 +168,7 @@ fn record(
     size: Size,
     boxed: Rect,
     shown: Option<std::ops::Range<f32>>,
-    theme: &remedy_ui_style::Theme,
+    theme: &remedy_ui_core::style::Theme,
     engine: &mut remedy_ui_text::TextEngine,
     focused: bool,
     scale: f32,
@@ -298,7 +298,7 @@ fn record(
                 next_frame = cx.next_frame;
                 ask = cx.ask;
             }
-            Err(p) => failed = Some(remedy_ui_reactive::panic_message(p.as_ref())),
+            Err(p) => failed = Some(remedy_ui_core::reactive::panic_message(p.as_ref())),
         }
     }
     (list, next_frame, failed, ask)
@@ -340,10 +340,10 @@ pub(crate) fn composed_semantics(
         s = s.disabled(true);
     }
     if d.click.is_some() && d.semantics.is_none() {
-        s = s.action(remedy_ui_a11y::Action::Click);
+        s = s.action(remedy_ui_core::a11y::Action::Click);
     }
     if focusable {
-        s = s.action(remedy_ui_a11y::Action::Focus);
+        s = s.action(remedy_ui_core::a11y::Action::Focus);
     }
     s
 }
@@ -549,7 +549,7 @@ struct Walk<'a> {
 }
 
 /// The corners of a box styled `s`, physical: start and end swapped in right-to-left layout.
-pub(crate) fn corners(s: &remedy_ui_style::ResolvedStyle, rtl: bool) -> CornerRadii {
+pub(crate) fn corners(s: &remedy_ui_core::style::ResolvedStyle, rtl: bool) -> CornerRadii {
     if rtl { s.corners.mirrored() } else { s.corners }
 }
 
@@ -886,8 +886,8 @@ impl Walk<'_> {
 /// The scroll bars a scroll container styled `s` draws: its `scrollbar-*` style, the colors
 /// the platform's (from `theme`) when it sets none. `None` when it shows none.
 pub(crate) fn scrollbars(
-    s: &remedy_ui_style::ResolvedStyle,
-    theme: &remedy_ui_style::Theme,
+    s: &remedy_ui_core::style::ResolvedStyle,
+    theme: &remedy_ui_core::style::Theme,
 ) -> Option<remedy_ui_compositor::Scrollbars> {
     let width = s.scrollbar_width.px();
     if width <= 0.0 || s.scrollbar_visibility == remedy_ui_core::ScrollbarVisibility::Never {
@@ -925,7 +925,7 @@ impl Paint {
 
 /// The shadow a box styled `s` of `size` casts, faded by `opacity`, as a display item at the
 /// box's origin; `None` for none.
-fn box_shadow(s: &remedy_ui_style::ResolvedStyle, rtl: bool, size: Size, opacity: f32) -> Option<Item> {
+fn box_shadow(s: &remedy_ui_core::style::ResolvedStyle, rtl: bool, size: Size, opacity: f32) -> Option<Item> {
     let sh = s.shadow;
     if !sh.is_visible() || opacity <= 0.0 {
         return None;
@@ -943,7 +943,7 @@ fn box_shadow(s: &remedy_ui_style::ResolvedStyle, rtl: bool, size: Size, opacity
 }
 
 /// The filters an element styled `s` is drawn through, outermost first.
-fn filters(s: &remedy_ui_style::ResolvedStyle) -> Vec<remedy_ui_paint::Filter> {
+fn filters(s: &remedy_ui_core::style::ResolvedStyle) -> Vec<remedy_ui_paint::Filter> {
     let mut out = Vec::new();
     let d = s.drop_shadow;
     if d.is_visible() {
@@ -1015,7 +1015,7 @@ impl Ui {
         // Each element's depth, remembered on the way up: a path to the root is walked once
         // for all the dirty elements on it, not once for each.
         let mut depths: HashMap<ElementId, usize> = HashMap::new();
-        let mut depth = |tree: &remedy_ui_tree::Tree, id: ElementId| {
+        let mut depth = |tree: &remedy_ui_core::tree::Tree, id: ElementId| {
             let mut path = Vec::new();
             let mut cur = Some(id);
             let mut base = 0usize;
@@ -1146,16 +1146,16 @@ impl Ui {
                 // Hidden elements take no space, as the `hidden` attribute does on the web, and
                 // neither do the engine's empty wrappers (a `show` showing nothing).
                 if d.hidden || d.collapsed {
-                    style.display = remedy_ui_layout::Display::None;
+                    style.display = remedy_ui_core::layout::Display::None;
                 }
                 // A scroll container's automatic minimum size is zero (as in CSS): it scrolls
                 // its content instead of growing to fit it.
                 if d.scroll {
-                    if style.min_height == remedy_ui_layout::Length::Auto {
-                        style.min_height = remedy_ui_layout::Length::Px(0.0);
+                    if style.min_height == remedy_ui_core::layout::Length::Auto {
+                        style.min_height = remedy_ui_core::layout::Length::Px(0.0);
                     }
-                    if style.min_width == remedy_ui_layout::Length::Auto {
-                        style.min_width = remedy_ui_layout::Length::Px(0.0);
+                    if style.min_width == remedy_ui_core::layout::Length::Auto {
+                        style.min_width = remedy_ui_core::layout::Length::Px(0.0);
                     }
                 }
                 // Content in a scroll container keeps its size and scrolls, never shrinks.
@@ -1599,12 +1599,12 @@ fn side_borders(
     list: &mut DisplayList,
     rect: Rect,
     radii: CornerRadii,
-    s: &remedy_ui_style::ResolvedStyle,
+    s: &remedy_ui_core::style::ResolvedStyle,
     rtl: bool,
     scale: f32,
 ) {
     use remedy_ui_paint::{Path, Stroke, StrokeCap};
-    use remedy_ui_style::BorderEdge as E;
+    use remedy_ui_core::style::BorderEdge as E;
     // Physical sides clockwise from the top: top, right, bottom, left.
     let (right, left) = if rtl { (E::Start, E::End) } else { (E::End, E::Start) };
     let sides = [E::Top, right, E::Bottom, left].map(|e| s.border_on(e));
@@ -1725,8 +1725,8 @@ fn crisp_width(width: f32, scale: f32) -> f32 {
 }
 
 /// True when a length of `s` is in `ch`, so its font's "0" must be measured.
-fn uses_ch(s: &remedy_ui_layout::LayoutStyle) -> bool {
-    use remedy_ui_layout::Length::Ch;
+fn uses_ch(s: &remedy_ui_core::layout::LayoutStyle) -> bool {
+    use remedy_ui_core::layout::Length::Ch;
     [s.width, s.height, s.min_width, s.min_height, s.max_width, s.max_height, s.basis]
         .iter()
         .any(|l| matches!(l, Ch(_)))

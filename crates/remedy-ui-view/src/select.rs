@@ -7,8 +7,8 @@
 use std::ops::Range;
 
 use remedy_ui_core::Point;
-use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
-use remedy_ui_tree::{Dirty, ElementId};
+use remedy_ui_core::input::{Buttons, PointerEvent, PointerPhase};
+use remedy_ui_core::tree::{Dirty, ElementId};
 
 use crate::{El, Ui};
 

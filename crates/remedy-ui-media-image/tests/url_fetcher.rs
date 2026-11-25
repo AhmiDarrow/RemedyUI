@@ -10,7 +10,7 @@ use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use remedy_ui_core::Size;
 use remedy_ui_media_image::*;
-use remedy_ui_reactive::Cancel;
+use remedy_ui_core::reactive::Cancel;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
 
@@ -40,7 +40,7 @@ fn pump(ui: &Ui, done: impl Fn() -> bool) -> bool {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(10) {
         let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
-        let _ = remedy_ui_reactive::run_posted();
+        let _ = remedy_ui_core::reactive::run_posted();
         if done() {
             return true;
         }

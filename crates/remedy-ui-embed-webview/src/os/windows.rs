@@ -15,8 +15,8 @@ use std::ffi::c_void;
 use std::rc::{Rc, Weak};
 use std::sync::OnceLock;
 
-use remedy_ui_host::WindowHandles;
-use remedy_ui_host::raw_window_handle::RawWindowHandle;
+use remedy_ui_core::host::WindowHandles;
+use remedy_ui_core::host::raw_window_handle::RawWindowHandle;
 use remedy_ui_view::{Placement, WeakUi};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{

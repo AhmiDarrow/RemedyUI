@@ -10,7 +10,7 @@
 use std::ops::Range;
 
 use remedy_ui_core::Rect;
-use remedy_ui_host::{ImeEvent, TextInputState};
+use remedy_ui_core::host::{ImeEvent, TextInputState};
 
 /// Why an edit was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

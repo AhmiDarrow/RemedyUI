@@ -10,7 +10,7 @@
 //!   monotonic wall clock.
 //!
 //! The UI thread talks to them with commands and hears back through [`Status`], posted with
-//! the reactive [`Waker`](remedy_ui_reactive::Waker) so only the player's signals change.
+//! the reactive [`Waker`](remedy_ui_core::reactive::Waker) so only the player's signals change.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};

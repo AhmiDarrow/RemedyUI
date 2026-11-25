@@ -1,21 +1,21 @@
 //! Buttons.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_layout::Align;
-use remedy_ui_reactive::Signal;
-use remedy_ui_style::States;
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::layout::Align;
+use remedy_ui_core::reactive::Signal;
+use remedy_ui_core::style::States;
 use remedy_ui_view::{El, IntoProp, RichText, Ui};
 
 use crate::icons::{Icon, icon};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_input::Key;
+use remedy_ui_core::input::Key;
 
 use crate::menus::{MenuItem, OpenMenu, open_menu};
 
 pub(crate) fn centered(el: El) -> El {
-    el.row().align(Align::Center).justify(remedy_ui_layout::Justify::Center)
+    el.row().align(Align::Center).justify(remedy_ui_core::layout::Justify::Center)
 }
 
 /// A button with a text label. Style it with `.variant("primary" | "quiet" | "danger" |

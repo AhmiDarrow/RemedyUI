@@ -13,8 +13,6 @@ categories.workspace = true
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
-remedy-ui-motion = { path = "../remedy-ui-motion", version = "1.0.0-rc.1" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 
 [lints]

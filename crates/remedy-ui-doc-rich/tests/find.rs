@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use remedy_ui_doc_rich::*;
-use remedy_ui_input::{Key, KeyEvent};
+use remedy_ui_core::input::{Key, KeyEvent};
 use remedy_ui_view::{El, Ui};
 
 mod common;
@@ -51,7 +51,7 @@ fn bar() -> Bar {
 }
 
 fn status(b: &Bar) -> String {
-    with_role(&b.bar, remedy_ui_a11y::Role::Status).first().map(name).unwrap_or_default()
+    with_role(&b.bar, remedy_ui_core::a11y::Role::Status).first().map(name).unwrap_or_default()
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn the_bar_speaks_the_windows_language() {
     b.ui.set_locale("de");
     frame(&b.ui);
     assert_eq!(status(&b), "1 von 4");
-    let names: Vec<String> = with_role(&b.bar, remedy_ui_a11y::Role::Button).iter().map(name).collect();
+    let names: Vec<String> = with_role(&b.bar, remedy_ui_core::a11y::Role::Button).iter().map(name).collect();
     assert!(names.iter().any(|n| n == "Nächster Treffer"), "{names:?}");
     b.state.search("zebra");
     frame(&b.ui);

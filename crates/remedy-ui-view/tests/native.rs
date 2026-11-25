@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Insets, Size, Vec2};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_layout::Length;
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::layout::Length;
 use remedy_ui_render_cpu::CpuCompositor;
-use remedy_ui_style::{StyleSheet, Theme};
+use remedy_ui_core::style::{StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{Placement, Request, Ui};
 
@@ -47,8 +47,8 @@ fn placed_elements_follow_scrolling_clipping_overlays_and_hiding() {
         .scroll()
         .layout(|l| {
             l.height = Length::Px(100.0);
-            l.display = remedy_ui_layout::Display::Flex;
-            l.axis = remedy_ui_layout::Axis::Column;
+            l.display = remedy_ui_core::layout::Display::Flex;
+            l.axis = remedy_ui_core::layout::Axis::Column;
         })
         .child(ui.el("spacer").layout(|l| l.height = Length::Px(20.0)))
         .child(target.clone())
@@ -71,7 +71,7 @@ fn placed_elements_follow_scrolling_clipping_overlays_and_hiding() {
     assert_eq!((p.visible.min.y, p.visible.max.y), (0.0, 30.0));
     // An overlay over it is reported, cut to what shows.
     let menu = ui.overlay(ui.el("menu").layout(|l| {
-        l.position = remedy_ui_layout::Position::Absolute;
+        l.position = remedy_ui_core::layout::Position::Absolute;
         l.inset = Insets { top: 10.0, start: 30.0, bottom: 0.0, end: 0.0 };
         l.width = Length::Px(40.0);
         l.height = Length::Px(60.0);

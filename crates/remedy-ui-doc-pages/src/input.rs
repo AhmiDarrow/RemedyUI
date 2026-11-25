@@ -1,7 +1,7 @@
 //! What an app can change about how a page view answers the wheel, the keyboard and taps.
 
 use remedy_ui_core::Point;
-use remedy_ui_input::{Chord, Key, Modifiers, Platform};
+use remedy_ui_core::input::{Chord, Key, Modifiers, Platform};
 
 /// How pages follow one another in a [`PageView`](crate::PageView).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

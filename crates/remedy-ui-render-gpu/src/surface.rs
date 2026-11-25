@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use remedy_ui_compositor::FramePlan;
 use remedy_ui_core::Color;
-use remedy_ui_host::WindowHandles;
+use remedy_ui_core::host::WindowHandles;
 use remedy_ui_render_cpu::Frame;
 
 use crate::renderer::submit_scene;

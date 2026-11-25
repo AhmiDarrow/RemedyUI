@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::os::fd::AsFd;
 
-use remedy_ui_host::{Unsupported, WindowIcon};
+use remedy_ui_core::host::{Unsupported, WindowIcon};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_registry::WlRegistry;

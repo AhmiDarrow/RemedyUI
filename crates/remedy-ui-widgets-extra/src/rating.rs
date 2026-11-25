@@ -1,10 +1,10 @@
 //! A star rating.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Point, Rect};
-use remedy_ui_input::{Key, PointerPhase};
+use remedy_ui_core::input::{Key, PointerPhase};
 use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeJoin};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use std::cell::Cell;
 use std::rc::Rc;

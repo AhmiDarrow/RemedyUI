@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use remedy_ui_core::Color;
-use remedy_ui_style::{Density, Theme};
+use remedy_ui_core::style::{Density, Theme};
 use remedy_ui_view::Ui;
 use serde_json::{Map, Value, json};
 
@@ -753,7 +753,7 @@ pub(crate) struct ThemeArea {
     pub(crate) default: Theme,
     /// The file's document when it loaded (empty when there is none or it failed).
     pub(crate) doc: Map<String, Value>,
-    pub(crate) current: remedy_ui_reactive::Signal<Theme>,
+    pub(crate) current: remedy_ui_core::reactive::Signal<Theme>,
     /// The theme's fonts, checked, and its background image.
     pub(crate) fonts: Vec<crate::assets::LoadedFont>,
     pub(crate) background: Option<(String, remedy_ui_media_image::Source)>,
@@ -771,7 +771,7 @@ impl Customizations {
     /// person's theme file is read now (a bad one is skipped with a notice) and the result
     /// applied to every attached window.
     pub fn enable_theme(&self, default: Theme) {
-        let current = self.in_owner(|| remedy_ui_reactive::Signal::new(default.clone()));
+        let current = self.in_owner(|| remedy_ui_core::reactive::Signal::new(default.clone()));
         *self.0.theme.borrow_mut() = Some(ThemeArea {
             default,
             doc: Map::new(),

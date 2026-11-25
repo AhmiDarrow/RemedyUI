@@ -9,12 +9,12 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Size, Vec2};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
-use remedy_ui_layout::Length;
-use remedy_ui_reactive::{Memo, Signal, untrack};
-use remedy_ui_style::States;
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, Platform, PointerPhase};
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::reactive::{Memo, Signal, untrack};
+use remedy_ui_core::style::States;
 use remedy_ui_view::{Align, Drag, DragData, DropEffect, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon, Rejection};
 

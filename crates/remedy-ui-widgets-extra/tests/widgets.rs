@@ -4,10 +4,10 @@
 mod common;
 
 use common::*;
-use remedy_ui_a11y::{Action, Role};
+use remedy_ui_core::a11y::{Action, Role};
 use remedy_ui_core::{Color, Point};
-use remedy_ui_input::{Key, Modifiers};
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::{Key, Modifiers};
+use remedy_ui_core::reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_extra::{
     Ecc, QrCode, QrOptions, RatingOptions, Swatch, SwatchOptions, color_swatch_grid, qr_code, rating,
@@ -18,7 +18,7 @@ fn mount(ui: &Ui, el: &El) {
     let _ = frame(ui);
 }
 
-fn theme_rgb(ui: &Ui, f: impl Fn(&remedy_ui_style::Theme) -> Color) -> [u8; 3] {
+fn theme_rgb(ui: &Ui, f: impl Fn(&remedy_ui_core::style::Theme) -> Color) -> [u8; 3] {
     rgb(f(&ui.theme()))
 }
 
@@ -263,8 +263,8 @@ fn clicking_stars_sets_and_clears_the_rating_and_hover_previews() {
     pointer(
         &ui,
         star_center(&el, 1, star, gap),
-        remedy_ui_input::PointerPhase::Move,
-        remedy_ui_input::Buttons(0),
+        remedy_ui_core::input::PointerPhase::Move,
+        remedy_ui_core::input::Buttons(0),
     );
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -330,7 +330,7 @@ fn a_read_only_rating_is_an_image_that_says_its_value() {
 #[test]
 fn a_rating_mirrors_in_a_right_to_left_window() {
     let ui = ui();
-    let _ = ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
     let value = Signal::new(2.0f32);
     let el = rating(&ui, "Quality", value, RatingOptions::default());
     mount(&ui, &el);
@@ -505,7 +505,7 @@ fn the_swatches_can_be_replaced_and_wrap_to_the_width() {
 #[test]
 fn the_swatch_grid_mirrors_in_a_right_to_left_window() {
     let ui = ui();
-    let _ = ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    let _ = ui.root().layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl);
     let (el, _, _) = grid(&ui, Some(3));
     let _ = frame(&ui);
     let cells = find(&el, "swatch_cell");

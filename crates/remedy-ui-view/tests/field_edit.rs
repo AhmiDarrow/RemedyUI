@@ -4,9 +4,9 @@
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
-use remedy_ui_layout::Length;
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_core::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::layout::Length;
+use remedy_ui_core::style::{States, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{FieldKind, InputPurpose, Ui};
 

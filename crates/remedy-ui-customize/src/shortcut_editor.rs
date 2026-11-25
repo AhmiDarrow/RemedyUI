@@ -2,9 +2,9 @@
 //! the keyboard, clashes shown before anything changes and resolved by the person; reset per
 //! command and for all.
 
-use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_input::{Chord, Clash};
-use remedy_ui_reactive::{Memo, Signal, untrack};
+use remedy_ui_core::a11y::{Role, Semantics};
+use remedy_ui_core::input::{Chord, Clash};
+use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_view::strings::StrArg;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
@@ -132,7 +132,7 @@ fn command_row(
     );
     let name = w::column(ui)
         .grow(1.0)
-        .layout(|l| l.min_width = remedy_ui_layout::Length::Px(160.0))
+        .layout(|l| l.min_width = remedy_ui_core::layout::Length::Px(160.0))
         .child(w::text(ui, label.clone()))
         .child(w::text(ui, id.to_owned()).variant("muted").data_text());
     w::wrap(ui)

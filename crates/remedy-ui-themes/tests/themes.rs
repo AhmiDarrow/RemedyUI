@@ -2,7 +2,7 @@
 //! every theme.
 
 use remedy_ui_core::Color;
-use remedy_ui_style::{ResolvedStyle, States, StyleKey, StylePatch, Theme};
+use remedy_ui_core::style::{ResolvedStyle, States, StyleKey, StylePatch, Theme};
 use remedy_ui_themes::{PALETTES, ThemeChoice, all, high_contrast, palette, sheet, theme};
 
 fn resolve(t: &Theme, widget: &'static str, variant: &'static str, states: States) -> ResolvedStyle {

@@ -3,7 +3,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use remedy_ui_host::Unsupported;
+use remedy_ui_core::host::Unsupported;
 
 /// Writes `html` to a file of its own and opens the print dialog for it. The dialog runs in
 /// its own process; the file stays until a later print removes it (pages older than a day).

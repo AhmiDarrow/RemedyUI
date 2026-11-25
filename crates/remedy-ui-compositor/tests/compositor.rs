@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use remedy_ui_compositor::*;
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
-use remedy_ui_input::ScrollPhysics;
-use remedy_ui_motion::{Easing, Motion};
+use remedy_ui_core::input::ScrollPhysics;
+use remedy_ui_core::motion::{Easing, Motion};
 use remedy_ui_paint::{Brush, DisplayList};
 
 fn ms(v: u64) -> Duration {

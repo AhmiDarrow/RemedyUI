@@ -14,9 +14,9 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use remedy_ui_a11y::Semantics;
-use remedy_ui_reactive::{Memo, Signal};
-use remedy_ui_style::{Style, StylePatch};
+use remedy_ui_core::a11y::Semantics;
+use remedy_ui_core::reactive::{Memo, Signal};
+use remedy_ui_core::style::{Style, StylePatch};
 use remedy_ui_text::RichText;
 
 /// A property's source: a value, or a closure re-read when its signals change.

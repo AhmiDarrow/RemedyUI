@@ -1,8 +1,8 @@
 //! The toolbar and text editors, the notices, and the settings page that brings every editor
 //! together.
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_reactive::{Memo, Signal, untrack};
+use remedy_ui_core::a11y::{Action, Role, Semantics};
+use remedy_ui_core::reactive::{Memo, Signal, untrack};
 use remedy_ui_services_i18n::MessageEntry;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core as w;

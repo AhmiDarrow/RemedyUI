@@ -1,7 +1,7 @@
 //! Text inputs.
 
-use remedy_ui_input::{Chord, Key, KeyEvent, Modifiers};
-use remedy_ui_layout::Align;
+use remedy_ui_core::input::{Chord, Key, KeyEvent, Modifiers};
+use remedy_ui_core::layout::Align;
 use remedy_ui_view::{El, FieldKind, IntoProp, TextField, Ui};
 
 use crate::menus::{MenuItem, context_menu};
@@ -42,7 +42,7 @@ pub fn search(ui: &Ui, label: impl Into<String>, on_change: impl Fn(String) + 's
         .child(crate::icon(ui, crate::Icon::Search, ui.theme().type_scale.body + 2.0))
         .child(field.el().grow(1.0))
         .on_key(move |e| {
-            if e.pressed && e.key == remedy_ui_input::Key::Escape && !f3.is_empty() {
+            if e.pressed && e.key == remedy_ui_core::input::Key::Escape && !f3.is_empty() {
                 f3.set_value("");
                 return true;
             }
@@ -62,7 +62,7 @@ pub fn secret_input(ui: &Ui, label: impl Into<String>) -> TextField {
 #[track_caller]
 pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
     let f = field.clone();
-    let shown = remedy_ui_reactive::Signal::new(false);
+    let shown = remedy_ui_core::reactive::Signal::new(false);
     let u = ui.clone();
     let b = crate::icon_button(ui, crate::Icon::Eye, crate::tr(ui, "show-password"), move || {
         shown.update(|v| *v = !*v)
@@ -71,13 +71,13 @@ pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
     b.bind(move || {
         let on = shown.get();
         f.set_reveal(on);
-        b2.state(remedy_ui_style::States::CHECKED, on);
+        b2.state(remedy_ui_core::style::States::CHECKED, on);
         let label = crate::tr(&u, if on { "hide-password" } else { "show-password" });
         let _ = b2.clone().semantics(
-            remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button)
+            remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button)
                 .label(label)
                 .checked(on)
-                .action(remedy_ui_a11y::Action::Click),
+                .action(remedy_ui_core::a11y::Action::Click),
         );
     })
 }

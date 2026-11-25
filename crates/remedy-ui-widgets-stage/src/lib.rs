@@ -38,7 +38,7 @@
 //!
 //! ```
 //! use remedy_ui_core::Size;
-//! use remedy_ui_reactive::Signal;
+//! use remedy_ui_core::reactive::Signal;
 //! use remedy_ui_widgets_stage::*;
 //!
 //! # fn demo(ui: &remedy_ui_view::Ui) {

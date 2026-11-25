@@ -84,11 +84,11 @@ fn files_dragged_out_reach_an_xdnd_target_as_a_uri_list() {
     let _ = conn.flush();
 
     let worker = std::thread::spawn(move || {
-        let data = remedy_ui_host::DragData {
+        let data = remedy_ui_core::host::DragData {
             files: vec!["/home/sam/beach day.jpg".into()],
-            ..remedy_ui_host::DragData::default()
+            ..remedy_ui_core::host::DragData::default()
         };
-        super::drag_on(Some(display), &data, &[remedy_ui_host::DropEffect::Copy])
+        super::drag_on(Some(display), &data, &[remedy_ui_core::host::DropEffect::Copy])
     });
 
     // Play the target: accept positions, release the button after a few, take the drop.
@@ -140,5 +140,5 @@ fn files_dragged_out_reach_an_xdnd_target_as_a_uri_list() {
     assert!(entered, "the target heard XdndEnter");
     assert!(positions >= 2, "and positions");
     assert_eq!(String::from_utf8_lossy(&received), "file:///home/sam/beach%20day.jpg\r\n");
-    assert_eq!(effect.ok(), Some(remedy_ui_host::DropEffect::Copy));
+    assert_eq!(effect.ok(), Some(remedy_ui_core::host::DropEffect::Copy));
 }

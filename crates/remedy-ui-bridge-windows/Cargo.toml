@@ -15,8 +15,6 @@ categories.workspace = true
 [target.'cfg(windows)'.dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 windows = { version = "=0.62.2", features = ["Win32_UI_TextServices", "Win32_System_Com", "Win32_System_Ole", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_SystemServices", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_System_Memory", "Win32_System_DataExchange", "Foundation", "UI_Notifications", "Data_Xml_Dom", "ApplicationModel_DataTransfer", "Storage", "Storage_Streams", "Gaming_Input"] }
 png = { version = "=0.18.1" }
 windows-collections = { version = "=0.3.2" }

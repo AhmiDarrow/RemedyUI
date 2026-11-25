@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use remedy_ui_input::Modifiers;
-use remedy_ui_reactive::Signal;
+use remedy_ui_core::input::Modifiers;
+use remedy_ui_core::reactive::Signal;
 
 /// What a column sorts by, extracted from a row so sorting can run off the UI thread.
 #[derive(Clone, Debug, PartialEq)]

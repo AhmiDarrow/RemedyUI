@@ -6,7 +6,7 @@
 //! attribute on the window's GPU canvas for the window's whole life, so the number names that
 //! canvas as long as anything can use it.
 
-use remedy_ui_host::raw_window_handle::{
+use remedy_ui_core::host::raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WebDisplayHandle, WebWindowHandle, WindowHandle,
 };

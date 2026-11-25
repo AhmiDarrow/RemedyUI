@@ -9,7 +9,7 @@ use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
 use remedy_ui_core::{Rect, Size};
-use remedy_ui_host::{
+use remedy_ui_core::host::{
     App, Host, HostEvent, Pixels, SystemSettings, TextInputState, TrayIcon, TrayImage, TrayItem, WindowId,
     WindowOptions,
 };

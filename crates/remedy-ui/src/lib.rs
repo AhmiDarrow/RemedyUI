@@ -72,7 +72,7 @@ pub use runner::{
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read
 /// (`Semantics`, `Role`, `Action`).
-pub use remedy_ui_a11y as a11y;
+pub use remedy_ui_core::a11y as a11y;
 /// Agents: assistants read and operate the window under the person's consent.
 #[cfg(feature = "agents")]
 pub use remedy_ui_automation as agents;
@@ -169,9 +169,9 @@ pub mod effects {
 }
 #[cfg(feature = "webview")]
 pub use remedy_ui_embed_webview as webview;
-pub use remedy_ui_host as host;
-pub use remedy_ui_input as input;
-pub use remedy_ui_layout as layout;
+pub use remedy_ui_core::host as host;
+pub use remedy_ui_core::input as input;
+pub use remedy_ui_core::layout as layout;
 /// `#[derive(Store)]`: field accessors for a reactive [`reactive::Store`].
 #[cfg(feature = "macros")]
 pub use remedy_ui_macros::Store;
@@ -209,7 +209,7 @@ pub mod motion {
     pub use remedy_ui_view::Transition;
     pub use remedy_ui_view::motion::*;
 }
-pub use remedy_ui_reactive as reactive;
+pub use remedy_ui_core::reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
 #[cfg(feature = "markup")]
 pub use remedy_ui_rui as markup;
@@ -242,7 +242,7 @@ pub use remedy_ui_services_update as update;
 /// browser.
 #[cfg(feature = "webstorage")]
 pub use remedy_ui_services_webstorage as webstorage;
-pub use remedy_ui_style as style;
+pub use remedy_ui_core::style as style;
 pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]
 pub use remedy_ui_themes as themes;
@@ -434,6 +434,6 @@ pub fn show_previews(previews: Vec<remedy_ui_devtools::Preview>) -> Result<(), R
 }
 
 #[cfg(feature = "devtools")]
-fn remedy_ui_themes_sheet(_: &remedy_ui_style::Theme) -> remedy_ui_style::StyleSheet {
+fn remedy_ui_themes_sheet(_: &remedy_ui_core::style::Theme) -> remedy_ui_core::style::StyleSheet {
     remedy_ui_devtools::tool_style().1
 }

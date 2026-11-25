@@ -4,7 +4,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
-use remedy_ui_host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
+use remedy_ui_core::host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
