@@ -66,7 +66,7 @@ pub use movable::{Movable, movable};
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window,
+    CloseReason, GraphicsAdapter, Leaving, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window,
     WindowSpec, bundled_fonts,
 };
 
