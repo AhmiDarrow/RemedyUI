@@ -59,6 +59,9 @@ pub struct Project {
     /// Files and folders in the install folder an upgrade deletes first (`[windows] remove`,
     /// plain names): what an earlier version installed and this one does not.
     pub windows_remove: Vec<String>,
+    /// The installer reopens the app after a silent install too (`[windows]
+    /// relaunch_after_update = true`), for apps that update themselves.
+    pub windows_relaunch_silent: bool,
     /// Files and folders installed beside the program on Linux (`[linux] files`).
     pub linux_files: Vec<PathBuf>,
     /// The oldest glibc the Linux build runs on (`[linux] glibc`, such as `"2.28"`), built
@@ -417,6 +420,11 @@ impl Project {
             windows_files: strings(&remedy, "windows", "files")?.iter().map(|f| root.join(f)).collect(),
             windows_app_id: string(&remedy, "windows", "app_id"),
             windows_remove: removable(strings(&remedy, "windows", "remove")?)?,
+            windows_relaunch_silent: remedy
+                .get("windows")
+                .and_then(|w| w.get("relaunch_after_update"))
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(false),
             linux_files: strings(&remedy, "linux", "files")?.iter().map(|f| root.join(f)).collect(),
             linux_glibc: linux_glibc(&remedy)?,
             timestamp_url: string(&remedy, "windows", "timestamp_url")
@@ -512,6 +520,7 @@ pub(crate) mod tests {
             windows_files: Vec::new(),
             windows_app_id: None,
             windows_remove: Vec::new(),
+            windows_relaunch_silent: false,
             linux_files: Vec::new(),
             android_libs: Vec::new(),
             android_min_api: 26,

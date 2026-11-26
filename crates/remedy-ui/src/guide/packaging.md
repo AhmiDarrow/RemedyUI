@@ -95,6 +95,8 @@ files = ["vendor/engine.dll", "vendor/licenses"]
 # upgrades that install in place; and what it left in the folder that must go.
 app_id = "{01234567-89AB-CDEF-0123-456789ABCDEF}"
 remove = ["_internal"]
+# Optional: reopen the app after a silent install too, for apps that update themselves.
+relaunch_after_update = true
 
 # Optional: take over an earlier per-user install of the same app made by another installer
 # (an NSIS build, say). Setup waits for its program to close, then removes only the files

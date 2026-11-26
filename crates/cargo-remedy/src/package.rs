@@ -405,6 +405,8 @@ AppComments={description}
 DefaultDirName={{localappdata}}\Programs\{name}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+; Updaters pass /CURRENTUSER; without this line Setup quits on it.
+PrivilegesRequiredOverridesAllowed=commandline
 OutputDir={out}
 OutputBaseFilename={base}
 SetupIconFile={ico}
@@ -429,13 +431,14 @@ Name: "{{autoprograms}}\{name}"; Filename: "{{app}}\{exe_name}"
 Name: "{{autodesktop}}\{name}"; Filename: "{{app}}\{exe_name}"; Tasks: desktopicon
 {replaces_icons}
 {autostart_entries}[Run]
-Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall{silent}
 
 {replaces_code}"#,
         replaces_icons = replaces_icons(p, &exe_name),
         replaces_code = replaces_code(p),
         autostart_task = autostart_task(p),
         autostart_entries = autostart_entries(p, &exe_name),
+        silent = if p.windows_relaunch_silent { "" } else { " skipifsilent" },
         extra_files = extra_files(p),
         removed_files = removed_files(p),
         // Inno reads a brace as the start of a constant: doubled, it is a brace. The app's
@@ -524,7 +527,14 @@ mod tests {
         p.windows_files = vec![folder.join("engine.dll"), licences.clone()];
         p.windows_app_id = Some("{B7E2C4A1-0000-0000-0000-000000000000}".into());
         p.windows_remove = vec!["_internal".into()];
+        assert!(
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n")
+                .contains("Flags: nowait postinstall skipifsilent\n"),
+        );
+        p.windows_relaunch_silent = true;
         let iss = inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        assert!(iss.contains("PrivilegesRequiredOverridesAllowed=commandline\n"), "{iss}");
+        assert!(iss.contains("Flags: nowait postinstall\n"), "{iss}");
         assert!(iss.contains("AppId={{B7E2C4A1-0000-0000-0000-000000000000}\n"), "{iss}");
         assert!(iss.contains("engine.dll\"; DestDir: \"{app}\"; Flags: ignoreversion"), "{iss}");
         assert!(iss.contains("DestDir: \"{app}\\licenses\"; Flags: ignoreversion recursesubdirs"), "{iss}");
@@ -562,6 +572,7 @@ mod tests {
             windows_files: Vec::new(),
             windows_app_id: None,
             windows_remove: Vec::new(),
+            windows_relaunch_silent: false,
             linux_files: Vec::new(),
             android_libs: Vec::new(),
             android_min_api: 26,
