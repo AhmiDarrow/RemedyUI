@@ -725,6 +725,10 @@ impl Host for HeadlessHost {
         }
     }
 
+    fn is_minimized(&self, window: WindowId) -> bool {
+        self.window(window).is_some_and(|w| w.minimized)
+    }
+
     fn is_maximized(&self, window: WindowId) -> bool {
         self.window(window).is_some_and(|w| w.maximized)
     }
