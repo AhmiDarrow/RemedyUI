@@ -289,7 +289,7 @@ fn bidi_class(c: char) -> BidiClass {
 
 /// The base direction parley's analysis gives `text` (UAX #9 P2 and P3: the first strong
 /// character outside isolates; isolates end at paragraph separators): right to left?
-fn base_direction(text: &str) -> bool {
+pub(crate) fn base_direction(text: &str) -> bool {
     let mut isolates = 0u32;
     for c in text.chars() {
         // ASCII digits, punctuation and spaces are never strong, isolates or separators.
