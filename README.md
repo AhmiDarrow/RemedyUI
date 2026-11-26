@@ -1,6 +1,6 @@
 # RemedyUI
 
-![RemedyUI: Hearth, SecretFolder, SecretSticky and Craft Calc windows](docs/images/showcase.jpg)
+![RemedyUI: RemedyAI, FreeSpeak, Hearth, SecretFolder, SecretSticky and Craft Calc windows](docs/images/showcase.jpg)
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
@@ -9,6 +9,7 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 ## Apps built on RemedyUI
 
 - [RemedyAI](https://github.com/AhmiDarrow/RemedyAI): a partner on your computer; its RemedyUI desktop and phone apps are in the repository.
+- [FreeSpeak](https://github.com/AhmiDarrow/FreeSpeak): self-hosted, end-to-end encrypted chat and voice with no accounts; its move to RemedyUI is in progress.
 - [Hearth](https://github.com/AhmiDarrow/Hearth): local file sharing and PC-to-PC chat.
 - [SecretFolder](https://github.com/AhmiDarrow/SecretFolder): an encrypted folder vault for Windows and Linux that feels like a file explorer.
 - [SecretSticky](https://github.com/AhmiDarrow/SecretSticky): encrypted sticky notes for Windows and Linux.
@@ -19,6 +20,10 @@ Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a 
 ## Gallery
 
 <table>
+<tr>
+<td width="50%"><img src="docs/images/freespeak-metro.jpg" alt="FreeSpeak: the Metro theme, in progress"><br><sub><b>FreeSpeak</b> · the Metro theme, in progress</sub></td>
+<td width="50%"><img src="docs/images/freespeak-arcade.jpg" alt="FreeSpeak: the Arcade theme, in progress"><br><sub><b>FreeSpeak</b> · the Arcade theme, in progress</sub></td>
+</tr>
 <tr>
 <td width="50%"><img src="docs/images/remedyai-grove.jpg" alt="RemedyAI: Grove, the home view"><br><sub><b>RemedyAI</b> · Grove, the home view</sub></td>
 <td width="50%"><img src="docs/images/remedyai-studio.jpg" alt="RemedyAI: Studio, planning a fix"><br><sub><b>RemedyAI</b> · Studio, planning a fix</sub></td>
