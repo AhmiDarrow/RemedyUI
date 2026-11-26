@@ -21,8 +21,8 @@ Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/freespeak-metro.jpg" alt="FreeSpeak: the Metro theme, in progress"><br><sub><b>FreeSpeak</b> · the Metro theme, in progress</sub></td>
-<td width="50%"><img src="docs/images/freespeak-arcade.jpg" alt="FreeSpeak: the Arcade theme, in progress"><br><sub><b>FreeSpeak</b> · the Arcade theme, in progress</sub></td>
+<td width="50%"><img src="docs/images/freespeak-campfire.jpg" alt="FreeSpeak: the Campfire theme"><br><sub><b>FreeSpeak</b> · the Campfire theme</sub></td>
+<td width="50%"><img src="docs/images/freespeak-tabletop.jpg" alt="FreeSpeak: the Tabletop theme"><br><sub><b>FreeSpeak</b> · the Tabletop theme</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/images/remedyai-grove.jpg" alt="RemedyAI: Grove, the home view"><br><sub><b>RemedyAI</b> · Grove, the home view</sub></td>
