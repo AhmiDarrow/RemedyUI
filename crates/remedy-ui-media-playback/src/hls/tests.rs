@@ -843,3 +843,26 @@ fn a_live_playlist_slides_and_a_restarted_one_is_read_on() {
     }
     assert!(hls.segments.len() <= 4, "{} segments held", hls.segments.len());
 }
+
+#[test]
+fn annex_b_becomes_avcc() {
+    // AUD, SPS, PPS, SEI, IDR slice; three- and four-byte start codes.
+    let annex_b = [
+        0, 0, 0, 1, 0x09, 0xf0, 0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 1, 0x06, 4, 5, 0, 0, 0, 1,
+        0x65, 6, 7, 8,
+    ];
+    assert_eq!(avcc(&annex_b), [0, 0, 0, 3, 0x06, 4, 5, 0, 0, 0, 4, 0x65, 6, 7, 8]);
+    assert!(avcc(&[]).is_empty());
+}
+
+#[test]
+fn aac_config_becomes_esds() {
+    // AAC-LC, 48 kHz, stereo.
+    let e = esds(&[0x11, 0x90]);
+    assert_eq!(e.len(), 5 + 3 + 5 + 13 + 5 + 2 + 5 + 1);
+    assert_eq!(e[..5], [0x03, 0x80, 0x80, 0x80, 34]);
+    assert_eq!(e[8..13], [0x04, 0x80, 0x80, 0x80, 20]);
+    assert_eq!(e[13..15], [0x40, 0x15]);
+    assert_eq!(e[26..33], [0x05, 0x80, 0x80, 0x80, 2, 0x11, 0x90]);
+    assert_eq!(e[33..], [0x06, 0x80, 0x80, 0x80, 1, 0x02]);
+}

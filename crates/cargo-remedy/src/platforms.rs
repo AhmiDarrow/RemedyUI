@@ -329,6 +329,24 @@ pub fn android_manifest(
         .iter()
         .map(|n| format!("    <uses-permission android:name=\"{}\" />\n", esc(n)))
         .collect();
+    // One filter per scheme: a link in it, from a browser or a scanned code, opens the app
+    // (the app reads it with `remedy_ui::android::launch_url`).
+    let links: String = p
+        .url_schemes
+        .iter()
+        .map(|s| {
+            format!(
+                r#"            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="{}" />
+            </intent-filter>
+"#,
+                esc(s)
+            )
+        })
+        .collect();
     let service = if p.android_foreground.is_empty() {
         String::new()
     } else {
@@ -348,7 +366,7 @@ pub fn android_manifest(
     <uses-sdk android:minSdkVersion="{min_api}" android:targetSdkVersion="{target_api}" />
 {permissions}    <application android:label="{label}" android:icon="@mipmap/ic_launcher" android:hasCode="true">
         <activity android:name="dev.remedyui.android.RemedyActivity"
-            android:exported="true"
+            android:exported="true"{single}
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
@@ -357,7 +375,7 @@ pub fn android_manifest(
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+{links}        </activity>
         <!-- Pressing one of the app's notifications opens it through this alias: not exported,
              so only the app's own notifications can say they were pressed. -->
         <activity-alias android:name="dev.remedyui.android.NotificationOpen"
@@ -383,6 +401,10 @@ pub fn android_manifest(
         id = esc(&p.id),
         version = esc(&p.version),
         label = esc(&p.name),
+        links = links,
+        // A link for an app that is already running goes to its one activity (onNewIntent),
+        // not to a second copy of it on top.
+        single = if links.is_empty() { "" } else { "\n            android:launchMode=\"singleTask\"" },
     )
 }
 
@@ -854,6 +876,22 @@ mod tests {
         let i = icns_entries(&[(*b"ic08", b"PNG".to_vec())]);
         assert_eq!(i.get(..4), Some(&b"icns"[..]));
         assert_eq!(i.len(), 19);
+    }
+
+    #[test]
+    fn android_apps_take_links_in_their_url_schemes() {
+        let plain = android_manifest(&project(), "my_notes", 100, 26, 35);
+        assert!(!plain.contains("android.intent.action.VIEW"), "no link filter unless asked for");
+        let mut linked = project();
+        linked.url_schemes = vec!["hearth".into()];
+        let m = android_manifest(&linked, "my_notes", 100, 26, 35);
+        let activity = m.split("</activity>").next().unwrap_or_default();
+        assert!(activity.contains("android.intent.action.VIEW"), "{m}");
+        assert!(activity.contains("android.intent.category.BROWSABLE"));
+        assert!(activity.contains(r#"<data android:scheme="hearth" />"#));
+        assert!(activity.contains("android.intent.category.LAUNCHER"), "still in the launcher");
+        assert!(activity.contains(r#"android:launchMode="singleTask""#), "one activity takes the link");
+        assert!(!plain.contains("launchMode"));
     }
 
     #[test]

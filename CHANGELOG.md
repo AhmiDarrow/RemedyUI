@@ -58,6 +58,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- HLS on macOS, decoded by VideoToolbox and AudioToolbox and fetched with NSURLSession. Cross-compiled only: it has not run on a Mac.
+- Android apps take links in their `[app] url_schemes`: a link pressed in a browser or a scanned code opens the app, which reads it with `remedy_ui::android::launch_url`.
 - **Page view: a page at a time, input the app sets, and taps**: `PageMode::Paged`
   (`PageView::set_page_mode`) shows one row of pages (a page or a spread) and turns it with
   `next_page` / `previous_page`, the wheel at the page's edge, the scroll keys and a swipe;

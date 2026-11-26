@@ -382,6 +382,18 @@ impl Java {
     }
 
     /// A string extra of the intent that started the activity.
+    /// The link the launching intent carries (`Intent.getDataString`), if any.
+    pub(crate) fn intent_data(&self) -> Result<Option<String>, String> {
+        self.call(|env, a| {
+            let intent = env.call_method(a, "getIntent", "()Landroid/content/Intent;", &[])?.l()?;
+            if intent.is_null() {
+                return Ok(None);
+            }
+            let v = env.call_method(&intent, "getDataString", "()Ljava/lang/String;", &[])?.l()?;
+            string(env, v)
+        })
+    }
+
     pub(crate) fn intent_extra(&self, name: &str) -> Result<Option<String>, String> {
         self.call(|env, a| {
             let intent = env.call_method(a, "getIntent", "()Landroid/content/Intent;", &[])?.l()?;
