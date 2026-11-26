@@ -46,6 +46,9 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
             l.remove();
         }
     });
+    // The content waits in the hidden holder while the drawer is closed: removed with the
+    // panel, it would be gone the next time the drawer opens.
+    let keep = holder.clone();
     holder.bind(move || {
         let show = open.get();
         untrack(|| {
@@ -56,8 +59,8 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
                     .column()
                     .gap(unit * 2.0)
                     .padding(Insets::all(unit * 4.0))
-                    .semantics(Semantics::new(Role::Dialog).label(l2.clone()).modal(true))
-                    .child((*content).clone());
+                    .semantics(Semantics::new(Role::Dialog).label(l2.clone()).modal(true));
+                panel.insert_child(0, &content);
                 let panel = match edge {
                     Edge::Bottom => panel.fill_width().layout(|l| l.max_height = Length::Percent(0.85)),
                     _ => panel.layout(|l| {
@@ -99,6 +102,7 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
                 panel.focus_first();
                 *layer.borrow_mut() = Some(scrim);
             } else if !show && let Some(l) = layer.borrow_mut().take() {
+                keep.insert_child(0, &content);
                 l.remove();
                 if let Some(r) = restore.borrow_mut().take() {
                     r.focus();
