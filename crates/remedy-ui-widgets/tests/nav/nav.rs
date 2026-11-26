@@ -303,6 +303,25 @@ fn a_drawer_shows_its_content_every_time_it_opens() {
 }
 
 #[test]
+fn a_drawer_never_opened_takes_its_content_with_it() {
+    let ui = ui();
+    let (open, name, runs) = (Signal::new(false), Signal::new("General".to_owned()), Rc::new(Cell::new(0)));
+    let r2 = runs.clone();
+    let label = w::text(&ui, move || {
+        r2.set(r2.get() + 1);
+        name.get()
+    });
+    let holder = drawer(&ui, "Rooms", Edge::Start, open, w::column(&ui).child(label));
+    ui.root().child(holder.clone());
+    frame(&ui);
+    let before = runs.get();
+    holder.remove();
+    name.set("Stage".to_owned());
+    frame(&ui);
+    assert_eq!(runs.get(), before, "the content's bindings went with the drawer");
+}
+
+#[test]
 fn drawers_close_on_a_press_outside_and_offer_no_dead_controls() {
     let ui = ui();
     let open = Signal::new(true);
