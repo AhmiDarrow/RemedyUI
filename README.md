@@ -2,7 +2,7 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. Apps such as RemedyAI are being built on it. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** milestones M1 to M5 are built, M6 to M9 are built in large part, and M10 (1.0) is under way: the API review is done ([docs/API-REVIEW.md](docs/API-REVIEW.md)), and the guides, porting guides and recipes are written. [docs/ROADMAP.md](docs/ROADMAP.md) has the details.
+**Status:** 1.0.0 release candidate.
 
 ## Apps built on RemedyUI
 
@@ -11,7 +11,7 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 - [SecretSticky](https://github.com/AhmiDarrow/SecretSticky): encrypted sticky notes for Windows and Linux.
 - [Alex's Craft Calc](https://github.com/AhmiDarrow/Alexs-Craft-Calc): a soap and candle calculator with a craft wiki, offline on Windows, Android and the web.
 
-Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a sandboxed, metered Lua 5.4 superset in safe Rust.
+Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a sandboxed, metered Lua 5.4 superset in safe Rust. Emoji and stickers come from [Remedy Emoji](https://github.com/AhmiDarrow/RemedyEmoji), our own original art, built into RemedyUI as a color font.
 
 ## In short
 
@@ -124,7 +124,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-widgets-term`: the terminal element: VT and xterm emulation with true color, the kitty keyboard protocol, sixel pictures, reflow, scrollback sized from the machine, selection, links, input methods and screen readers; the PTY stays in the app
 - `remedy-ui-widgets::viz`: the speaking ring, level meters, sparklines and bars
 
-Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.2, [repository](https://github.com/AhmiDarrow/RemedyLua)), a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. `remedy-ui-engine::script_lua` is that engine. Prism effect bindings are designed for the same language. This workspace ships the RemedyLua and WebAssembly engines above.
+Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`remedy-lua` 0.1.2, [repository](https://github.com/AhmiDarrow/RemedyLua)), a Lua 5.4 superset in safe Rust: fuel, memory and depth limits, an optional typed dialect (`.rlua`) and a capability-based host API. `remedy-ui-engine::script_lua` is that engine. This workspace ships the RemedyLua and WebAssembly engines above.
 
 **Documents**
 - `remedy-ui-widgets::doc_rich`: Markdown, a rich text editor with links and mentions that saves Markdown, and a find bar
@@ -187,17 +187,13 @@ The server runs locally, over stdio (or streamable HTTP on loopback, with a toke
 
 | Document | What it holds |
 |---|---|
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | The bar: what a modern UI engine must provide, what the Remedy apps add, and the egui failures never to repeat |
 | [docs/DESIGN.md](docs/DESIGN.md) | The overview: principles, engine shape, crates, stability, and the index of deep dives |
 | [docs/design/](docs/design/) | Eighteen deep dives, from threads and state to text, rendering, effects, 3D, security, accessibility, developer experience and the design language |
 | [docs/effects/rfx.md](docs/effects/rfx.md) | The Prism `.rfx` language, its limits and the kernel library |
-| [docs/APPS.md](docs/APPS.md) | Every Remedy app mapped to the packs and bridges it needs, and the order the apps move over |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M1 to M10, each with a tested definition of done, and from M5 an app moved onto the engine |
 | [docs/dependencies.md](docs/dependencies.md) | The third-party crates, pinned versions, and the rules for adding one |
 | [docs/STABILITY.md](docs/STABILITY.md) | What 1.0 promises: semver, deprecation, editions, MSRV, which crates are stable |
-| [docs/RELEASING.md](docs/RELEASING.md) | The release checks: the gate, `cargo xtask semver` and `msrv`, packaging |
-| [docs/API-REVIEW.md](docs/API-REVIEW.md) | The 1.0 API review: every rename, error and growth change, and why |
-| [CHANGELOG.md](CHANGELOG.md) | What changed, by milestone and release |
+| [docs/RELEASING.md](docs/RELEASING.md) | The release checks: tests and lints, `cargo xtask semver` and `msrv`, packaging |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [docs/CLI.md](docs/CLI.md) | `cargo remedy`: every command, from `new` to previews, audits and operating running apps |
 | [docs/MCP.md](docs/MCP.md) | `remedy-mcp`: setup in Claude Code and other MCP clients, every tool, and the security model |
 
