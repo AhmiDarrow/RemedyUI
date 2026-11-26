@@ -35,6 +35,9 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
     // Place the returned element anywhere in the window: it is invisible and keeps the
     // drawer's binding alive; the panel itself shows in the overlay layer.
     let holder = ui.el("drawer_holder").hidden(true);
+    // The content waits in the hidden holder from the start, so it is in the tree and goes
+    // (its bindings with it) when the holder does, even if the drawer was never opened.
+    holder.insert_child(0, &content);
     let content = Rc::new(content);
     let restore: Rc<std::cell::RefCell<Option<El>>> = Rc::default();
     let layer: Rc<std::cell::RefCell<Option<El>>> = Rc::default();
