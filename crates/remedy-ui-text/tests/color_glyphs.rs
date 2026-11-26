@@ -138,3 +138,22 @@ fn skin_tones_and_our_own_glyphs_paint() -> Result<(), String> {
     assert!(is_colorful(&own), "our own glyph did not paint in color");
     Ok(())
 }
+
+/// Emoji are shaped from the `emoji` generic family first. With the system's fonts there,
+/// the bundled face must still be the one that draws (Segoe UI Emoji on Windows otherwise).
+#[cfg(feature = "system-fonts")]
+#[test]
+fn bundled_emoji_go_before_the_systems() -> Result<(), String> {
+    let face = remedy_ui_fonts::REMEDY_EMOJI.first().ok_or("remedy-emoji feature")?;
+    let mut fonts = FontCollection::with_system_fonts();
+    assert!(fonts.add_static(face.data).is_ok());
+    assert_eq!(fonts.generic_family("emoji").first().map(String::as_str), Some("Remedy Emoji"));
+    let p = TextEngine::new(fonts).layout(
+        &RichText::plain("Hi 👋"),
+        &TextStyle::default(),
+        ParagraphOptions::default(),
+    );
+    let emoji = p.glyph_runs().into_iter().last().ok_or("a run")?;
+    assert_eq!(emoji.font.bytes().len(), face.data.len(), "the wave came from another font");
+    Ok(())
+}
