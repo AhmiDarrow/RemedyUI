@@ -44,9 +44,9 @@ pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{
-    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PAINT_CACHE_LIMIT, PaintCx, PointerInterceptor,
-    SnapAlign, SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi,
-    WindowDirection, clear_paint_cache, rasterize, set_paint_cache_limit,
+    DirtyObserver, DirtyRecord, El, ElementInfo, HoverWatch, InlineImage, PAINT_CACHE_LIMIT, PaintCx,
+    PointerInterceptor, SnapAlign, SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui,
+    WeakUi, WindowDirection, clear_paint_cache, rasterize, set_paint_cache_limit,
 };
 pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput, SCROLL_STEP};
 pub use field::{CodeColors, FieldKind, TextField};
