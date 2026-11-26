@@ -2143,7 +2143,6 @@ impl PageView {
         }
         st.clamp();
         let colors = &cx.theme.colors;
-        let tokens = cx.theme.derive();
         cx.list.fill_rect(Rect::from_origin_size(Point::ZERO, cx.size), Brush::Solid(colors.panel));
         let (z, scroll) = st.drawn_state();
         let dpr = st.dpr;
@@ -2296,7 +2295,11 @@ impl PageView {
             if let Some(Some(text)) = st.text.pages.get(page) {
                 let s = &st.text.search;
                 for (i, m) in s.matches.iter().enumerate().filter(|(_, m)| m.page() == *page) {
-                    let color = if Some(i) == s.current { tokens.selected } else { tokens.mark };
+                    // Over the page's picture, so see-through: a solid fill hides the words
+                    // found. Not the theme's surface tints, which are made to go under text.
+                    let current = Some(i) == s.current;
+                    let mut color = if current { colors.accent } else { colors.warn };
+                    color.a = if current { 0.45 } else { 0.35 };
                     for rect in text::rects(*page, text, m.start, m.end) {
                         cx.list.fill_rect(rect, Brush::Solid(color));
                     }
