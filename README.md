@@ -2,7 +2,16 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. Apps such as RemedyAI are being built on it. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** milestones M1 to M5 are built, M6 to M9 are built in large part, and M10 (1.0) is under way: the API review is done ([docs/API-REVIEW.md](docs/API-REVIEW.md)), and the guides, porting guides and recipes are written. [docs/ROADMAP.md](docs/ROADMAP.md) has the details. SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch).
+**Status:** milestones M1 to M5 are built, M6 to M9 are built in large part, and M10 (1.0) is under way: the API review is done ([docs/API-REVIEW.md](docs/API-REVIEW.md)), and the guides, porting guides and recipes are written. [docs/ROADMAP.md](docs/ROADMAP.md) has the details.
+
+## Apps built on RemedyUI
+
+- [Hearth](https://github.com/AhmiDarrow/Hearth): local file sharing and PC-to-PC chat.
+- [SecretFolder](https://github.com/AhmiDarrow/SecretFolder): an encrypted folder vault for Windows and Linux that feels like a file explorer.
+- [SecretSticky](https://github.com/AhmiDarrow/SecretSticky): encrypted sticky notes for Windows and Linux.
+- [Alex's Craft Calc](https://github.com/AhmiDarrow/Alexs-Craft-Calc): a soap and candle calculator with a craft wiki, offline on Windows, Android and the web.
+
+Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a sandboxed, metered Lua 5.4 superset in safe Rust.
 
 ## In short
 
@@ -127,7 +136,7 @@ Handwritten widgets run on [RemedyLua](https://crates.io/crates/remedy-lua) (`re
 - `remedy-ui-media::media_anim`: GIF, APNG and animated WebP
 - `remedy-ui-media::media_isolated`: images and animations decoded in a sandboxed helper process
 - `remedy-ui-media::media_video`: video surfaces fed from any thread, converted on the GPU
-- `remedy-ui-media-playback`: sound and video through the platform's decoders, kept in step with the sound clock, the `player` widget, and WebVTT, SRT and ASS captions. HLS (`.m3u8` of MPEG-TS, H.264 with AAC or MP3) plays on Windows, Linux, Android and in a browser page; on macOS it is still pending ([#60](https://github.com/AhmiDarrow/RemedyUI/pull/60)), which needs a run on a Mac
+- `remedy-ui-media-playback`: sound and video through the platform's decoders, kept in step with the sound clock, the `player` widget, and WebVTT, SRT and ASS captions. HLS (`.m3u8` of MPEG-TS, H.264 with AAC or MP3) plays on Windows, Linux, Android and in a browser page; the macOS decoders are cross-compiled only and have not run on a Mac yet
 - `remedy-ui-engine::effects`: Prism, the `.rfx` effects language, its validator and cost model, a fixed kernel library, and the CPU renderer that is the reference for the GPU kernels
 - `remedy-ui-engine::media_effects`: an `.rfx` effect as an element, drawn by the GPU kernel or the CPU renderer, under the window's ambient policy
 - `remedy-ui-platform::embed_gpu`: the app's own wgpu rendering as an element
