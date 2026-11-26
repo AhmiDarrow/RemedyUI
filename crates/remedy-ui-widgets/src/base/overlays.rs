@@ -194,6 +194,7 @@ pub fn full_text_tooltip(target: &El) {
 pub fn tooltip(target: &El, text: impl remedy_ui_engine::view::IntoProp<String>) {
     let text = text.into_prop();
     let ui = target.ui().clone();
+    let target = &target.clone().set_has_tooltip(true);
     let shown: Rc<RefCell<Option<El>>> = Rc::default();
     let pending: Rc<RefCell<Option<u64>>> = Rc::default();
     // The tooltip goes with its target (a window rebuilt for another language, a closed panel).
@@ -234,6 +235,74 @@ pub fn tooltip(target: &El, text: impl remedy_ui_engine::view::IntoProp<String>)
     });
 }
 
+/// What an automatic tooltip says for an element: its accessible description, else its
+/// accessible name, else its text. `None` for an element that is not something to press,
+/// type in or move (a click handler, a field, or an action beyond focus and scrolling), for a hidden
+/// or disabled one, and for one with nothing to say.
+pub fn auto_tooltip_text(el: &El) -> Option<String> {
+    let info = el.info()?;
+    let sem = info.semantics.as_ref();
+    if sem.is_some_and(|s| s.is_hidden())
+        || info.hidden
+        || info.states.contains(remedy_ui_core::style::States::DISABLED)
+    {
+        return None;
+    }
+    // Something to do with it: focus and scrolling alone (a list, a scroll area) are not.
+    use remedy_ui_core::a11y::Action;
+    let acts =
+        sem.is_some_and(|s| s.actions().iter().any(|a| !matches!(a, Action::Focus | Action::ScrollIntoView)));
+    if !(info.clickable || info.field || acts) {
+        return None;
+    }
+    let said = sem
+        .and_then(|s| {
+            s.description_text()
+                .filter(|d| !d.trim().is_empty())
+                .or_else(|| s.name().filter(|n| !n.trim().is_empty()))
+        })
+        .map(str::to_owned)
+        .or_else(|| info.text.filter(|t| !t.trim().is_empty()))?;
+    Some(said.trim().to_owned())
+}
+
+/// Tooltips for everything in the window that does not show one of its own ([`tooltip`]):
+/// the innermost element under the pointer that can be pressed, typed in or moved shows
+/// what [`text_for`](auto_tooltip_text) says for it, after the same rest as [`tooltip`].
+/// Nothing shows while the pointer is inside an element with a tooltip of its own, so a tip
+/// never doubles. `text_for` picks the words (return `None` for none); pass
+/// [`auto_tooltip_text`] for the default.
+pub fn auto_tooltips(ui: &Ui, text_for: impl Fn(&El) -> Option<String> + 'static) {
+    let shown: Rc<RefCell<Option<El>>> = Rc::default();
+    let pending: Rc<Cell<Option<u64>>> = Rc::default();
+    let text_for = Rc::new(text_for);
+    let ui0 = ui.clone();
+    let watch = move |chain: &[remedy_ui_engine::view::ElementId]| {
+        if let Some(id) = pending.take() {
+            ui0.cancel_timer(id);
+        }
+        if let Some(tip) = shown.borrow_mut().take() {
+            tip.remove();
+        }
+        let els: Vec<El> = chain.iter().map(|&id| ui0.element(id)).collect();
+        if els.iter().any(El::has_tooltip) {
+            return;
+        }
+        // The innermost element with something to say.
+        let Some((target, _)) = els.iter().find_map(|e| text_for(e).map(|t| (e.clone(), t))) else { return };
+        let (ui2, shown2, text_for2) = (ui0.clone(), shown.clone(), text_for.clone());
+        let id = ui0.after(TOOLTIP_DELAY, move || {
+            // As it is now: the words or the element may have changed while the pointer rested.
+            let (Some(b), Some(said)) = (target.bounds(), text_for2(&target)) else { return };
+            let tip = ui2.el("tooltip").text(remedy_ui_engine::view::RichText::plain(said)).pass_through();
+            let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
+            *shown2.borrow_mut() = Some(tip);
+        });
+        pending.set(Some(id));
+    };
+    ui.set_hover_watch(Some(Rc::new(watch)));
+}
+
 /// Tooltips for a widget that paints many things in one element (the notes of a score, the
 /// bars of a chart): the widget says which part the pointer is over as it moves, and the tip
 /// of a part shows beside that part once the pointer has rested on it.
@@ -250,6 +319,7 @@ impl PartTooltip {
     /// Tooltips for the parts of `target`. They go when the pointer leaves it and when it
     /// is removed. (This takes the element's hover handler.)
     pub fn new(target: &El) -> PartTooltip {
+        let target = &target.clone().set_has_tooltip(true);
         let me = PartTooltip {
             ui: target.ui().clone(),
             at: Rc::default(),

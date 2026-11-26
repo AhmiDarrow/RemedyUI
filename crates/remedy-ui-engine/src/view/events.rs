@@ -231,6 +231,13 @@ impl Ui {
             }
             self.0.borrow_mut().hovered = chain.clone();
         }
+        let now: &[ElementId] = if lifted { &[] } else { &chain };
+        if old != now {
+            let watch = self.0.borrow().hover_watch.clone();
+            if let Some(watch) = watch {
+                watch(now);
+            }
+        }
         if e.phase == PointerPhase::Down {
             // A press while Alt is down makes Alt part of it (Alt+click), not a tap.
             self.0.borrow_mut().alt_tap = false;

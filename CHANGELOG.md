@@ -8,6 +8,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic tooltips.** `widgets::auto_tooltips(ui, text_for)` gives everything in a window that can be pressed, typed in or moved a tooltip when it has none of its own: its accessible description, else its name (`widgets::auto_tooltip_text`), or whatever `text_for` returns. An element with its own `tooltip` keeps it, and nothing doubles. Underneath, `Ui::set_hover_watch` hears the hovered chain change, `Ui::hovered` returns it, and `El::set_has_tooltip` and `ElementInfo::has_tooltip` mark an element that shows its own.
+
 ## [1.0.0-rc.2] - 2026-11-26
 
 ### Security
