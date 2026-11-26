@@ -1,17 +1,39 @@
 # RemedyUI
 
-RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. Apps such as RemedyAI are being built on it. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
+![RemedyUI: Hearth, SecretFolder, SecretSticky and Craft Calc windows](docs/images/showcase.jpg)
+
+RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
 **Status:** 1.0.0 release candidate.
 
 ## Apps built on RemedyUI
 
+- [RemedyAI](https://github.com/AhmiDarrow/RemedyAI): a partner on your computer; its RemedyUI desktop and phone apps are in the repository.
 - [Hearth](https://github.com/AhmiDarrow/Hearth): local file sharing and PC-to-PC chat.
 - [SecretFolder](https://github.com/AhmiDarrow/SecretFolder): an encrypted folder vault for Windows and Linux that feels like a file explorer.
 - [SecretSticky](https://github.com/AhmiDarrow/SecretSticky): encrypted sticky notes for Windows and Linux.
 - [Alex's Craft Calc](https://github.com/AhmiDarrow/Alexs-Craft-Calc): a soap and candle calculator with a craft wiki, offline on Windows, Android and the web.
 
 Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a sandboxed, metered Lua 5.4 superset in safe Rust. Emoji and stickers come from [Remedy Emoji](https://github.com/AhmiDarrow/RemedyEmoji), our own original art, built into RemedyUI as a color font.
+
+## Gallery
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/hearth.jpg" alt="Hearth: file sharing, light theme"><br><sub><b>Hearth</b> · file sharing, light theme</sub></td>
+<td width="50%"><img src="docs/images/craft-calc.jpg" alt="Alex's Craft Calc: the built-in craft wiki"><br><sub><b>Alex's Craft Calc</b> · the built-in craft wiki</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/secretfolder.jpg" alt="SecretFolder: an encrypted file explorer"><br><sub><b>SecretFolder</b> · an encrypted file explorer</sub></td>
+<td width="50%"><img src="docs/images/secretsticky.jpg" alt="SecretSticky: sticky-note windows"><br><sub><b>SecretSticky</b> · sticky-note windows</sub></td>
+</tr>
+</table>
+
+**Prism effects**, rendered by the engine:
+
+![Aurora, nebula, galaxy, volumetric clouds, mesh gradient, orb, retro grid and fire effects](docs/images/effects.png)
+
+App pictures use sample data.
 
 ## In short
 
