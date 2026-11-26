@@ -2,7 +2,7 @@
 
 RemedyUI writes its own engine core: reactivity, the tree, styling, layout integration, motion, input, the compositor, the GPU UI renderer, the CPU compositor, widgets, the bridges' own modules and tooling. For deep, solved problems it uses maintained, memory-safe crates. Each one sits behind RemedyUI's own types, so it can be upgraded or replaced without breaking apps ([design/14](design/14-codebase-quality-and-evolution.md)).
 
-A crate is pinned to an exact version when it is first added, in the milestone that needs it. The versions below are the latest published on crates.io on 2026-11-17, for reference.
+A crate is pinned to an exact version when it is first added, by the change that needs it. The versions below are the latest published on crates.io on 2026-11-17, for reference.
 
 ## Allowed licenses
 
@@ -39,7 +39,7 @@ The Pack column names what uses the crate: a workspace crate without its `remedy
 | Clipboard | `arboard` | 3.7.0 | desktop bridges | Text and images; sensitive-item handling added in the bridge |
 | File dialogs | `rfd` | 0.18.0 | `bridge-windows`, `bridge-macos` | Native dialogs. On Linux, dialogs go through the XDG portal with RemedyUI's own client over blocking `zbus`, because `rfd`'s portal backend needs an async runtime |
 | D-Bus (Linux) | `zbus` (blocking API) | 5.19.0 | `bridge-linux`, `services-desktop` | Portal, notifications, StatusNotifierItem, the launcher entry badge, AT-SPI; in `services-desktop`, UPower, logind and the screen saver for power |
-| Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image`, `media-isolated` (its PNG encoder makes the picture the helper is timed on) | Chosen per format in its milestone, after a RustSec review and fuzzing |
+| Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image`, `media-isolated` (its PNG encoder makes the picture the helper is timed on) | Chosen per format, after a RustSec review and fuzzing |
 | SVG | `usvg` | pinned with `resvg` | `media-image` (`media-image-svg`) | SVG to a path tree |
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |
 | Terminal parsing | `vte` | 0.15.0 | `widgets-term` | Paul Williams' DEC state machine as Alacritty uses it (Apache-2.0 OR MIT, maintained by the Alacritty project); bytes to print, execute, CSI, OSC and DCS actions. The screen model on top is RemedyUI's own. Its unbounded OSC buffer is cut by the terminal's own string limit |

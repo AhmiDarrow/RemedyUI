@@ -70,15 +70,3 @@ If the proof fails, its message says where the path stopped:
 - **"the GPU shows the same colours" / "renderer recorded errors"**: the import or the
   hand-over barriers misbehave on this driver. These are what lavapipe could not check:
   tiled modifiers, the sync-file semaphore, and the foreign-queue barriers.
-
-## Running it from a local Claude Code session
-
-Start Claude Code in your clone on the Linux machine and paste:
-
-> Run `tools/dmabuf-hardware-check.sh --probe` and tell me what is missing for the zero-copy
-> video check described in `docs/DMABUF-HARDWARE.md`. Install what is missing only after I
-> agree. Then run `tools/dmabuf-hardware-check.sh`. If the proof fails, find out why from
-> `target/dmabuf-hardware/proof.txt` and the code in
-> `crates/remedy-ui-engine/src/render_gpu/ffi/dmabuf.rs` and
-> `crates/remedy-ui-media-playback/src/os/gst_dmabuf.rs`, fix it if it is ours, and re-run.
-> Finish with the report's numbers in a table: copy vs hardware, per resolution.

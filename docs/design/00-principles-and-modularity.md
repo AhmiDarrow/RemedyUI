@@ -95,7 +95,7 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `devtools` | Inspector, performance overlay, hot reload, previews; debug builds by default | Development |
 | `customize` | The code-fluid layer: the person's theme, shortcuts, toolbars and menus, and text as files, with undo, resets and the editors | Every Remedy app |
 
-[../APPS.md](../APPS.md) maps every Remedy app to the packs it uses. [15-widgets-and-media.md](15-widgets-and-media.md) lists each pack's widgets.
+[15-widgets-and-media.md](15-widgets-and-media.md) lists each pack's widgets.
 
 Each pack is its own crate, with its third-party dependencies behind its own feature flags. Turning a pack off removes its code and dependencies from the build entirely.
 

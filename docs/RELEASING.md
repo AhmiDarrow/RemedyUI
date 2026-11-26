@@ -1,8 +1,6 @@
 # Releasing RemedyUI
 
-The owner's local gate is RemedyUI's CI. GitHub Actions runs only when started by hand
-(`.github/workflows/ci.yml` is `workflow_dispatch`). Everything below runs on the release
-machine.
+Everything below runs before changes are merged and released.
 
 ## Tools
 
@@ -11,26 +9,23 @@ machine.
 | Rust (stable) | the current stable | `rustup update stable` |
 | Rust at the MSRV | the workspace's `rust-version` (1.96) | `cargo xtask msrv` installs it with rustup when missing |
 | cargo-semver-checks | 0.51.0 | `cargo install cargo-semver-checks --version 0.51.0 --locked` |
-| cargo-deny | as the gate uses | `cargo install cargo-deny --locked` |
-
-On the release machine `CARGO_HOME` is not writable by the build user, so cargo-semver-checks
-went into the user's own root: `cargo install cargo-semver-checks --version 0.51.0 --locked
---root "$HOME/.cargo"` (with `~/.cargo/bin` on `PATH`).
+| cargo-deny | the current release | `cargo install cargo-deny --locked` |
 
 ## Before every merge
 
-From the repository root:
+GitHub Actions runs only when started by hand (`.github/workflows/ci.yml`), so these run
+locally, from the repository root:
 
-```sh
-GATE_DIR="$PWD" bash ~/gate.sh      # must end GATE-OK
-bash ~/budget-gate.sh               # the reference scenes' budgets
-```
-
-The gate runs formatting, clippy for Windows, Linux, macOS, Android and wasm32, the tests,
-the docs with warnings denied, `cargo xtask check` (the layer graph, the unsafe-code boundary,
-publishing metadata on every published crate, the docs index and `cargo vet --locked`) and
-`cargo deny check`. Install cargo-vet (`cargo install cargo-vet --locked`) on the gate
-machine: without it `cargo xtask check` skips the audits with a note.
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`, for the host and for
+  the Linux, macOS, Android and wasm32 targets
+- `cargo test --workspace`
+- `cargo doc --workspace --all-features --no-deps` with `RUSTDOCFLAGS="-D warnings"`
+- `cargo xtask check` (the layer graph, the unsafe-code boundary, publishing metadata, the docs
+  index and `cargo vet --locked`; without cargo-vet installed the audits are skipped with a
+  note) and `cargo deny check`
+- the reference scenes' budgets, in release builds (the `zoom_budget`, `budget`,
+  `compositor_zoom`, `table` and `throughput` tests)
 
 ## Before every release
 

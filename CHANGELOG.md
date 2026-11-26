@@ -2020,27 +2020,27 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [1.0.0-rc.1] - 2026-11-18
 
-The first release candidate of 1.0: everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/ROADMAP.md)).
+The first release candidate of 1.0.
 
 ### Added
 
-- **M1, foundations.** `remedy-ui-core` (geometry, scale and pixel snapping, colors in sRGB,
+- **Foundations.** `remedy-ui-core` (geometry, scale and pixel snapping, colors in sRGB,
   linear light and Oklab, generational arenas, constant-time tokens); `remedy-ui-reactive`
   (glitch-free signals, memos, effects, scopes, `SignalVec`, stores with field-level
   reactivity, the `Waker` for posts from other threads); `remedy-ui-macros`
   (`#[derive(Store)]`); `remedy-ui-tree` (elements, dirty flags, events, hit testing, focus,
   error boundaries); the headless test harness; the workspace rules (lints, layer graph,
   unsafe boundary, `cargo deny`).
-- **M2, text.** `remedy-ui-fonts` (the Remedy families as data); `remedy-ui-text` (rich
+- **Text.** `remedy-ui-fonts` (the Remedy families as data); `remedy-ui-text` (rich
   paragraph layout over parley with bidi and inline objects, hinted grayscale and LCD glyph
   rasterization, the glyph atlas, the editing core with undo and IME composition, secret
   text, deceptive-text defenses).
-- **M3, layout, style, input and semantics.** `remedy-ui-layout` (flex, grid and block through
+- **Layout, style, input and semantics.** `remedy-ui-layout` (flex, grid and block through
   taffy, right-to-left, snapping, virtual lists with anchoring); `remedy-ui-style` (themes as
   tokens, contrast-balanced derived tokens, cached resolution); `remedy-ui-input` (the event
   model, gesture arena, scroll physics, rebindable commands); `remedy-ui-a11y` (semantics to
   incremental AccessKit updates); `remedy-ui-motion` (easing, tweens, springs, the frame clock).
-- **M4, rendering, the compositor and the bridges.** `remedy-ui-paint` (display lists);
+- **Rendering, the compositor and the bridges.** `remedy-ui-paint` (display lists);
   `remedy-ui-render-cpu` (vello_cpu with RemedyUI's glyphs, LCD text); `remedy-ui-render-gpu`
   (wgpu and vello_gpu, a backend ladder, a pipeline cache, device-loss recovery);
   `remedy-ui-compositor` (layer trees, tiles, damage, compositor-side scrolling and
@@ -2048,7 +2048,7 @@ The first release candidate of 1.0: everything since the start of the project, b
   `remedy-ui-bridge-headless`; `remedy-ui-bridge-winit` and the Windows (with TSF), macOS and
   Linux bridges (clipboard, capture protection, settings, tray, file dialogs, single
   instance, screen readers).
-- **M5, the first app (SecretSticky).** `remedy-ui-view` (elements, the frame pipeline, input
+- **Views and the app shell.** `remedy-ui-view` (elements, the frame pipeline, input
   routing, editable fields); the `remedy-ui` facade and runner (CPU-first windows that move
   to the GPU when they need it); `remedy-ui-themes` (the twelve Remedy palettes, light and
   dark, high contrast); `remedy-ui-widgets-core`; `remedy-ui-widgets-forms` (exact numbers,
@@ -2056,29 +2056,29 @@ The first release candidate of 1.0: everything since the start of the project, b
   golden images); `remedy-ui-secure` (idle lock, self-clearing secret copies, privacy cover);
   `remedy-ui-services-update` (signed updates); `cargo-remedy` (`new`, `run`, `package` for
   Windows).
-- **M6, data apps (SecretFolder, Hearth).** `remedy-ui-widgets-nav` (commands, tabs, rails,
+- **Navigation and data.** `remedy-ui-widgets-nav` (commands, tabs, rails,
   stacks, toolbars people arrange, the command palette, drawers, sheets, a custom title bar);
   `remedy-ui-widgets-data` (tables, grids, trees and property grids at any size);
   `remedy-ui-media-image` and `remedy-ui-media-svg`; `remedy-ui-services-i18n` (Fluent,
   locale data, exact decimals); `remedy-ui-services-desktop`; drag and drop within the app
   and with other apps, Linux included.
-- **M7, FreeSpeak.** `remedy-ui-doc-rich` (Markdown, the rich text editor, find);
+- **Documents, media and scripting.** `remedy-ui-doc-rich` (Markdown, the rich text editor, find);
   `remedy-ui-viz` (the speaking ring, meters, sparklines, bars); `remedy-ui-services-spell`;
   `remedy-ui-media-anim`; `remedy-ui-media-isolated` (decoding in a sandboxed helper on every
   desktop platform); `remedy-ui-media-video`; boards people arrange with scripted widgets
   (Rhai and WebAssembly script engines behind one interface); chat lists, selection across
   messages, pop-out windows; `remedy-ui-bridge-android`.
-- **M8, breadth.** `remedy-ui-doc-pages` (paged documents with progressive zoom, spreads,
+- **Pages, code, playback and the web.** `remedy-ui-doc-pages` (paged documents with progressive zoom, spreads,
   selection, search, thumbnails, annotations); `remedy-ui-doc-code` (code views and the
   editor with several cursors); `remedy-ui-media-playback` (the platforms' decoders, the
   player, captions); `remedy-ui-widgets-music`; `remedy-ui-widgets-extra`; full-screen
   windows; `remedy-ui-bridge-web` (apps in a browser page, with `remedy_ui_core::exec` and
   `remedy_ui_core::time` so the engine runs without threads there).
-- **M9, power tools.** `remedy-ui-automation` (agents with consent); `remedy-ui-rui` (`.rui`
+- **Automation, markup and embedding.** `remedy-ui-automation` (agents with consent); `remedy-ui-rui` (`.rui`
   markup compiled at build time or loaded for people's own layouts); `remedy-ui-embed-gpu`;
   `remedy-ui-embed-webview`; `remedy-ui-widgets-term`; `remedy-ui-customize` (themes,
   shortcuts, toolbars, menus, text and layouts people change, with undo).
-- **M10, the 1.0 review** ([docs/API-REVIEW.md](docs/API-REVIEW.md)):
+- **Stability and tooling:**
   - Editions: `remedy_ui::Edition` (`E2026`), `AppConfig::edition`, `Ui::edition`;
     `cargo remedy new` writes the newest edition.
   - `cargo remedy migrate` (`--dry-run`) with `crates/cargo-remedy/migrations.toml`.
@@ -2157,7 +2157,7 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
 - `tools/build-web.sh` packages through `cargo remedy package --target web --example`; the
   page templates moved into `cargo-remedy`, and the demo's names and icon are in
   `crates/remedy-ui-bridge-web/remedy.toml`.
-- `.github/workflows/ci.yml` runs only when started by hand: the owner's local gate is CI.
+- `.github/workflows/ci.yml` runs only when started by hand.
 - Every published crate's manifest has keywords, categories and a readme; `remedy-ui-test` is
   `publish = false`.
 

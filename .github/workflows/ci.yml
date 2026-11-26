@@ -1,8 +1,6 @@
-# RemedyUI's CI is the owner's local gate, run before every merge: `~/gate.sh` (formatting,
-# clippy for Windows, Linux, macOS, Android and wasm32, the tests, the docs, `cargo xtask
-# check`, `cargo deny check`) and `~/budget-gate.sh` (the reference scenes' budgets). GitHub
-# Actions does not run on pushes or pull requests; this workflow only runs when started by
-# hand, as a second opinion on Linux and Windows runners.
+# GitHub Actions does not run on pushes or pull requests; this workflow only runs when started
+# by hand, as a second opinion on Linux and Windows runners. The checks to run before a merge
+# are in docs/RELEASING.md.
 name: CI
 
 on:
