@@ -153,7 +153,9 @@ impl Bar {
         if let Some((_, c)) = open {
             c.dismiss();
         }
-        if untrack(|| self.open_slot.get()).is_some() {
+        // The bar is also closed as it is removed, when a closing window has already let go
+        // of the scope that holds this signal.
+        if matches!(self.open_slot.get_untracked(), Ok(Some(_))) {
             self.open_slot.set(None);
         }
     }
