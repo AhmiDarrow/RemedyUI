@@ -234,8 +234,13 @@ fn resource_cancels_the_old_key() {
     assert_eq!(untrack(|| items.get()).map(|i| i.id), Some(7));
 }
 
+/// The keepalive count and its hook are shared by the whole process, so the two tests that
+/// watch them take turns: one's slow request still under way would hide the other's start.
+static KEEPALIVE_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn keepalive_finishes_on_the_way_out() {
+    let _turn = KEEPALIVE_TURN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let (addr, slow_done) = server();
     let cancel = Cancel::new();
     Http::new(&addr).send(Request::post("slow").keepalive(), &cancel, |_| {});
@@ -383,6 +388,7 @@ fn private_networks_are_opt_in() {
 #[test]
 fn keepalive_tells_the_platform() {
     static CALLS: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+    let _turn = KEEPALIVE_TURN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     on_keepalive(|on| CALLS.lock().unwrap().push(on));
     let (addr, _) = server();
     let http = Http::new(&addr);
