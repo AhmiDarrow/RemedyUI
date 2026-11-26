@@ -373,6 +373,7 @@ pub fn android_manifest(
 {permissions}    <application android:label="{label}" android:icon="@mipmap/ic_launcher" android:hasCode="true">
         <activity android:name="dev.remedyui.android.RemedyActivity"
             android:exported="true"{single}
+            android:stateNotNeeded="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">

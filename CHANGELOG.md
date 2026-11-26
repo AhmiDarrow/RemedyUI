@@ -1685,6 +1685,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- Android: an app no longer freezes when Android restarts its window for a change the app cannot take in place (switching the navigation style does it). The process ends and Android starts the app again; save what must survive in `App::on_leaving`.
+- Android: HTTPS requests and update checks no longer crash. The platform verifier needs a Kotlin library in the app, so the certificates Android trusts are read from its own folders instead. Certificates the user added or switched off in Android's settings are not taken into account, and revocation is not checked.
+- Android: a JSON update feed with `platforms` entries works, under `android-aarch64`, `android-armv7` and `android-x86_64` (each may name the same universal APK).
+- A tap on a menu bar title opens its menu and leaves it open; on touch screens it closed again at once.
+- With `REMEDY_UPDATE_KEY`, `cargo remedy package` writes a `.sig` for Linux, Android and macOS packages too, not only Windows ones.
 - Layout no longer slows with depth. A growing container (`grow`) in a row takes the width left and has no automatic minimum width; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
 - A held shortcut runs its command once. `Commands::set_repeats(id, true)` makes a command run again while its shortcut is held (undo, redo, zoom, next and previous).
 - A disabled menu in a menu bar takes keyboard focus like a disabled entry in a menu, and stays shut.
