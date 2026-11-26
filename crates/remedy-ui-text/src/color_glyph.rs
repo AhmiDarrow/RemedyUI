@@ -389,16 +389,11 @@ impl ColorPainter for BoundsPainter<'_> {
     fn fill_glyph(
         &mut self,
         glyph_id: GlyphId,
-        brush_transform: Option<skrifa::color::Transform>,
+        _brush_transform: Option<skrifa::color::Transform>,
         _brush: Brush<'_>,
     ) {
-        if let Some(t) = brush_transform {
-            self.push_transform(t);
-            self.include_glyph(glyph_id);
-            self.pop_transform();
-        } else {
-            self.include_glyph(glyph_id);
-        }
+        // The brush transform moves the paint, not the outline.
+        self.include_glyph(glyph_id);
     }
     fn push_layer(&mut self, _composite_mode: CompositeMode) {}
     fn pop_layer(&mut self) {}
@@ -532,23 +527,24 @@ impl ColorPainter for LayerPainter<'_> {
         brush_transform: Option<skrifa::color::Transform>,
         brush: Brush<'_>,
     ) {
-        if let Some(t) = brush_transform {
-            self.push_transform(t);
-        }
-        if let Some(img) = self.coverage_of(glyph_id) {
-            match brush {
-                Brush::Solid { palette_index, alpha } => {
-                    self.blit_coverage(&img, self.resolve(palette_index, alpha));
-                }
-                _ => {
-                    self.push_clip_glyph(glyph_id);
-                    self.fill(brush);
-                    self.pop_clip();
-                }
+        // The outline is drawn where the glyph is; `brush_transform` maps only the paint
+        // (a gradient under a PaintTransform), so it is on for the fill alone.
+        let Some(img) = self.coverage_of(glyph_id) else { return };
+        match brush {
+            Brush::Solid { palette_index, alpha } => {
+                self.blit_coverage(&img, self.resolve(palette_index, alpha));
             }
-        }
-        if brush_transform.is_some() {
-            self.pop_transform();
+            _ => {
+                self.clips.push(Clip::Mask(img.data, img.width, img.height, img.left, -img.top));
+                if let Some(t) = brush_transform {
+                    self.push_transform(t);
+                }
+                self.fill(brush);
+                if brush_transform.is_some() {
+                    self.pop_transform();
+                }
+                self.pop_clip();
+            }
         }
     }
     fn push_layer(&mut self, composite_mode: CompositeMode) {
@@ -936,5 +932,37 @@ mod tests {
         }
         assert_eq!((p.layers.len(), p.flat), (1, 0));
         assert!(p.layers.first().is_some_and(Pixmap::has_ink));
+    }
+
+    /// Segoe UI Emoji puts its gradients under transforms; skrifa hands those to
+    /// `fill_glyph` as the brush's transform. It must not move the outline.
+    #[test]
+    fn a_brush_transform_does_not_move_the_outline() {
+        let Some(face) = remedy_ui_fonts::REMEDY_EMOJI.first() else { unreachable!("the emoji face") };
+        let Ok(font) = FontRef::new(face.data) else { unreachable!("a font") };
+        let upem = font.metrics(Size::unscaled(), LocationRef::default()).units_per_em as f32;
+        let s = 48.0 / upem;
+        let paint = |t: Option<skrifa::color::Transform>| {
+            let mut p = LayerPainter {
+                font: font.clone(),
+                palette: None,
+                foreground: Color::BLACK,
+                ctm: vec![Mat { xx: s, yx: 0.0, xy: 0.0, yy: -s, dx: 8.0, dy: 56.0 }],
+                clips: vec![Clip::None],
+                layers: vec![Pixmap::new(64, 64)],
+                modes: vec![CompositeMode::SrcOver],
+                flat: 0,
+                origin: (0.0, 0.0),
+            };
+            // The first glyph with an outline: one of the layer shapes.
+            let gid = (1..60_000u32).map(GlyphId::new).find(|g| p.coverage_of(*g).is_some());
+            let Some(gid) = gid else { unreachable!("a layer shape") };
+            p.fill_glyph(gid, t, Brush::Solid { palette_index: FOREGROUND_PALETTE, alpha: 1.0 });
+            p.layers.pop().map(|l| l.data)
+        };
+        let far = skrifa::color::Transform { xx: 3.0, yx: 0.0, xy: 0.0, yy: 3.0, dx: 9000.0, dy: 9000.0 };
+        let plain = paint(None);
+        assert!(plain.as_ref().is_some_and(|d| d.iter().any(|&v| v != 0)), "the shape painted");
+        assert_eq!(paint(Some(far)), plain);
     }
 }
