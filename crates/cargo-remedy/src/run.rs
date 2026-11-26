@@ -124,6 +124,7 @@ mod tests {
             windows_files: Vec::new(),
             windows_app_id: None,
             windows_remove: Vec::new(),
+            windows_relaunch_silent: false,
             linux_files: Vec::new(),
             android_libs: Vec::new(),
             android_min_api: 26,
