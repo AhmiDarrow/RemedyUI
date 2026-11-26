@@ -596,3 +596,45 @@ fn a_page_filter_recolours_the_pages_and_nothing_around_them() {
     w.view.set_page_filter(Some(remedy_ui_core::ColorMatrix::IDENTITY));
     assert_eq!(w.view.page_filter(), None);
 }
+
+#[test]
+fn search_highlights_leave_the_words_under_them_readable() {
+    // A light theme: its highlight colours are pale, so a solid fill would hide dark text.
+    let mut w = Win::new(doc(1), WINDOW);
+    let Some(palette) = remedy_ui_widgets::themes::palette("light") else {
+        unreachable!("the light palette is built in")
+    };
+    let light = remedy_ui_widgets::themes::theme(palette);
+    w.ui.set_theme(light.clone(), remedy_ui_widgets::themes::sheet(&light));
+    assert!(w.settle(LONG));
+    // The middle of the first two lines' dark bars, which "THE" is found on.
+    let spots = [0, 1].map(|k| {
+        let line = line_rect(k, &line_text(0, k));
+        let zoom = w.view.zoom().get_untracked().unwrap_or(1.0);
+        let page = w.view.page_rect(0);
+        let at = |x: f32, y: f32| ((page.min.x + x * zoom) as u32, (page.min.y + y * zoom) as u32);
+        // Characters are 7 points wide; "the" starts after "Page 1 line N ".
+        at(line.min.x + 7.0 * 15.5, line.center().y)
+    });
+    let before = snapshot(&w);
+    w.view.find("THE");
+    let start = std::time::Instant::now();
+    while !w.view.search_status().get_untracked().is_ok_and(|s| s.done) {
+        assert!(start.elapsed() < LONG);
+        w.frame();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    w.view.clear_selection();
+    w.frame();
+    w.frame();
+    let after = snapshot(&w);
+    for (which, (x, y)) in ["current", "other"].into_iter().zip(spots) {
+        let bar = before.pixel(x, y).unwrap_or([0; 4]);
+        let marked = after.pixel(x, y).unwrap_or([0; 4]);
+        assert!(bar[0] < 90, "{which}: sampled the line, {bar:?}");
+        assert_ne!(marked, bar, "{which}: the hit is highlighted");
+        // At most half covered: the dark line still shows through.
+        assert!(marked[..3].iter().any(|c| *c <= 165), "{which}: the text is covered, {marked:?}");
+        assert!(marked[..3].iter().all(|c| *c <= 175), "{which}: the text is covered, {marked:?}");
+    }
+}
