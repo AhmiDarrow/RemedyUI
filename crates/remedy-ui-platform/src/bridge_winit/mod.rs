@@ -415,9 +415,15 @@ fn with_theme(theme: &mut Option<(Option<bool>, bool)>, mut s: SystemSettings) -
 
 /// Where a window of outer size `size` at `pos` should be so that all of it is on the screen
 /// at `at` with `room` (physical pixels): no larger than the screen, and moved onto it.
-fn fit_on_screen(pos: (i32, i32), size: (u32, u32), at: (i32, i32), room: (u32, u32)) -> ((i32, i32), (u32, u32)) {
+fn fit_on_screen(
+    pos: (i32, i32),
+    size: (u32, u32),
+    at: (i32, i32),
+    room: (u32, u32),
+) -> ((i32, i32), (u32, u32)) {
     let (w, h) = (size.0.min(room.0), size.1.min(room.1));
-    let along = |pos: i32, at: i32, room: u32, len: u32| pos.min(at.saturating_add_unsigned(room - len)).max(at);
+    let along =
+        |pos: i32, at: i32, room: u32, len: u32| pos.min(at.saturating_add_unsigned(room - len)).max(at);
     ((along(pos.0, at.0, room.0, w), along(pos.1, at.1, room.1, h)), (w, h))
 }
 
@@ -1643,7 +1649,10 @@ mod tests {
         // One that fits stays where it is.
         assert_eq!(fit_on_screen((130, 130), (1096, 799), screen.0, screen.1), ((130, 130), (1096, 799)));
         // A second screen to the left: positions are kept inside it, not the first.
-        assert_eq!(fit_on_screen((-100, 900), (800, 600), (-1920, 0), (1920, 1008)), ((-800, 408), (800, 600)));
+        assert_eq!(
+            fit_on_screen((-100, 900), (800, 600), (-1920, 0), (1920, 1008)),
+            ((-800, 408), (800, 600))
+        );
     }
 
     #[test]
