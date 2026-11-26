@@ -138,8 +138,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // 6. Update signatures.
     if let Some(key) = std::env::var_os("REMEDY_UPDATE_KEY") {
         let password = std::env::var("REMEDY_UPDATE_KEY_PASSWORD").ok();
-        let sk = minisign::SecretKey::from_file(PathBuf::from(&key), password)
-            .map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
+        let sk = secret_key(Path::new(&key), password).map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
         for a in artifacts.clone() {
             artifacts.push(sign_update(&a, &sk)?);
         }
@@ -153,6 +152,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("  note: {n}");
     }
     Ok(())
+}
+
+/// A minisign secret key, whether or not it has a password (`minisign -G -W` makes one
+/// without).
+fn secret_key(path: &Path, password: Option<String>) -> Result<minisign::SecretKey, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let boxed = || minisign::SecretKeyBox::from_string(&text).map_err(|e| e.to_string());
+    match boxed()?.into_unencrypted_secret_key() {
+        Ok(key) => Ok(key),
+        Err(_) => boxed()?.into_secret_key(password).map_err(|e| e.to_string()),
+    }
 }
 
 /// Writes `<file>.sig`: a minisign signature the updater checks against the app's key.
@@ -515,6 +525,16 @@ fn find_iscc() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_without_a_password_signs() {
+        let Ok(pair) = minisign::KeyPair::generate_unencrypted_keypair() else { unreachable!("keys") };
+        let Ok(boxed) = pair.sk.to_box(None) else { unreachable!("a key") };
+        let path = std::env::temp_dir().join(format!("cargo-remedy-key-{}", std::process::id()));
+        std::fs::write(&path, boxed.into_string()).unwrap_or_default();
+        assert!(secret_key(&path, None).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn extra_files_an_old_installers_id_and_clean_up_reach_the_installer() {
