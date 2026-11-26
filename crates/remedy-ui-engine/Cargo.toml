@@ -40,17 +40,17 @@ stacker = { version = "=0.1.25", optional = true }
 unic-langid = { version = "=0.9.6", features = ["likelysubtags"], optional = true }
 vello_cpu = { package = "remedy-vello-cpu", path = "../../vendor/vello_cpu", version = "=0.4.0", default-features = false, features = ["std", "u8_pipeline"], optional = true }
 vello_gpu = { version = "=0.4.0", default-features = false, features = ["std", "wgpu", "all_shader_features"], optional = true }
-wasmi = { version = "=2.0.2", default-features = false, features = ["std", "validate", "deterministic", "auto-dispatch"], optional = true }
+wasmi = { version = "=2.0.3", default-features = false, features = ["std", "validate", "deterministic", "auto-dispatch"], optional = true }
 wgpu = { version = "=30.0.2", default-features = false, features = ["std", "parking_lot", "wgsl"], optional = true }
 
 [dev-dependencies]
 log = { version = "=0.4.35" }
 png = { version = "=0.18.1" }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", features = ["bridge-linux", "bridge-windows", "bridge-winit"] }
+remedy-ui-platform = { path = "../remedy-ui-platform", features = ["bridge-linux", "bridge-windows", "bridge-winit"] }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["ahmi-print", "remedy-emoji", "remedy-sans", "remedy-sans-ui", "scripts"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["themes"] }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", features = ["themes"] }
 wat = { version = "=1.263.0" }
 wgpu = { version = "=30.0.2", features = ["counters"] }
 remedy-ui-engine = { path = ".", features = ["compositor", "effects", "media-effects", "media-effects-gpu", "paint", "render-cpu", "render-gpu", "render-gpu-windows-vulkan", "script", "script-lua", "script-wasm", "view"] }

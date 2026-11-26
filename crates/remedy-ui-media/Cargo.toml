@@ -52,7 +52,7 @@ image = { version = "=0.25.10", default-features = false, features = ["jpeg", "p
 image-webp = { version = "=0.2.4" }
 png = { version = "=0.18.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.0.0-rc.1", features = ["devtools", "themes"] }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", features = ["devtools", "themes"] }
 remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans", "remedy-sans-ui"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
