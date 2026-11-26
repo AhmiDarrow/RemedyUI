@@ -101,6 +101,34 @@ fn scrubbing_moves_back_through_history_and_asks_for_more() {
 }
 
 #[test]
+fn a_page_sharing_the_oldest_time_still_asks_for_the_next() {
+    // Messages sent within the same second share a time: a page of them moves nothing but
+    // the count, and the next page is still asked for.
+    let ui = ui();
+    let clock = Clock::manual();
+    let items = Signal::new((50..100).map(|i| (0.0, i)).chain((100..150).map(|i| (f64::from(i as u32), i))).collect::<Vec<Item>>());
+    let asked = Rc::new(Cell::new(0));
+    let a2 = asked.clone();
+    let t = track(&ui, items, &clock, NewestAt::Right).on_near_oldest(move || a2.set(a2.get() + 1));
+    let el: El = t.clone().into();
+    mount(&ui, &el.height(60.0));
+    t.el().focus();
+    assert!(key(&ui, Key::Home));
+    pump(&ui, &clock, 16);
+    assert_eq!(asked.get(), 1);
+    items.update(|v| {
+        let older: Vec<Item> = (0..50).map(|i| (0.0, i)).collect();
+        v.splice(0..0, older);
+    });
+    let _ = frame(&ui);
+    pump(&ui, &clock, 16);
+    assert_eq!(asked.get(), 2, "the page added items at the same time: ask again");
+    let _ = frame(&ui);
+    pump(&ui, &clock, 16);
+    assert_eq!(asked.get(), 2, "and only once");
+}
+
+#[test]
 fn new_items_flow_in_live_and_leave_a_scrubbed_view_alone() {
     let ui = ui();
     let clock = Clock::manual();
@@ -197,6 +225,28 @@ fn a_flap_holds_a_whole_character_as_a_reader_sees_it() {
     assert_eq!(flaps, want, "three characters, padded to five");
     let names: Vec<String> = ui.reader_view().iter().filter_map(|n| n.name.clone()).collect();
     assert!(names.iter().any(|n| n.as_str() == text), "{names:?}");
+}
+
+#[test]
+fn a_board_reads_in_its_own_texts_direction() {
+    let ui = ui();
+    let flap_x = |el: &El| -> Vec<f32> {
+        line(el).child_elements().iter().map(|f| f.bounds().unwrap_or_default().min.x).collect()
+    };
+    // A Latin name in a right-to-left window keeps its letters in order, left to right.
+    let latin =
+        display_text(&ui, "GATE".to_owned(), DisplayOptions::default().board(Board::SplitFlap).cells(6));
+    let rtl =
+        ui.el("rtl").layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl).child(latin.clone());
+    mount(&ui, &rtl);
+    let xs = flap_x(&latin);
+    assert!(xs.is_sorted_by(|a, b| a < b), "G A T E from the left: {xs:?}");
+    // An Arabic name in a left-to-right window reads from the right.
+    let arabic =
+        display_text(&ui, "عام".to_owned(), DisplayOptions::default().board(Board::SplitFlap).cells(3));
+    mount(&ui, &arabic);
+    let xs = flap_x(&arabic);
+    assert!(xs.is_sorted_by(|a, b| a > b), "first letter on the right: {xs:?}");
 }
 
 #[test]
