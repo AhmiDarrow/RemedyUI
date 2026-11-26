@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::viz::{Clock, Moved};
 use remedy_ui_core::a11y::{Role, Semantics};
-use remedy_ui_core::layout::Length;
+use remedy_ui_core::layout::{Direction, Length};
 use remedy_ui_core::reactive::untrack;
 use remedy_ui_core::{CornerRadii, Rect, Size};
 use remedy_ui_engine::paint::Brush;
@@ -315,7 +315,14 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
     });
 
     let s = state;
+    let board_el = el.clone();
     line.prop("text", text, move |line, t: String| {
+        // A board reads in its own text's direction, not the window's: a Latin name keeps its
+        // letters in order in a right-to-left language, and an Arabic name reads right to left
+        // in a left-to-right one.
+        let dir = if remedy_ui_text::text_is_rtl(&t) { Direction::Rtl } else { Direction::Ltr };
+        let _ = board_el.clone().layout(|l| l.direction = dir);
+        let _ = line.clone().layout(|l| l.direction = dir);
         let mut chars = clusters(&t);
         if let Some(n) = cells
             && chars.len() < n

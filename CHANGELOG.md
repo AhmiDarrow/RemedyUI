@@ -58,6 +58,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- `remedy_ui_text::text_is_rtl`: whether a text reads right to left by its own first strong letter.
 - HLS on macOS, decoded by VideoToolbox and AudioToolbox and fetched with NSURLSession. Cross-compiled only: it has not run on a Mac.
 - Android apps take links in their `[app] url_schemes`: a link pressed in a browser or a scanned code opens the app, which reads it with `remedy_ui::android::launch_url`.
 - **Page view: a page at a time, input the app sets, and taps**: `PageMode::Paged`
@@ -1685,6 +1686,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A timeline (`stage::timeline`) asks for older history again after a page whose items share the oldest time, such as messages sent within the same second. It used to ask once and then never again.
+- A drawer (`nav::drawer`, `nav::sheet`) shows its content every time it opens. Closing it used to remove the content with the panel, so a drawer opened a second time came up empty.
+- A drawer (`nav::drawer`, `nav::sheet`) that was never opened takes its content with it when it goes. The content used to stay outside the tree with its bindings still running, so a view built inside `show` panicked on a signal disposed with it once the window changed size.
+- A split-flap or LED board reads in its own text's direction: a Latin name keeps its letters in order in a right-to-left window, and an Arabic name reads from the right in a left-to-right one. A split-flap board used to mirror its flaps with the window.
 - Android: an app no longer freezes when Android restarts its window for a change the app cannot take in place (switching the navigation style does it). The process ends and Android starts the app again; save what must survive in `App::on_leaving`.
 - Android: HTTPS requests and update checks no longer crash. The platform verifier needs a Kotlin library in the app, so the certificates Android trusts are read from its own folders instead. Certificates the user added or switched off in Android's settings are not taken into account, and revocation is not checked.
 - Android: a JSON update feed with `platforms` entries works, under `android-aarch64`, `android-armv7` and `android-x86_64` (each may name the same universal APK).

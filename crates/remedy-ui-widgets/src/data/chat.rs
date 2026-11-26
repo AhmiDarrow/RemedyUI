@@ -357,7 +357,12 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         l.inset = Insets { top: AUTO, start: AUTO, end: 16.0, bottom: 16.0 };
     });
     // The day pinned at the top.
-    let pinned = w::text(ui, "").variant("muted").text(move || first_day.get()).layout(|l| {
+    // On a chip of its own, so it reads over the messages it floats above.
+    let chip = remedy_ui_core::style::Style::new()
+        .background(remedy_ui_core::style::ColorRole::Card)
+        .radius(remedy_ui_core::style::RADIUS_FULL)
+        .padding(Insets::symmetric(2.0, 10.0));
+    let pinned = w::text(ui, "").variant("muted").style(chip).text(move || first_day.get()).layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 8.0, start: AUTO, end: AUTO, bottom: AUTO };
         l.align_self = Some(remedy_ui_core::layout::Align::Center);

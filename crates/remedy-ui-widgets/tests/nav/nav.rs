@@ -277,6 +277,51 @@ fn drawers_trap_focus_close_on_escape_and_return_focus() {
 }
 
 #[test]
+fn a_drawer_shows_its_content_every_time_it_opens() {
+    let ui = ui();
+    let open = Signal::new(false);
+    let holder =
+        drawer(&ui, "Rooms", Edge::Start, open, w::column(&ui).child(w::button(&ui, "General", || {})));
+    ui.root().child(holder);
+    frame(&ui);
+    for round in 0..3 {
+        open.set(true);
+        frame(&ui);
+        // Overlay layer > scrim > panel > the content column: how many buttons each holds.
+        let inside: Vec<usize> = ui.layers()[1]
+            .child_elements()
+            .iter()
+            .flat_map(El::child_elements)
+            .flat_map(|panel| panel.child_elements())
+            .map(|content| content.child_elements().len())
+            .collect();
+        assert_eq!(inside, vec![1], "open {round}: the content and its button are in the drawer");
+        open.set(false);
+        frame(&ui);
+        assert!(ui.layers()[1].child_elements().is_empty(), "closed {round}");
+    }
+}
+
+#[test]
+fn a_drawer_never_opened_takes_its_content_with_it() {
+    let ui = ui();
+    let (open, name, runs) = (Signal::new(false), Signal::new("General".to_owned()), Rc::new(Cell::new(0)));
+    let r2 = runs.clone();
+    let label = w::text(&ui, move || {
+        r2.set(r2.get() + 1);
+        name.get()
+    });
+    let holder = drawer(&ui, "Rooms", Edge::Start, open, w::column(&ui).child(label));
+    ui.root().child(holder.clone());
+    frame(&ui);
+    let before = runs.get();
+    holder.remove();
+    name.set("Stage".to_owned());
+    frame(&ui);
+    assert_eq!(runs.get(), before, "the content's bindings went with the drawer");
+}
+
+#[test]
 fn drawers_close_on_a_press_outside_and_offer_no_dead_controls() {
     let ui = ui();
     let open = Signal::new(true);
