@@ -198,11 +198,7 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
 fn strings(t: &toml::Table, section: &str, key: &str) -> Result<Vec<String>, String> {
     let Some(v) = t.get(section).and_then(|s| s.get(key)) else { return Ok(Vec::new()) };
     let bad = || format!("remedy.toml: [{section}] {key} must be a list of strings");
-    v.as_array()
-        .ok_or_else(bad)?
-        .iter()
-        .map(|i| i.as_str().map(str::to_owned).ok_or_else(bad))
-        .collect()
+    v.as_array().ok_or_else(bad)?.iter().map(|i| i.as_str().map(str::to_owned).ok_or_else(bad)).collect()
 }
 
 /// Names the installer may delete from its own folder: plain names, nothing that leaves it

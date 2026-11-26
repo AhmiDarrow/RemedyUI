@@ -20,4 +20,19 @@ public class RemedyActivity extends NativeActivity {
         setIntent(intent);
         Notifier.opened(intent);
     }
+
+    // NativeActivity.onDestroy waits for the app's native main to return, and winit's event
+    // loop never ends for a destroy the app did not ask for: Android restarting the activity
+    // for a change the manifest cannot claim (assetsPaths, as after a system update or new
+    // wallpaper colours), or "don't keep activities". Waiting would freeze the app. winit
+    // allows one event loop per process, so the process ends here and Android starts the
+    // activity in a new one. By now the window is gone, and the app has been told it is
+    // leaving (HostEvent::Suspended) and had its chance to save.
+    @Override
+    protected void onDestroy() {
+        if (!isFinishing()) {
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
+        super.onDestroy();
+    }
 }

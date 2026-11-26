@@ -5,7 +5,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use remedy_ui_core::a11y::{ReaderNode, Role};
-use remedy_ui_core::input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_core::input::{
+    Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase,
+};
 use remedy_ui_core::reactive::Signal;
 use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_engine::view::{El, FieldKind, Request, Ui};
@@ -546,6 +548,30 @@ fn the_pointer_opens_menus_and_slides_between_them() {
     t.click_at(file);
     t.click_at(Point::new(600.0, 400.0));
     assert!(t.menus().is_empty());
+}
+
+#[test]
+fn a_tap_on_a_title_leaves_its_menu_open() {
+    let mut t = T::new();
+    let log: Rc<RefCell<Vec<String>>> = Rc::default();
+    let (_bar, _field) = bar_window(&t, &log);
+    t.frame();
+    let file = t.bounds(Role::MenuItem, "File").center();
+    // A finger's press and release reach the view together, when it lifts: no frame between
+    // them, so the release still finds the title and not the menu's layer over it.
+    let tap = |t: &mut T| {
+        for (phase, buttons) in
+            [(PointerPhase::Down, Buttons::PRIMARY), (PointerPhase::Up, Buttons::default())]
+        {
+            let e = PointerEvent::new(phase, file).with_buttons(buttons).with_kind(PointerKind::Touch);
+            let _ = t.ui.pointer(&e);
+        }
+        t.frame();
+    };
+    tap(&mut t);
+    assert_eq!(t.menus().len(), 1, "a tap opens the menu and it stays open");
+    tap(&mut t);
+    assert!(t.menus().is_empty(), "a second tap closes it");
 }
 
 #[test]

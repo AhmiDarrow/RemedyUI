@@ -9,8 +9,8 @@
 //! 4. Inno Setup builds a per-user installer (`<bin>_<version>_x64-setup.exe`): Start menu
 //!    entry, optional desktop shortcut, uninstaller, launch at the end.
 //! 5. A portable zip holds the executable and the README and license files.
-//! 6. With `REMEDY_UPDATE_KEY` (a minisign secret key file), the installer gets a `.sig`
-//!    for the updater.
+//! 6. With `REMEDY_UPDATE_KEY` (a minisign secret key file), each packaged file gets a
+//!    `.sig` for the updater, Linux, Android and macOS packages too.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let dist = p.target_dir.join("remedy").join("dist");
         std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
         let mut notes = Vec::new();
-        let artifacts = match target.as_str() {
+        let mut artifacts = match target.as_str() {
             "linux" => crate::platforms::linux(&p, &dist, &mut notes)?,
             "android" => crate::platforms::android(&p, &dist, &mut notes)?,
             "macos" => crate::platforms::macos(&p, &dist, &mut notes)?,
@@ -42,6 +42,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 return Err(format!("no packaging for `{other}`: use windows, linux, macos, android or web"));
             }
         };
+        if target != "web" {
+            sign_updates(&mut artifacts)?;
+        }
         println!("Packaged {} {} for {target}:", p.name, p.version);
         for a in &artifacts {
             println!("  {}", a.display());
@@ -136,13 +139,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     artifacts.push(zip_path);
 
     // 6. Update signatures.
-    if let Some(key) = std::env::var_os("REMEDY_UPDATE_KEY") {
-        let password = std::env::var("REMEDY_UPDATE_KEY_PASSWORD").ok();
-        let sk = secret_key(Path::new(&key), password).map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
-        for a in artifacts.clone() {
-            artifacts.push(sign_update(&a, &sk)?);
-        }
-    }
+    sign_updates(&mut artifacts)?;
 
     println!("Packaged {} {}:", p.name, p.version);
     for a in &artifacts {
@@ -150,6 +147,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     for n in notes {
         println!("  note: {n}");
+    }
+    Ok(())
+}
+
+/// Adds a `.sig` for each file when `REMEDY_UPDATE_KEY` names a key.
+fn sign_updates(artifacts: &mut Vec<PathBuf>) -> Result<(), String> {
+    let Some(key) = std::env::var_os("REMEDY_UPDATE_KEY") else { return Ok(()) };
+    let password = std::env::var("REMEDY_UPDATE_KEY_PASSWORD").ok();
+    let sk = secret_key(Path::new(&key), password).map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
+    for a in artifacts.clone() {
+        artifacts.push(sign_update(&a, &sk)?);
     }
     Ok(())
 }
@@ -406,11 +414,8 @@ fn removed_files(p: &Project) -> String {
     if p.windows_remove.is_empty() {
         return String::new();
     }
-    let lines: String = p
-        .windows_remove
-        .iter()
-        .map(|n| format!("Type: filesandordirs; Name: \"{{app}}\\{n}\"\n"))
-        .collect();
+    let lines: String =
+        p.windows_remove.iter().map(|n| format!("Type: filesandordirs; Name: \"{{app}}\\{n}\"\n")).collect();
     format!("[InstallDelete]\n{lines}\n")
 }
 
@@ -577,7 +582,8 @@ mod tests {
                 .contains("Flags: nowait postinstall skipifsilent\n"),
         );
         p.windows_relaunch_silent = true;
-        let iss = inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        let iss =
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
         assert!(iss.contains("PrivilegesRequiredOverridesAllowed=commandline\n"), "{iss}");
         assert!(iss.contains("Flags: nowait postinstall\n"), "{iss}");
         assert!(iss.contains("AppId={{B7E2C4A1-0000-0000-0000-000000000000}\n"), "{iss}");
