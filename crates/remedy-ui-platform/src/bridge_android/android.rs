@@ -123,6 +123,16 @@ pub fn launch_extra(name: &str) -> Option<String> {
     Java::new(&app).ok()?.intent_extra(name).ok().flatten()
 }
 
+/// The link that opened the app, when it was started by one in a scheme the app takes
+/// (`[app] url_schemes` in `remedy.toml`): a link pressed in a browser or a scanned code.
+/// `None` when the app was started another way, or before [`attach`]. A link pressed while
+/// the app is already running replaces it (the app's one activity takes it), so an app that
+/// waits for a link asks again, for example on a timer while its pairing screen is up.
+pub fn launch_url() -> Option<String> {
+    let app = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone()?;
+    Java::new(&app).ok()?.intent_data().ok().flatten()
+}
+
 /// Whether [`hold_process`] holds the process: the app's way out waits for it to let go.
 static HELD: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
 
