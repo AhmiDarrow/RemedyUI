@@ -34,6 +34,8 @@ pub(crate) struct Bar {
     restore: RefCell<Option<El>>,
     /// A menu is being opened: focus leaving the titles is not leaving the bar.
     opening: Cell<bool>,
+    /// A pointer's press on a title has acted: the click its release makes must not.
+    pressed: Cell<bool>,
 }
 
 impl Bar {
@@ -531,6 +533,7 @@ pub fn menu_bar(ui: &Ui, menus: Vec<MenuItem>) -> El {
         active,
         restore: RefCell::new(None),
         opening: Cell::new(false),
+        pressed: Cell::new(false),
     });
     let mut bar_el = bar_el;
     for (slot, title) in titles.into_iter().enumerate() {
@@ -588,14 +591,28 @@ fn bar_title(bar: &Rc<Bar>, slot: usize, title: El, labels: &[(Prop<String>, Opt
     let shown = bar.shown;
     let (t2, t3, d2) = (title.clone(), title.clone(), disabled.clone());
     let title = title
-        .on_click(move || b1.press_slot(slot))
+        // Assistive technology's press. A pointer's has acted by the time it clicks: a finger
+        // lifts before the menu is drawn over the title, so its release clicks the title too.
+        .on_click(move || {
+            if !b1.pressed.get() {
+                b1.press_slot(slot);
+            }
+        })
         .on_pointer(move |e| match e.phase {
             PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => {
+                b2.pressed.set(true);
                 b2.press_slot(slot);
                 true
             }
             // Pressed on the title, dragged into its menu, released on an entry: chosen.
-            PointerPhase::Up => b2.open_chain().is_some_and(|chain| chain.choose_at(e.position)),
+            PointerPhase::Up => {
+                b2.pressed.set(false);
+                b2.open_chain().is_some_and(|chain| chain.choose_at(e.position))
+            }
+            PointerPhase::Cancel => {
+                b2.pressed.set(false);
+                false
+            }
             _ => false,
         })
         .on_key(move |e| b3.title_key(e))

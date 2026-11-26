@@ -247,6 +247,12 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
             executable: false,
         },
     ];
+    for extra in &p.linux_files {
+        for (file, name) in crate::package::beside(extra)? {
+            let data = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            entries.push(TarEntry { path: format!("{base}/bin/{name}"), data, executable: false });
+        }
+    }
     // The icon at 256 px, and at every other hicolor size the artwork was drawn at.
     let mut sizes: Vec<u32> =
         HICOLOR_SIZES.iter().copied().filter(|s| set.drawn_sizes().contains(s)).collect();
@@ -367,6 +373,7 @@ pub fn android_manifest(
 {permissions}    <application android:label="{label}" android:icon="@mipmap/ic_launcher" android:hasCode="true">
         <activity android:name="dev.remedyui.android.RemedyActivity"
             android:exported="true"{single}
+            android:stateNotNeeded="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
@@ -469,6 +476,19 @@ fn tool(dir: &Path, name: &str) -> PathBuf {
     dir.join(name)
 }
 
+/// A target's ABI folder in an APK, and the name its NDK compiler goes by.
+fn android_abi(target: &str) -> Result<(&'static str, &str), String> {
+    match target {
+        "aarch64-linux-android" => Ok(("arm64-v8a", target)),
+        "x86_64-linux-android" => Ok(("x86_64", target)),
+        // Rust says armv7; the NDK's compiler says armv7a.
+        "armv7-linux-androideabi" => Ok(("armeabi-v7a", "armv7a-linux-androideabi")),
+        other => Err(format!(
+            "[android] target `{other}`: use aarch64-linux-android, armv7-linux-androideabi or x86_64-linux-android"
+        )),
+    }
+}
+
 /// Packages for Android; returns what it wrote.
 pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<PathBuf>, String> {
     let sdk = PathBuf::from(std::env::var_os("ANDROID_HOME").ok_or("set ANDROID_HOME to the Android SDK")?);
@@ -476,50 +496,60 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
         Some(n) => PathBuf::from(n),
         None => newest(&sdk.join("ndk")).ok_or("no NDK under $ANDROID_HOME/ndk (or set ANDROID_NDK_HOME)")?,
     };
-    let target = p.android_target.clone();
-    let abi = match target.as_str() {
-        "aarch64-linux-android" => "arm64-v8a",
-        "x86_64-linux-android" => "x86_64",
-        other => {
-            return Err(format!(
-                "[android] target `{other}`: use aarch64-linux-android or x86_64-linux-android"
-            ));
-        }
-    };
+    if p.android_targets.is_empty() {
+        return Err("[android] targets is empty".into());
+    }
     let (min_api, target_api) = (p.android_min_api, p.android_target_api);
     let prebuilt = newest(&ndk.join("toolchains/llvm/prebuilt")).ok_or("the NDK has no LLVM toolchain")?;
     let bin = prebuilt.join("bin");
-    let clang = tool(&bin, &format!("{target}{min_api}-clang"));
-    let clangxx = tool(&bin, &format!("{target}{min_api}-clang++"));
-    let upper = target.to_uppercase().replace('-', "_");
-    let lower = target.replace('-', "_");
-    let mut build = Command::new(cargo());
-    build
-        .current_dir(&p.root)
-        .args(["build", "--release", "--lib", "--target", &target])
-        .env(format!("CARGO_TARGET_{upper}_LINKER"), &clang)
-        .env(format!("CC_{lower}"), &clang)
-        .env(format!("CXX_{lower}"), &clangxx)
-        .env(format!("AR_{lower}"), tool(&bin, "llvm-ar"));
-    status(&mut build)?;
     let lib_name = p.lib_name.clone();
-    let so = p.target_dir.join(&target).join("release").join(format!("lib{lib_name}.so"));
-    if !so.exists() {
-        return Err(format!(
-            "{} was not built: the app's [lib] needs crate-type = [\"cdylib\", \"rlib\"] (the android template has it)",
-            so.display()
-        ));
-    }
     let work = p.target_dir.join("remedy").join("android");
     let stage = work.join("stage");
     let _ = std::fs::remove_dir_all(&stage);
-    let lib_dir = stage.join("lib").join(abi);
-    std::fs::create_dir_all(&lib_dir).map_err(|e| e.to_string())?;
-    let staged_so = lib_dir.join(format!("lib{lib_name}.so"));
-    std::fs::copy(&so, &staged_so).map_err(|e| format!("{}: {e}", so.display()))?;
-    status(Command::new(tool(&bin, "llvm-strip")).arg("--strip-debug").arg(&staged_so))?;
+    // Paths in the APK of every native library.
+    let mut libraries = Vec::new();
+    for target in &p.android_targets {
+        let (abi, compiler) = android_abi(target)?;
+        let clang = tool(&bin, &format!("{compiler}{min_api}-clang"));
+        let clangxx = tool(&bin, &format!("{compiler}{min_api}-clang++"));
+        let upper = target.to_uppercase().replace('-', "_");
+        let lower = target.replace('-', "_");
+        let mut build = Command::new(cargo());
+        build
+            .current_dir(&p.root)
+            .args(["build", "--release", "--lib", "--target", target])
+            .env(format!("CARGO_TARGET_{upper}_LINKER"), &clang)
+            .env(format!("CC_{lower}"), &clang)
+            .env(format!("CXX_{lower}"), &clangxx)
+            .env(format!("AR_{lower}"), tool(&bin, "llvm-ar"));
+        status(&mut build)?;
+        let so = p.target_dir.join(target).join("release").join(format!("lib{lib_name}.so"));
+        if !so.exists() {
+            return Err(format!(
+                "{} was not built: the app's [lib] needs crate-type = [\"cdylib\", \"rlib\"] (the android template has it)",
+                so.display()
+            ));
+        }
+        let lib_dir = stage.join("lib").join(abi);
+        std::fs::create_dir_all(&lib_dir).map_err(|e| e.to_string())?;
+        let staged_so = lib_dir.join(format!("lib{lib_name}.so"));
+        std::fs::copy(&so, &staged_so).map_err(|e| format!("{}: {e}", so.display()))?;
+        status(Command::new(tool(&bin, "llvm-strip")).arg("--strip-debug").arg(&staged_so))?;
+        libraries.push(format!("lib/{abi}/lib{lib_name}.so"));
+        for pattern in &p.android_libs {
+            let source = p.root.join(pattern.replace("{abi}", abi));
+            let name = source.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("bad file name")?;
+            // Android unpacks only libraries named this way.
+            if !(name.starts_with("lib") && name.ends_with(".so")) {
+                return Err(format!("[android] libs: `{name}` must be named lib<name>.so"));
+            }
+            std::fs::copy(&source, lib_dir.join(&name)).map_err(|e| format!("{}: {e}", source.display()))?;
+            libraries.push(format!("lib/{abi}/{name}"));
+        }
+    }
+    let first_target = p.android_targets.first().cloned().unwrap_or_default();
     // The bridge's Java, as the app's code.
-    let dex = bridge_dex(p, &target)?;
+    let dex = bridge_dex(p, &first_target)?;
     std::fs::copy(&dex, stage.join("classes.dex")).map_err(|e| format!("{}: {e}", dex.display()))?;
     // The launcher icon, also the source of the notifications' status bar icon.
     let set = icon_set(p, notes)?;
@@ -566,7 +596,7 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
         Command::new(tool(&build_tools, "aapt"))
             .current_dir(&stage)
             .args(["add", "-f", "base.apk", "classes.dex"])
-            .arg(format!("lib/{abi}/lib{lib_name}.so")),
+            .args(&libraries),
     )?;
     let aligned = stage.join("aligned.apk");
     status(Command::new(tool(&build_tools, "zipalign")).args(["-f", "-p", "4"]).arg(&base).arg(&aligned))?;
@@ -604,6 +634,11 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
             );
             (ks, "pass:android".to_owned(), "debug".to_owned())
         }
+    };
+    // One ABI is named after it; an APK for several is for any of them.
+    let abi = match p.android_targets.as_slice() {
+        [only] => android_abi(only)?.0,
+        _ => "universal",
     };
     let apk = dist.join(format!("{}_{}_{abi}.apk", p.bin, p.version));
     status(
@@ -747,7 +782,13 @@ mod tests {
             windows_replaces: None,
             linux_glibc: None,
             timestamp_url: String::new(),
-            android_target: "aarch64-linux-android".into(),
+            android_targets: vec!["aarch64-linux-android".into()],
+            windows_files: Vec::new(),
+            windows_app_id: None,
+            windows_remove: Vec::new(),
+            windows_relaunch_silent: false,
+            linux_files: Vec::new(),
+            android_libs: Vec::new(),
             android_min_api: 26,
             android_target_api: 35,
             android_keystore: None,
@@ -803,6 +844,13 @@ mod tests {
             "{gradient}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn android_targets_have_their_abi_and_compiler() {
+        assert_eq!(android_abi("aarch64-linux-android"), Ok(("arm64-v8a", "aarch64-linux-android")));
+        assert_eq!(android_abi("armv7-linux-androideabi"), Ok(("armeabi-v7a", "armv7a-linux-androideabi")));
+        assert!(android_abi("i686-linux-android").is_err());
     }
 
     #[test]

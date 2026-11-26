@@ -139,6 +139,42 @@ pub fn pool_limits() -> PoolLimits {
     *POOL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The certificates a server is checked against: the platform's verifier. On Android that
+/// verifier needs a Kotlin library in the app, so the certificates Android trusts are read
+/// from its own folders instead. Certificates the user added or switched off in Android's
+/// settings are not taken into account, and revocation is not checked.
+#[doc(hidden)]
+pub fn root_certs() -> ureq::tls::RootCerts {
+    #[cfg(target_os = "android")]
+    {
+        use std::sync::Arc;
+        static SYSTEM: OnceLock<Arc<Vec<ureq::tls::Certificate<'static>>>> = OnceLock::new();
+        let certs = SYSTEM.get_or_init(|| {
+            // Android 14 and later keep the current set in the first folder.
+            let current = certs_in("/apex/com.android.conscrypt/cacerts".as_ref());
+            Arc::new(if current.is_empty() {
+                certs_in("/system/etc/security/cacerts".as_ref())
+            } else {
+                current
+            })
+        });
+        ureq::tls::RootCerts::Specific(certs.clone())
+    }
+    #[cfg(not(target_os = "android"))]
+    ureq::tls::RootCerts::PlatformVerifier
+}
+
+/// The first certificate of each PEM file in `folder`; anything else is skipped.
+#[cfg(any(target_os = "android", test))]
+fn certs_in(folder: &std::path::Path) -> Vec<ureq::tls::Certificate<'static>> {
+    let Ok(files) = std::fs::read_dir(folder) else { return Vec::new() };
+    files
+        .flatten()
+        .filter_map(|f| std::fs::read(f.path()).ok())
+        .filter_map(|pem| ureq::tls::Certificate::from_pem(&pem).ok())
+        .collect()
+}
+
 fn agent(policy: HttpPolicy) -> ureq::Agent {
     let pool = pool_limits();
     let mut agents = AGENTS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -152,7 +188,7 @@ fn agent(policy: HttpPolicy) -> ureq::Agent {
     let agent = {
         // ring is the TLS provider; installing it twice is harmless.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+        let tls = ureq::tls::TlsConfig::builder().root_certs(root_certs()).build();
         let config = ureq::Agent::config_builder()
             .tls_config(tls)
             .http_status_as_error(false)
@@ -548,5 +584,21 @@ mod tests {
         assert_eq!(origin("http://u:p@LocalHost:8000/x"), origin("HTTP://localhost:8000?y"));
         assert_ne!(origin("http://localhost:8000/"), origin("http://localhost:9000/"));
         assert_ne!(origin("http://a.test/"), origin("https://a.test/"));
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    #[test]
+    fn android_certificate_files_are_read_and_others_skipped() -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("remedy-roots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // Android's files hold the PEM block followed by a text dump.
+        let pem = "-----BEGIN CERTIFICATE-----\nMAA=\n-----END CERTIFICATE-----\nCertificate:\n    Data:\n";
+        std::fs::write(dir.join("0a1b2c3d.0"), pem)?;
+        std::fs::write(dir.join("readme"), "not a certificate")?;
+        assert_eq!(super::certs_in(&dir).len(), 1);
+        assert!(super::certs_in(&dir.join("missing")).is_empty());
+        std::fs::remove_dir_all(&dir)
     }
 }

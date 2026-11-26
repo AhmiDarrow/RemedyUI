@@ -41,7 +41,8 @@ package   Builds a release and packages it. Windows: the icon and version compil
           remedy.toml names a certificate, and minisign update signatures when
           REMEDY_UPDATE_KEY points at a minisign secret key. Linux: a .tar.gz with the
           executable, a desktop entry and the icon. Android: a signed APK (ANDROID_HOME, the
-          NDK, build-tools; [android] in remedy.toml). macOS: an .app bundle in a zip (needs
+          NDK, build-tools; [android] in remedy.toml); with REMEDY_UPDATE_KEY, Linux, Android and
+          macOS packages get a .sig too. macOS: an .app bundle in a zip (needs
           Apple's linker: a Mac or a cross linker). Web: an installable page (PWA) in
           target/remedy/web/<name> and a zip of it: the app built for wasm32-unknown-unknown
           with remedy-ui's `web` feature, wasm-bindgen's glue (the CLI of the version in
