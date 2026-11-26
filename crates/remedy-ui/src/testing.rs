@@ -243,8 +243,8 @@ mod tests {
             app.open(WindowSpec::new("Test").size(480.0, 360.0), |_, _| {});
         });
         app.frames(1);
-        let id = app.host().window_ids()[0];
-        assert_eq!(app.host().window(id).unwrap().size(), (960, 720, 2.0));
+        let size = app.host().window_ids().first().and_then(|&id| app.host().window(id)).map(|w| w.size());
+        assert_eq!(size, Some((960, 720, 2.0)));
     }
 
     #[test]
