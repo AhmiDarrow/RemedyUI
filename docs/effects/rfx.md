@@ -216,8 +216,8 @@ pass scene {
 }
 ```
 
-`orb.rfx`, `crystal.rfx` and `volumetric_clouds.rfx` show shadows, ambient occlusion, GGX,
-fog and volumes.
+`orb.rfx` shows GGX shading, reflections and an anti-aliased silhouette; `crystal.rfx` and
+`volumetric_clouds.rfx` show more lighting and volumes.
 
 ## Limits and cost
 
