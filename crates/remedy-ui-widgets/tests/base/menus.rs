@@ -722,3 +722,16 @@ fn an_entry_that_stays_open_steps_with_its_label_following() {
     t.key(Key::Enter);
     assert!(t.menus().is_empty(), "other entries still close it");
 }
+
+#[test]
+fn closing_a_window_with_a_menu_bar_built_inside_a_condition_does_not_panic() {
+    // Content under `show` has its own scope, which is gone by the time a closing window
+    // removes its elements.
+    let t = T::new();
+    let ui = t.ui.clone();
+    let menus = move || w::menu_bar(&ui, vec![MenuItem::submenu("File", vec![MenuItem::new("Open", || {})])]);
+    t.ui.root().child(remedy_ui_engine::view::show(&t.ui, true, menus));
+    let mut t = t;
+    t.frame();
+    t.ui.close();
+}
