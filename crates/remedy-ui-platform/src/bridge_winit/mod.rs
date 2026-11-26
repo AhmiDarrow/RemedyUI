@@ -658,6 +658,11 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         }
     }
 
+    fn is_minimized(&self, window: WindowId) -> bool {
+        let Some(wid) = self.state.ids.get(&window) else { return false };
+        self.state.windows.get(wid).is_some_and(|(_, w)| w.window.is_minimized() == Some(true))
+    }
+
     fn is_maximized(&self, window: WindowId) -> bool {
         let Some(wid) = self.state.ids.get(&window) else { return false };
         self.state.windows.get(wid).is_some_and(|(_, w)| w.window.is_maximized())

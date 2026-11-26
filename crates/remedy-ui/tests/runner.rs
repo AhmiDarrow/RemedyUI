@@ -247,6 +247,11 @@ fn window_geometry_persists_across_runs() {
         host.user_resize(id, Size::new(345.0, 280.0));
         host.run_frames(&mut runner, 40);
         assert_eq!(runner.geometry().get("note 7"), Some((Point::new(40.0, 50.0), Size::new(345.0, 280.0))));
+        // Minimized, the system reports a token size: that is not the window's geometry.
+        host.set_minimized(id, true);
+        host.user_resize(id, Size::new(160.0, 28.0));
+        host.run_frames(&mut runner, 40);
+        assert_eq!(runner.geometry().get("note 7"), Some((Point::new(40.0, 50.0), Size::new(345.0, 280.0))));
     }
     assert!(file.exists(), "saved after moves settle");
     let mut runner = Runner::with_geometry(config(), GeometryStore::open(file), move |app: &App| {

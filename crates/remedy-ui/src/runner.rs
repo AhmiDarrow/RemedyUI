@@ -3361,6 +3361,11 @@ impl Runner {
 
     fn remember_geometry(&mut self, host: &mut dyn Host, key: u64) {
         let Some(w) = self.wins.get(&key) else { return };
+        // A minimized window reports a token size and place (160×28 far off screen on
+        // Windows): saving that opened the app as a sliver the next time.
+        if host.is_minimized(w.host) {
+            return;
+        }
         let cb = self.app.0.borrow().on_geometry.get(&key).cloned();
         if let Some(cb) = cb {
             let (pw, ph, s) = w.size;

@@ -1516,6 +1516,11 @@ pub trait Host {
     fn focus_window(&mut self, window: WindowId);
     /// Minimizes or restores.
     fn set_minimized(&mut self, window: WindowId, minimized: bool);
+    /// True while the window is minimized. Hosts that cannot tell say false.
+    fn is_minimized(&self, window: WindowId) -> bool {
+        let _ = window;
+        false
+    }
     /// Maximizes or restores.
     fn set_maximized(&mut self, window: WindowId, maximized: bool);
     /// True while the window is maximized (by the app or the user).
