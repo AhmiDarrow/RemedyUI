@@ -413,6 +413,41 @@ fn with_theme(theme: &mut Option<(Option<bool>, bool)>, mut s: SystemSettings) -
     s
 }
 
+/// Where a window of outer size `size` at `pos` should be so that all of it is on the screen
+/// at `at` with `room` (physical pixels): no larger than the screen, and moved onto it.
+fn fit_on_screen(pos: (i32, i32), size: (u32, u32), at: (i32, i32), room: (u32, u32)) -> ((i32, i32), (u32, u32)) {
+    let (w, h) = (size.0.min(room.0), size.1.min(room.1));
+    let along = |pos: i32, at: i32, room: u32, len: u32| pos.min(at.saturating_add_unsigned(room - len)).max(at);
+    ((along(pos.0, at.0, room.0, w), along(pos.1, at.1, room.1, h)), (w, h))
+}
+
+/// Keeps a new window on its screen. At a high display scale the size an app asks for can be
+/// larger than the screen, and the window's lower edge would open out of reach.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn fit_to_monitor(window: &Window, fallback: Option<winit::monitor::MonitorHandle>) {
+    // Where the platform places windows itself (Wayland) there is nothing to fit against.
+    let (Some(m), Ok(pos)) = (window.current_monitor().or(fallback), window.outer_position()) else { return };
+    let (at, room, outer, inner) = (m.position(), m.size(), window.outer_size(), window.inner_size());
+    // shortcut: winit has no work-area query, so a strip is left for a taskbar or dock; ask
+    // the system for the real work area once winit offers one.
+    let bar = (48.0 * m.scale_factor()) as u32;
+    let room = (room.width, room.height.saturating_sub(bar));
+    if room.0 == 0 || room.1 == 0 {
+        return;
+    }
+    let (to, size) = fit_on_screen((pos.x, pos.y), (outer.width, outer.height), (at.x, at.y), room);
+    if size != (outer.width, outer.height) {
+        let frame = (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height));
+        let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+            size.0.saturating_sub(frame.0).max(1),
+            size.1.saturating_sub(frame.1).max(1),
+        ));
+    }
+    if to != (pos.x, pos.y) {
+        window.set_outer_position(PhysicalPosition::new(to.0, to.1));
+    }
+}
+
 fn logical(p: PhysicalPosition<f64>, scale: f64) -> Point {
     let l: LogicalPosition<f64> = p.to_logical(scale);
     Point::new(l.x as f32, l.y as f32)
@@ -495,6 +530,8 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             // A platform with one window (Android's activity) hands the same one out again.
             return Err(Unsupported::new("another window", "this platform shows one window at a time"));
         }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        fit_to_monitor(&window, self.el.primary_monitor());
         self.hooks.window_options(&window, options);
         self.hooks.window_created(&window);
         // Best effort, as capture protection: a platform without window icons shows the app's.
@@ -1597,6 +1634,17 @@ fn cursor_icon(cursor: remedy_ui_core::host::Cursor) -> CursorIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_larger_than_its_screen_is_shrunk_and_moved_onto_it() {
+        // 1080x760 at 150% on a 1920x1080 screen with a taskbar strip taken off.
+        let screen = ((0, 0), (1920, 1008));
+        assert_eq!(fit_on_screen((37, 37), (1642, 1198), screen.0, screen.1), ((37, 0), (1642, 1008)));
+        // One that fits stays where it is.
+        assert_eq!(fit_on_screen((130, 130), (1096, 799), screen.0, screen.1), ((130, 130), (1096, 799)));
+        // A second screen to the left: positions are kept inside it, not the first.
+        assert_eq!(fit_on_screen((-100, 900), (800, 600), (-1920, 0), (1920, 1008)), ((-800, 408), (800, 600)));
+    }
 
     #[test]
     fn the_theme_winit_reported_holds_until_the_platform_changes_its_answer() {

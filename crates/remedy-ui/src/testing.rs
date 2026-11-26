@@ -80,13 +80,19 @@ impl TestApp {
     /// Without [`AppConfig::data_dir`], the app's data goes to a private temporary folder
     /// removed when the test app is dropped ([`TestApp::data_dir`]).
     pub fn new(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> TestApp {
+        TestApp::at_scale(1.0, config, setup)
+    }
+
+    /// [`TestApp::new`] on a display of scale `scale` (2.0 is a 200% display): windows have
+    /// that many device pixels to a logical one, so pictures show the app as such a screen does.
+    pub fn at_scale(scale: f32, config: AppConfig, setup: impl FnOnce(&App) + 'static) -> TestApp {
         let mut config = config.cpu_only();
         let data = config.data_dir.is_none().then(TempData::new);
         if let Some(t) = &data {
             config.data_dir = Some(t.0.clone());
         }
         let runner = Runner::with_geometry(config, GeometryStore::in_memory(), setup);
-        let mut app = TestApp { runner, host: HeadlessHost::new(), _data: data };
+        let mut app = TestApp { runner, host: HeadlessHost::new().with_scale(scale), _data: data };
         app.frames(1);
         app
     }
@@ -230,6 +236,16 @@ mod tests {
     use remedy_ui_core::a11y::Semantics;
     use remedy_ui_core::reactive::Signal;
     use remedy_ui_widgets::base as w;
+
+    #[test]
+    fn a_scaled_display_gives_windows_that_many_device_pixels() {
+        let mut app = TestApp::at_scale(2.0, AppConfig::new("Test"), |app: &App| {
+            app.open(WindowSpec::new("Test").size(480.0, 360.0), |_, _| {});
+        });
+        app.frames(1);
+        let id = app.host().window_ids()[0];
+        assert_eq!(app.host().window(id).unwrap().size(), (960, 720, 2.0));
+    }
 
     #[test]
     fn find_type_and_press_like_a_person() {
