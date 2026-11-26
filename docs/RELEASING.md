@@ -44,8 +44,12 @@ locally, from the repository root:
 4. **Changelog.** Move "Unreleased" in `CHANGELOG.md` under the new version and date.
 5. **Packages.** `cargo package --workspace --no-verify --allow-dirty --exclude xtask` must
    package every publishable crate (15 since the crates were merged). A crate that is not
-   published carries `publish = false`: `xtask`. Dev-dependencies on the facade are
-   path-only, so packaging does not need the facade on crates.io first.
+   published carries `publish = false`: `xtask`. A dev-dependency on a crate that depends
+   back on this one (the facade, or `remedy-ui-widgets` from the engine, media and platform
+   crates) is path-only, with no `version`, so Cargo leaves it out of the published manifest
+   and the crates have a publish order. Until `remedy-vello-cpu` is on crates.io, add
+   `--config 'patch.crates-io.remedy-vello-cpu.path="vendor/vello_cpu"'`. A warning that
+   a locked version is yanked is a blocker: move the pin first.
 6. **Publish** `remedy-vello-cpu` first when it changed (it lives outside the workspace:
    `cargo publish --manifest-path vendor/vello_cpu/Cargo.toml`), then the workspace in
    dependency order with `cargo publish -p <crate>` (Cargo orders a workspace publish itself

@@ -1276,7 +1276,7 @@ version = "0.8.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.remedy-lua]]
-version = "0.1.0"
+version = "0.1.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.renderdoc-sys]]
@@ -1796,19 +1796,19 @@ version = "0.2.130"
 criteria = "safe-to-run"
 
 [[exemptions.wasmi]]
-version = "2.0.2"
+version = "2.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasmi_collections]]
-version = "2.0.2"
+version = "2.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasmi_core]]
-version = "2.0.2"
+version = "2.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasmi_ir]]
-version = "2.0.2"
+version = "2.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.wayland-backend]]

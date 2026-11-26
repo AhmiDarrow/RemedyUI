@@ -8,6 +8,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Security
+
+- **wasmi 2.0.3.** The WebAssembly interpreter behind `script-wasm` moves from 2.0.2, which was withdrawn from crates.io, to 2.0.3, which fixes a memory-unsafe `v128.store8_lane` and `v128.store16_lane`.
+
 ### Removed
 
 - **The Rhai script engine.** `remedy-ui-script-rhai`, the facade feature `script-rhai`, `remedy_ui::script_rhai`, `Language::RHAI`, `Package::rhai` and `Language::for_extension("rhai")` are gone. Rhai was a placeholder for RemedyLua. There is no feature flag that keeps it. WebAssembly (`script-wasm`, `Language::WASM`) is unchanged.
