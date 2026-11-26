@@ -601,7 +601,10 @@ fn a_page_filter_recolours_the_pages_and_nothing_around_them() {
 fn search_highlights_leave_the_words_under_them_readable() {
     // A light theme: its highlight colours are pale, so a solid fill would hide dark text.
     let mut w = Win::new(doc(1), WINDOW);
-    let light = remedy_ui_widgets::themes::theme(remedy_ui_widgets::themes::palette("light").unwrap());
+    let Some(palette) = remedy_ui_widgets::themes::palette("light") else {
+        unreachable!("the light palette is built in")
+    };
+    let light = remedy_ui_widgets::themes::theme(palette);
     w.ui.set_theme(light.clone(), remedy_ui_widgets::themes::sheet(&light));
     assert!(w.settle(LONG));
     // The middle of the first two lines' dark bars, which "THE" is found on.
