@@ -112,8 +112,8 @@ scale. `EffectStats` reports the step and the latest GPU time.
   resolution, and particles cover at most `MAX_OVERDRAW` (8) times their buffer's pixels a
   frame. Both are defaults: `set_max_effect_pixels` and `set_max_overdraw` change them for
   the process.
-- **No side channels.** Effects sample only their own inputs (§5 of the FreeSpeak effects
-  research: filters that read other pixels leak them through timing), programs have no
+- **No side channels.** Effects sample only their own inputs (filters that read other pixels
+  leak them through timing), programs have no
   data-dependent control flow, and nothing flows back to the theme: no readback, no timing,
   only coarse frame time in.
 - **Total arithmetic**: no NaN or infinity reaches a pixel; parameters are clamped to their

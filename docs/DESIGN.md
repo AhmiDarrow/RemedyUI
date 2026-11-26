@@ -1,8 +1,8 @@
 # RemedyUI design
 
-RemedyUI is the UI engine for every Remedy app: chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform), not to the limits of egui, which FreeSpeak is leaving.
+RemedyUI is the UI engine for every Remedy app: chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform).
 
-This page is the overview. Each area has a deep dive in [`design/`](design/). The bar the design meets is in [REQUIREMENTS.md](REQUIREMENTS.md), how each Remedy app uses it in [APPS.md](APPS.md), and the order of work in [ROADMAP.md](ROADMAP.md).
+This page is the overview. Each area has a deep dive in [`design/`](design/).
 
 ## Principles, in priority order
 

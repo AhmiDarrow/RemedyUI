@@ -1,4 +1,4 @@
-//! The harness drives a small scene the way the M1 exit criteria describe.
+//! The harness drives a small scene.
 
 use std::cell::RefCell;
 use std::rc::Rc;

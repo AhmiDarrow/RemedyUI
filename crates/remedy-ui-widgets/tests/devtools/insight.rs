@@ -1,4 +1,4 @@
-//! Devtools complete (M9): the signal graph and why elements update, frame timings and the
+//! Devtools: the signal graph and why elements update, frame timings and the
 //! performance overlay, Perfetto traces, the screen-reader view, and remote devtools.
 
 use std::io::{BufRead, BufReader, Write};

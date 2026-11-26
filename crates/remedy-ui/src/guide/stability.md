@@ -2,11 +2,9 @@
 
 RemedyUI carries every Remedy app for years, so it says what it promises and checks it before
 every release. The full promise is in
-[docs/STABILITY.md](https://github.com/AhmiDarrow/RemedyUI/blob/main/docs/STABILITY.md); the
+[docs/STABILITY.md](https://github.com/AhmiDarrow/RemedyUI/blob/main/docs/STABILITY.md), and the
 release checks are in
-[docs/RELEASING.md](https://github.com/AhmiDarrow/RemedyUI/blob/main/docs/RELEASING.md), and
-every change the 1.0 API review made, with why, is in
-[docs/API-REVIEW.md](https://github.com/AhmiDarrow/RemedyUI/blob/main/docs/API-REVIEW.md).
+[docs/RELEASING.md](https://github.com/AhmiDarrow/RemedyUI/blob/main/docs/RELEASING.md).
 This page is the part an app writer needs day to day.
 
 ## What does not break
@@ -91,7 +89,7 @@ cargo remedy migrate --path ../my-app  # in another directory
 ```
 
 Changes that are not mechanical (a struct literal of a type that became `#[non_exhaustive]`,
-a `match` that needs a wildcard arm) are listed in API-REVIEW.md with the replacement for
+a `match` that needs a wildcard arm) are listed in CHANGELOG.md with the replacement for
 each; the compiler points at every one.
 
 ## Minimum Rust version

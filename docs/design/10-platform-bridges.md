@@ -47,7 +47,6 @@ RemedyOS draws its desktop in the kernel today (`kern_surface.c`, `kern_draw.c`,
 - **Theme.** `THEME.wire` maps to RemedyUI tokens, so RemedyOS's own theme and a user's edits to it apply to every RemedyUI app on the desktop. This is the code-fluid tenet across the whole OS.
 - **Services.** Notifications, the dock badge, file dialogs (the native Files app), capture protection, memory pressure and power come from kernel wires. Each is translated in the bridge; none is a Linux or Windows concept.
 - **Semantics.** The accessibility tree goes to RemedyOS over a semantics wire, which also serves the mind (see [11](11-accessibility-and-automation.md)). This gives RemedyOS the accessibility tree its kernel-drawn UI does not have today.
-- **Path forward.** Native RemedyOS apps (Files, Editor, Settings, Monitor, Ask, and Habitat panels if the owner chooses) can be written on RemedyUI in Rust and run on RemedyOS directly, while still running on Windows, Linux and Android for development. Whether the kernel-drawn Habitat moves to RemedyUI is the owner's decision. The bridge makes it possible without forcing it.
 
 ## Embedding and being embedded
 
