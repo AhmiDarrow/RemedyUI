@@ -1,8 +1,8 @@
 # Checking zero-copy video on Linux hardware
 
-The Linux GPU video path (GStreamer DMA-BUFs imported into wgpu's Vulkan device; PR #29) was
-proven on lavapipe with a stand-in decoder. This is how to prove it, and measure it, with a
-real hardware decoder: run one script, send back one file.
+The Linux GPU video path (GStreamer DMA-BUFs imported into wgpu's Vulkan device) is
+tested on lavapipe with a stand-in decoder. This is how to check and measure it with a real
+hardware decoder.
 
 ## What the machine needs
 

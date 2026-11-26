@@ -72,7 +72,7 @@ fn composer(send: impl Fn(String) + Copy + 'static) -> impl Element {
 | [14](design/14-codebase-quality-and-evolution.md) | Codebase quality and evolution | Structure, standards, testing bar, decision records, semver, deprecation, editions, futureproofing |
 | [15](design/15-widgets-and-media.md) | Widgets and media | The widget catalog by pack, windows as options, the media pipeline |
 | [16](design/16-effects.md) | Effects (Prism) | The `.rfx` language, its compiler and limits, the GPU kernel and CPU interpreter, effects as elements |
-| [17](design/17-3d.md) | 3D | 3D in effects (shipped), 3D element transforms and a 3D scene element (designed) |
+| [17](design/17-3d.md) | 3D | 3D in effects |
 
 [dependencies.md](dependencies.md) lists the third-party crates, their versions, and the rules for adding one.
 

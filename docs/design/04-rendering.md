@@ -6,8 +6,7 @@ The renderer is where engines win or lose on smoothness, battery and "it doesn't
 - **Flutter's Impeller:** no shader compiled while the user waits.
 - **Core Animation:** compositor-side animation.
 
-This document describes what the code does. What is planned but not written yet is listed
-under [Not yet in code](#not-yet-in-code) at the end, and nowhere else.
+This document describes what the code does.
 
 ## From paint to pixels
 
@@ -300,29 +299,3 @@ a tested tolerance.
   draws its frame once more.
 - **Paged documents** (`remedy-ui-widgets::doc_pages`) show pages the app parses (a PDF through
   MuPDF, an e-book) as display lists.
-
-## Not yet in code
-
-Planned, not implemented; nothing above relies on them:
-
-- **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
-  and layers that cover a tiny area squashed back into their parent. Measured and not worth
-  it yet (`tests/layers.rs` in `remedy-ui-engine::render_gpu`; release, 1280 × 800, CPU compositor
-  and llvmpipe): a small layer costs the compositor's plan about 0.8 µs a frame (1,000 icon
-  layers: 0.83 ms against 0.07 ms merged) and its first frame a texture each (GPU 104 ms
-  against 57 ms), but with one icon changing a frame, merged icons re-raster their shared tile
-  (CPU 9.1 ms, GPU 28 ms against 0.6 ms and 1.8 ms as layers). RemedyUI gives layers only for a
-  reason (scrolling, animation, glass, filters), so trees hold tens of them, where the cost
-  is a few tens of microseconds a frame.
-- **Partial presents on the GPU** (`Present1` dirty rects, `eglSwapBuffersWithDamage`,
-  Wayland `damage_buffer`): wgpu does not offer them.
-- **Platform presenting details**: a DirectComposition flip-model swapchain with a
-  frame-latency waitable object, display-link pacing on macOS, Wayland frame callbacks with
-  fractional scale, Android Choreographer pacing; system backdrops (Mica, acrylic,
-  vibrancy); mailbox and variable-refresh present modes.
-- **Wide-gamut and HDR surfaces**, and colours tagged with their colour space.
-- **GPU video without copies**: importing decoder textures (D3D11/12, VA-API dma-buf,
-  Android `HardwareBuffer`, IOSurface) instead of uploading planes.
-- **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
-- **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
-  paths) and printing through each platform's print dialog.

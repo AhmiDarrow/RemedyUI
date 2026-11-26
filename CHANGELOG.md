@@ -1613,11 +1613,6 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `push_filter_layer` (vello's `push_filter_layer`). `Layer` gains `backdrop` and
   `filters` fields (build layers with `Layer::new`), and `ResolvedStyle` gains `shadow`, `blur`, `drop_shadow` and
   `backdrop_blur`. `EffectStats::level` now counts the GPU's steps too.
-- `docs/design/04-rendering.md` describes what the renderers do, and lists what is planned
-  under "Not yet in code" (layer squashing, a backend self-test and present watchdog, partial
-  presents on the GPU, platform presenting details and system backdrops, HDR, zero-copy
-  video, mipmaps, colour-matrix filters, printing). It had described several of those as
-  existing. `16-effects.md` and `10-platform-bridges.md` follow.
 
 - The CPU compositor composites only the damage: each damaged rectangle is recorded on its
   own (tiles and clipped subtrees outside it left out) and rasterized into the kept frame.

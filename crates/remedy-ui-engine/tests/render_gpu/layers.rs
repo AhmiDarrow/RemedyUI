@@ -1,6 +1,5 @@
 //! What a layer costs: many small sibling layers against the same drawing merged into their
-//! parent, on both compositors. The measurement behind not merging or squashing layers
-//! (docs/design/04-rendering.md, "Not yet in code").
+//! parent, on both compositors. The measurement behind not merging or squashing layers.
 
 use std::time::{Duration, Instant};
 
