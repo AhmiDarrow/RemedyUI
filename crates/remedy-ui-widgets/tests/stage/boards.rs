@@ -200,6 +200,28 @@ fn a_flap_holds_a_whole_character_as_a_reader_sees_it() {
 }
 
 #[test]
+fn a_board_reads_in_its_own_texts_direction() {
+    let ui = ui();
+    let flap_x = |el: &El| -> Vec<f32> {
+        line(el).child_elements().iter().map(|f| f.bounds().unwrap_or_default().min.x).collect()
+    };
+    // A Latin name in a right-to-left window keeps its letters in order, left to right.
+    let latin =
+        display_text(&ui, "GATE".to_owned(), DisplayOptions::default().board(Board::SplitFlap).cells(6));
+    let rtl =
+        ui.el("rtl").layout(|l| l.direction = remedy_ui_core::layout::Direction::Rtl).child(latin.clone());
+    mount(&ui, &rtl);
+    let xs = flap_x(&latin);
+    assert!(xs.is_sorted_by(|a, b| a < b), "G A T E from the left: {xs:?}");
+    // An Arabic name in a left-to-right window reads from the right.
+    let arabic =
+        display_text(&ui, "عام".to_owned(), DisplayOptions::default().board(Board::SplitFlap).cells(3));
+    mount(&ui, &arabic);
+    let xs = flap_x(&arabic);
+    assert!(xs.is_sorted_by(|a, b| a > b), "first letter on the right: {xs:?}");
+}
+
+#[test]
 fn flaps_flip_then_rest() {
     let ui = ui();
     let clock = Clock::manual();

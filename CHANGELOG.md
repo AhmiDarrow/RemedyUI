@@ -58,6 +58,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- `remedy_ui_text::text_is_rtl`: whether a text reads right to left by its own first strong letter.
 - HLS on macOS, decoded by VideoToolbox and AudioToolbox and fetched with NSURLSession. Cross-compiled only: it has not run on a Mac.
 - Android apps take links in their `[app] url_schemes`: a link pressed in a browser or a scanned code opens the app, which reads it with `remedy_ui::android::launch_url`.
 - **Page view: a page at a time, input the app sets, and taps**: `PageMode::Paged`
@@ -1685,6 +1686,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A split-flap or LED board reads in its own text's direction: a Latin name keeps its letters in order in a right-to-left window, and an Arabic name reads from the right in a left-to-right one. A split-flap board used to mirror its flaps with the window.
 - Layout no longer slows with depth. A growing container (`grow`) in a row takes the width left and has no automatic minimum width; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
 - A held shortcut runs its command once. `Commands::set_repeats(id, true)` makes a command run again while its shortcut is held (undo, redo, zoom, next and previous).
 - A disabled menu in a menu bar takes keyboard focus like a disabled entry in a menu, and stays shut.

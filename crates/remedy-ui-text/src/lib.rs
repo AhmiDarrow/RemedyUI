@@ -94,6 +94,19 @@ pub use lazy::{
     LAZY_CHUNK_BYTES, LAZY_KEPT_PIECES, LAZY_MIN_BYTES, LazyLimits, lazy_limits, set_lazy_limits,
 };
 pub use pseudo::Pseudo;
+
+/// Whether `text` reads right to left by its own first strong letter (Unicode's paragraph
+/// rule, UAX #9 P2 and P3): Arabic or Hebrew first is right to left; Latin first, or no
+/// letters at all, is left to right.
+///
+/// ```
+/// use remedy_ui_text::text_is_rtl;
+/// assert!(text_is_rtl("عام") && text_is_rtl("12 שלום"));
+/// assert!(!text_is_rtl("GENERAL") && !text_is_rtl("42") && !text_is_rtl(""));
+/// ```
+pub fn text_is_rtl(text: &str) -> bool {
+    lazy::base_direction(text)
+}
 pub use raster::{
     Antialias, GlyphImage, GlyphImageFormat, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin,
 };
