@@ -88,6 +88,13 @@ timestamp_url = "http://timestamp.digicert.com"
 # and removes it on uninstall. `autostart::set` adopts that value rather than adding a
 # Startup-folder shortcut, so the app never starts twice.
 autostart_args = "--background"
+# Optional: files and folders installed (and zipped) beside the program, such as a library
+# it loads and that library's licenses. A folder keeps its name.
+files = ["vendor/engine.dll", "vendor/licenses"]
+# Optional: when an earlier Inno Setup installer made the app, its AppId, so this installer
+# upgrades that install in place; and what it left in the folder that must go.
+app_id = "{01234567-89AB-CDEF-0123-456789ABCDEF}"
+remove = ["_internal"]
 
 # Optional: take over an earlier per-user install of the same app made by another installer
 # (an NSIS build, say). Setup waits for its program to close, then removes only the files
@@ -99,9 +106,18 @@ uninstall_key = "Notes"
 files = ["notes.exe", "uninstall.exe"]
 registry = ['Software\Maker\Notes']
 
+[linux]
+# Optional: files and folders installed beside the program (in `bin/`).
+files = ["vendor/libengine.so"]
+
 [android]
-# The Rust target, the lowest and the target API level, and the release key.
+# The Rust target, the lowest and the target API level, and the release key. For one APK
+# that runs on several processors, give `targets` instead: aarch64-linux-android,
+# armv7-linux-androideabi (32-bit ARM) and x86_64-linux-android.
 target = "aarch64-linux-android"
+# Optional: native libraries of the app's own, `{abi}` standing for each target's ABI
+# (arm64-v8a, armeabi-v7a, x86_64).
+libs = ["vendor/{abi}/libengine.so"]
 min_api = 26
 target_api = 34
 keystore = "release.keystore"
