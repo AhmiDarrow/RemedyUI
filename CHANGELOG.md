@@ -20,6 +20,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **A new window fits its screen.** On Windows, macOS and X11 a window asked for at a size larger than its screen (1080 × 760 at 150% on a 1080p display) is shrunk to the screen, less a strip for the taskbar, and moved onto it before it is shown.
 - **The engine is 15 crates, down from 68.** Apps that depend on `remedy-ui` change nothing:
   its features and `remedy_ui::…` paths are the same. The crates behind it were merged, each
   old crate becoming a module behind a feature of the same name:
@@ -64,6 +65,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- `TestApp::at_scale`: a test app on a headless display of a given scale, for pictures of an app at 125% to 200% without changing a display.
 - `remedy_ui_text::text_is_rtl`: whether a text reads right to left by its own first strong letter.
 - HLS on macOS, decoded by VideoToolbox and AudioToolbox and fetched with NSURLSession. Cross-compiled only: it has not run on a Mac.
 - Android apps take links in their `[app] url_schemes`: a link pressed in a browser or a scanned code opens the app, which reads it with `remedy_ui::android::launch_url`.
