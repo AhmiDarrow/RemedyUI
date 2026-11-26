@@ -159,9 +159,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
 fn secret_key(path: &Path, password: Option<String>) -> Result<minisign::SecretKey, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let boxed = || minisign::SecretKeyBox::from_string(&text).map_err(|e| e.to_string());
-    match boxed()?.into_unencrypted_secret_key() {
-        Ok(key) => Ok(key),
-        Err(_) => boxed()?.into_secret_key(password).map_err(|e| e.to_string()),
+    if let Ok(key) = boxed()?.into_unencrypted_secret_key() {
+        return Ok(key);
+    }
+    // The minisign program leaves the checksum of a key with no password as zeros, which the
+    // library calls corrupt. The key's bytes say whether it has a password (bytes 2 and 3).
+    use base64::Engine as _;
+    let bytes = text
+        .lines()
+        .nth(1)
+        .and_then(|line| base64::engine::general_purpose::STANDARD.decode(line.trim()).ok());
+    match bytes {
+        Some(bytes) if bytes.len() == 158 && bytes.get(2..4) == Some(&[0, 0]) => {
+            minisign::SecretKey::from_bytes(&bytes).map_err(|e| e.to_string())
+        }
+        _ => boxed()?.into_secret_key(password).map_err(|e| e.to_string()),
     }
 }
 
@@ -533,6 +545,19 @@ mod tests {
         let path = std::env::temp_dir().join(format!("cargo-remedy-key-{}", std::process::id()));
         std::fs::write(&path, boxed.into_string()).unwrap_or_default();
         assert!(secret_key(&path, None).is_ok());
+        // As the minisign program writes it: the last 32 bytes, the checksum, left zero.
+        use base64::Engine as _;
+        let mut bytes = pair.sk.to_bytes();
+        let checksum = bytes.len().saturating_sub(32);
+        bytes.iter_mut().skip(checksum).for_each(|b| *b = 0);
+        let line = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let file = ["untrusted comment: minisign encrypted secret key", &line, ""].join("\n");
+        std::fs::write(&path, file).unwrap_or_default();
+        let Ok(read) = secret_key(&path, None) else { unreachable!("a key from the minisign program") };
+        let data = std::io::Cursor::new(b"data");
+        let Ok(signature) = minisign::sign(None, &read, data, None, None) else { unreachable!("it signs") };
+        let data = std::io::Cursor::new(b"data");
+        assert!(minisign::verify(&pair.pk, &signature, data, true, false, false).is_ok());
         let _ = std::fs::remove_file(&path);
     }
 

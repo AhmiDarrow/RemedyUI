@@ -649,6 +649,7 @@ dependencies = [
 name = "cargo-remedy"
 version = "1.0.0-rc.1"
 dependencies = [
+ "base64",
  "bytes",
  "cargo-remedy",
  "flate2",
