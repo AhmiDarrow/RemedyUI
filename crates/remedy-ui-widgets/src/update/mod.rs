@@ -262,7 +262,9 @@ mod http {
     fn agent(https: bool) -> ureq::Agent {
         // ring is the TLS provider; installing it twice is harmless.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+        let tls = ureq::tls::TlsConfig::builder()
+            .root_certs(remedy_ui_platform::services_net::root_certs())
+            .build();
         ureq::Agent::config_builder()
             .tls_config(tls)
             .timeout_resolve(Some(PHASE))
@@ -367,6 +369,10 @@ fn tauri_platform_keys_for(os: &str, arch: &str) -> &'static [&'static str] {
         ("windows", "aarch64") => &["windows-aarch64", "windows-arm64"],
         ("linux", "x86_64") => &["linux-x86_64", "linux-x86-64"],
         ("linux", "aarch64") => &["linux-aarch64", "linux-arm64"],
+        // Not Tauri's own: one entry per CPU, which may all name the same universal APK.
+        ("android", "aarch64") => &["android-aarch64", "android-arm64"],
+        ("android", "arm") => &["android-armv7"],
+        ("android", "x86_64") => &["android-x86_64"],
         ("macos", "aarch64") => &["darwin-aarch64", "darwin-arm64"],
         ("macos", "x86_64") => &["darwin-x86_64", "darwin-x86-64"],
         _ => &[],
@@ -891,6 +897,8 @@ mod json_feed_tests {
         assert_eq!(tauri_platform_keys_for("windows", "x86_64").first(), Some(&"windows-x86_64"));
         assert_eq!(tauri_platform_keys_for("linux", "x86_64"), &["linux-x86_64", "linux-x86-64"]);
         assert_eq!(tauri_platform_keys_for("macos", "aarch64").first(), Some(&"darwin-aarch64"));
+        assert_eq!(tauri_platform_keys_for("android", "aarch64").first(), Some(&"android-aarch64"));
+        assert_eq!(tauri_platform_keys_for("android", "arm"), &["android-armv7"]);
         assert!(tauri_platform_keys_for("fuchsia", "x86_64").is_empty());
     }
 

@@ -9,8 +9,8 @@
 //! 4. Inno Setup builds a per-user installer (`<bin>_<version>_x64-setup.exe`): Start menu
 //!    entry, optional desktop shortcut, uninstaller, launch at the end.
 //! 5. A portable zip holds the executable and the README and license files.
-//! 6. With `REMEDY_UPDATE_KEY` (a minisign secret key file), the installer gets a `.sig`
-//!    for the updater.
+//! 6. With `REMEDY_UPDATE_KEY` (a minisign secret key file), each packaged file gets a
+//!    `.sig` for the updater, Linux, Android and macOS packages too.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let dist = p.target_dir.join("remedy").join("dist");
         std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
         let mut notes = Vec::new();
-        let artifacts = match target.as_str() {
+        let mut artifacts = match target.as_str() {
             "linux" => crate::platforms::linux(&p, &dist, &mut notes)?,
             "android" => crate::platforms::android(&p, &dist, &mut notes)?,
             "macos" => crate::platforms::macos(&p, &dist, &mut notes)?,
@@ -42,6 +42,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 return Err(format!("no packaging for `{other}`: use windows, linux, macos, android or web"));
             }
         };
+        if target != "web" {
+            sign_updates(&mut artifacts)?;
+        }
         println!("Packaged {} {} for {target}:", p.name, p.version);
         for a in &artifacts {
             println!("  {}", a.display());
@@ -131,18 +134,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
             extras.push(f);
         }
     }
+    extras.extend(p.windows_files.iter().cloned());
     write_zip(&zip_path, &staged, &extras)?;
     artifacts.push(zip_path);
 
     // 6. Update signatures.
-    if let Some(key) = std::env::var_os("REMEDY_UPDATE_KEY") {
-        let password = std::env::var("REMEDY_UPDATE_KEY_PASSWORD").ok();
-        let sk = minisign::SecretKey::from_file(PathBuf::from(&key), password)
-            .map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
-        for a in artifacts.clone() {
-            artifacts.push(sign_update(&a, &sk)?);
-        }
-    }
+    sign_updates(&mut artifacts)?;
 
     println!("Packaged {} {}:", p.name, p.version);
     for a in &artifacts {
@@ -152,6 +149,40 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("  note: {n}");
     }
     Ok(())
+}
+
+/// Adds a `.sig` for each file when `REMEDY_UPDATE_KEY` names a key.
+fn sign_updates(artifacts: &mut Vec<PathBuf>) -> Result<(), String> {
+    let Some(key) = std::env::var_os("REMEDY_UPDATE_KEY") else { return Ok(()) };
+    let password = std::env::var("REMEDY_UPDATE_KEY_PASSWORD").ok();
+    let sk = secret_key(Path::new(&key), password).map_err(|e| format!("REMEDY_UPDATE_KEY: {e}"))?;
+    for a in artifacts.clone() {
+        artifacts.push(sign_update(&a, &sk)?);
+    }
+    Ok(())
+}
+
+/// A minisign secret key, whether or not it has a password (`minisign -G -W` makes one
+/// without).
+fn secret_key(path: &Path, password: Option<String>) -> Result<minisign::SecretKey, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let boxed = || minisign::SecretKeyBox::from_string(&text).map_err(|e| e.to_string());
+    if let Ok(key) = boxed()?.into_unencrypted_secret_key() {
+        return Ok(key);
+    }
+    // The minisign program leaves the checksum of a key with no password as zeros, which the
+    // library calls corrupt. The key's bytes say whether it has a password (bytes 2 and 3).
+    use base64::Engine as _;
+    let bytes = text
+        .lines()
+        .nth(1)
+        .and_then(|line| base64::engine::general_purpose::STANDARD.decode(line.trim()).ok());
+    match bytes {
+        Some(bytes) if bytes.len() == 158 && bytes.get(2..4) == Some(&[0, 0]) => {
+            minisign::SecretKey::from_bytes(&bytes).map_err(|e| e.to_string())
+        }
+        _ => boxed()?.into_secret_key(password).map_err(|e| e.to_string()),
+    }
 }
 
 /// Writes `<file>.sig`: a minisign signature the updater checks against the app's key.
@@ -335,6 +366,59 @@ begin
         .replace("@NAME@", &p.name.replace('\'', "''"))
 }
 
+/// Every file under `path` (itself, or a folder's contents), with the name it has beside the
+/// program: a folder keeps its name.
+pub fn beside(path: &Path) -> Result<Vec<(PathBuf, String)>, String> {
+    let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("bad file name");
+    let first = name(path)?;
+    let mut found = Vec::new();
+    let mut waiting = vec![(path.to_path_buf(), first)];
+    while let Some((path, as_name)) = waiting.pop() {
+        if path.is_dir() {
+            let entries = std::fs::read_dir(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            for entry in entries {
+                let child = entry.map_err(|e| e.to_string())?.path();
+                let inner = format!("{as_name}/{}", name(&child)?);
+                waiting.push((child, inner));
+            }
+        } else if path.is_file() {
+            found.push((path, as_name));
+        } else {
+            return Err(format!("{} is missing", path.display()));
+        }
+    }
+    found.sort_by(|a, b| a.1.cmp(&b.1));
+    Ok(found)
+}
+
+/// `[Files]` lines for `[windows] files`.
+fn extra_files(p: &Project) -> String {
+    p.windows_files
+        .iter()
+        .map(|f| {
+            let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if f.is_dir() {
+                format!(
+                    "Source: \"{}\\*\"; DestDir: \"{{app}}\\{name}\"; Flags: ignoreversion recursesubdirs createallsubdirs\n",
+                    f.display()
+                )
+            } else {
+                format!("Source: \"{}\"; DestDir: \"{{app}}\"; Flags: ignoreversion\n", f.display())
+            }
+        })
+        .collect()
+}
+
+/// `[InstallDelete]` for `[windows] remove`.
+fn removed_files(p: &Project) -> String {
+    if p.windows_remove.is_empty() {
+        return String::new();
+    }
+    let lines: String =
+        p.windows_remove.iter().map(|n| format!("Type: filesandordirs; Name: \"{{app}}\\{n}\"\n")).collect();
+    format!("[InstallDelete]\n{lines}\n")
+}
+
 /// The Inno Setup script: a per-user install with a Start menu entry and an uninstaller.
 pub fn inno_script(p: &Project, exe: &Path, ico: &Path, out: &Path, base: &str) -> String {
     let exe_name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -348,6 +432,8 @@ AppComments={description}
 DefaultDirName={{localappdata}}\Programs\{name}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+; Updaters pass /CURRENTUSER; without this line Setup quits on it.
+PrivilegesRequiredOverridesAllowed=commandline
 OutputDir={out}
 OutputBaseFilename={base}
 SetupIconFile={ico}
@@ -365,21 +451,29 @@ Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: 
 
 [Files]
 Source: "{exe}"; DestDir: "{{app}}"; Flags: ignoreversion
-
+{extra_files}
+{removed_files}
 [Icons]
 Name: "{{autoprograms}}\{name}"; Filename: "{{app}}\{exe_name}"
 Name: "{{autodesktop}}\{name}"; Filename: "{{app}}\{exe_name}"; Tasks: desktopicon
 {replaces_icons}
 {autostart_entries}[Run]
-Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall{silent}
 
 {replaces_code}"#,
         replaces_icons = replaces_icons(p, &exe_name),
         replaces_code = replaces_code(p),
         autostart_task = autostart_task(p),
         autostart_entries = autostart_entries(p, &exe_name),
-        // Inno takes AppId literally; braces would start a constant.
-        id = p.id.replace(['{', '}'], ""),
+        silent = if p.windows_relaunch_silent { "" } else { " skipifsilent" },
+        extra_files = extra_files(p),
+        removed_files = removed_files(p),
+        // Inno reads a brace as the start of a constant: doubled, it is a brace. The app's
+        // own id never has one; an earlier installer's often does.
+        id = match &p.windows_app_id {
+            Some(id) => id.replace('{', "{{"),
+            None => p.id.replace(['{', '}'], ""),
+        },
         name = iss_string(&p.name),
         name_esc = p.name.replace(',', "%2c").replace('}', "%7d"),
         version = iss_string(&p.version),
@@ -395,8 +489,11 @@ fn write_zip(path: &Path, exe: &Path, extras: &[PathBuf]) -> Result<(), String> 
     let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut zip = zip::ZipWriter::new(file);
     let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut files = Vec::new();
     for f in std::iter::once(exe.to_path_buf()).chain(extras.iter().cloned()) {
-        let name = f.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("bad file name")?;
+        files.extend(beside(&f)?);
+    }
+    for (f, name) in files {
         let data = std::fs::read(&f).map_err(|e| format!("{}: {e}", f.display()))?;
         zip.start_file(name, opts).map_err(|e| e.to_string())?;
         zip.write_all(&data).map_err(|e| e.to_string())?;
@@ -446,6 +543,60 @@ fn find_iscc() -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_key_without_a_password_signs() {
+        let Ok(pair) = minisign::KeyPair::generate_unencrypted_keypair() else { unreachable!("keys") };
+        let Ok(boxed) = pair.sk.to_box(None) else { unreachable!("a key") };
+        let path = std::env::temp_dir().join(format!("cargo-remedy-key-{}", std::process::id()));
+        std::fs::write(&path, boxed.into_string()).unwrap_or_default();
+        assert!(secret_key(&path, None).is_ok());
+        // As the minisign program writes it: the last 32 bytes, the checksum, left zero.
+        use base64::Engine as _;
+        let mut bytes = pair.sk.to_bytes();
+        let checksum = bytes.len().saturating_sub(32);
+        bytes.iter_mut().skip(checksum).for_each(|b| *b = 0);
+        let line = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let file = ["untrusted comment: minisign encrypted secret key", &line, ""].join("\n");
+        std::fs::write(&path, file).unwrap_or_default();
+        let Ok(read) = secret_key(&path, None) else { unreachable!("a key from the minisign program") };
+        let data = std::io::Cursor::new(b"data");
+        let Ok(signature) = minisign::sign(None, &read, data, None, None) else { unreachable!("it signs") };
+        let data = std::io::Cursor::new(b"data");
+        assert!(minisign::verify(&pair.pk, &signature, data, true, false, false).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn extra_files_an_old_installers_id_and_clean_up_reach_the_installer() {
+        let folder = std::env::temp_dir().join(format!("cargo-remedy-extras-{}", std::process::id()));
+        let licences = folder.join("licenses");
+        std::fs::create_dir_all(licences.join("inner")).unwrap_or_default();
+        std::fs::write(folder.join("engine.dll"), b"x").unwrap_or_default();
+        std::fs::write(licences.join("inner").join("a.txt"), b"y").unwrap_or_default();
+        let mut p = project();
+        p.windows_files = vec![folder.join("engine.dll"), licences.clone()];
+        p.windows_app_id = Some("{B7E2C4A1-0000-0000-0000-000000000000}".into());
+        p.windows_remove = vec!["_internal".into()];
+        assert!(
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n")
+                .contains("Flags: nowait postinstall skipifsilent\n"),
+        );
+        p.windows_relaunch_silent = true;
+        let iss =
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        assert!(iss.contains("PrivilegesRequiredOverridesAllowed=commandline\n"), "{iss}");
+        assert!(iss.contains("Flags: nowait postinstall\n"), "{iss}");
+        assert!(iss.contains("AppId={{B7E2C4A1-0000-0000-0000-000000000000}\n"), "{iss}");
+        assert!(iss.contains("engine.dll\"; DestDir: \"{app}\"; Flags: ignoreversion"), "{iss}");
+        assert!(iss.contains("DestDir: \"{app}\\licenses\"; Flags: ignoreversion recursesubdirs"), "{iss}");
+        assert!(iss.contains("[InstallDelete]\nType: filesandordirs; Name: \"{app}\\_internal\""), "{iss}");
+        let names: Vec<String> =
+            beside(&licences).unwrap_or_default().into_iter().map(|(_, name)| name).collect();
+        assert_eq!(names, ["licenses/inner/a.txt"]);
+        assert!(beside(&folder.join("missing")).is_err());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
     fn project() -> Project {
         Project {
             root: PathBuf::from("."),
@@ -468,7 +619,13 @@ mod tests {
             linux_glibc: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
-            android_target: "aarch64-linux-android".into(),
+            android_targets: vec!["aarch64-linux-android".into()],
+            windows_files: Vec::new(),
+            windows_app_id: None,
+            windows_remove: Vec::new(),
+            windows_relaunch_silent: false,
+            linux_files: Vec::new(),
+            android_libs: Vec::new(),
             android_min_api: 26,
             android_target_api: 35,
             android_keystore: None,
