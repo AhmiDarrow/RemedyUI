@@ -132,7 +132,10 @@ struct State<T> {
     shown: RefCell<HashMap<u64, Shown>>,
     order: RefCell<Vec<u64>>,
     near_oldest: RefCell<Option<Rc<dyn Fn()>>>,
-    asked_at: Cell<Option<f64>>,
+    /// The oldest item's time and how many items there were when more was last asked for:
+    /// a page whose items share that time (messages sent within the same second) still
+    /// counts as new, so the next one is asked for.
+    asked_at: Cell<Option<(f64, usize)>>,
     content: El,
     el: El,
 }
@@ -222,11 +225,9 @@ impl<T: Clone + 'static> State<T> {
         }
         // Near the oldest item: ask for more history, once per oldest item.
         let oldest = self.oldest.get();
-        if lo < oldest
-            && self.asked_at.get() != Some(oldest)
-            && untrack(|| self.items.with(|v| !v.is_empty()))
-        {
-            self.asked_at.set(Some(oldest));
+        let count = untrack(|| self.items.with(Vec::len));
+        if lo < oldest && count > 0 && self.asked_at.get() != Some((oldest, count)) {
+            self.asked_at.set(Some((oldest, count)));
             let f = self.near_oldest.borrow().clone();
             if let Some(f) = f {
                 let ui = self.el.ui().clone();
@@ -444,8 +445,8 @@ impl<T: Clone + 'static> Timeline<T> {
         self.state.back.set_if_changed(0.0);
     }
 
-    /// Calls `f` when the view comes within half a view of the oldest item, once per oldest
-    /// item: the moment to load more history and prepend it.
+    /// Calls `f` when the view comes within half a view of the oldest item, once for each
+    /// oldest item and count of items: the moment to load more history and prepend it.
     pub fn on_near_oldest(self, f: impl Fn() + 'static) -> Self {
         *self.state.near_oldest.borrow_mut() = Some(Rc::new(f));
         self.state.asked_at.set(None);
