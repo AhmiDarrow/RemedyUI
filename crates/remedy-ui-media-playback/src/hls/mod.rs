@@ -325,6 +325,47 @@ fn unescape(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// An Annex B access unit ([`Unit::Video`]) as an AVCC / MP4 sample: each NAL unit after its
+/// length in four big-endian bytes, without the SPS, PPS and access unit delimiters (a
+/// decoder set up with [`VideoConfig::sps`] and [`VideoConfig::pps`] has them already).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn avcc(annex_b: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(annex_b.len() + 16);
+    for nal in ts::nal_units(annex_b) {
+        if nal.is_empty() || matches!(nal.first().map(|b| b & 0x1f), Some(7..=9)) {
+            continue;
+        }
+        out.extend_from_slice(&u32::try_from(nal.len()).unwrap_or(u32::MAX).to_be_bytes());
+        out.extend_from_slice(nal);
+    }
+    out
+}
+
+/// The MPEG-4 elementary stream descriptor (the body of an MP4 `esds` box) for an AAC stream
+/// with AudioSpecificConfig `asc`: the magic cookie Apple's AAC decoder takes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn esds(asc: &[u8]) -> Vec<u8> {
+    // A descriptor: its tag, then its length in four bytes of seven bits.
+    fn descriptor(out: &mut Vec<u8>, tag: u8, len: usize) {
+        out.push(tag);
+        out.extend([21, 14, 7].map(|s| (len >> s) as u8 & 0x7f | 0x80));
+        out.push(len as u8 & 0x7f);
+    }
+    let mut out = Vec::with_capacity(asc.len() + 36);
+    // ES_Descriptor: ES_ID 0, no flags; then a DecoderConfigDescriptor of 13 bytes and a
+    // DecoderSpecificInfo; then an SLConfigDescriptor (predefined: MP4).
+    descriptor(&mut out, 0x03, 3 + 5 + 13 + 5 + asc.len() + 5 + 1);
+    out.extend([0, 0, 0]);
+    descriptor(&mut out, 0x04, 13 + 5 + asc.len());
+    // Audio ISO/IEC 14496-3, an audio stream, no buffer size or bit rates given.
+    out.extend([0x40, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    descriptor(&mut out, 0x05, asc.len());
+    out.extend_from_slice(asc);
+    descriptor(&mut out, 0x06, 1);
+    out.push(0x02);
+    out
+}
+
 fn is_timeout(e: &MediaError) -> bool {
     matches!(e, MediaError::NotFound(m) if m.ends_with(TIMED_OUT))
 }
