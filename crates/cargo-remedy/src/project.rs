@@ -50,13 +50,28 @@ pub struct Project {
     /// An earlier per-user install this one takes over (`[windows.replaces]`), such as the
     /// same app's old NSIS build; unset when there is none.
     pub windows_replaces: Option<Replaces>,
+    /// Files and folders installed beside the program on Windows (`[windows] files`): a
+    /// library it loads, its licenses. A folder keeps its name.
+    pub windows_files: Vec<PathBuf>,
+    /// The installer's own id (`[windows] app_id`), when it is not the app's: the id an
+    /// earlier Inno Setup installer of the same app used, so this one upgrades it in place.
+    pub windows_app_id: Option<String>,
+    /// Files and folders in the install folder an upgrade deletes first (`[windows] remove`,
+    /// plain names): what an earlier version installed and this one does not.
+    pub windows_remove: Vec<String>,
+    /// Files and folders installed beside the program on Linux (`[linux] files`).
+    pub linux_files: Vec<PathBuf>,
     /// The oldest glibc the Linux build runs on (`[linux] glibc`, such as `"2.28"`), built
     /// with `cargo zigbuild`; unset builds against this machine's glibc.
     pub linux_glibc: Option<String>,
     /// The timestamp server for signatures.
     pub timestamp_url: String,
-    /// The Rust target Android packages build for (`[android] target`).
-    pub android_target: String,
+    /// The Rust targets one Android package holds code for (`[android] targets`, or the one
+    /// in `[android] target`; 64-bit ARM by default).
+    pub android_targets: Vec<String>,
+    /// Native libraries of the app's own to put in the APK (`[android] libs`), with `{abi}`
+    /// standing for each target's ABI (`pdfium/{abi}/libpdfium.so`).
+    pub android_libs: Vec<String>,
     /// The lowest Android API level (`[android] min_api`, 26 by default: the bridge loads its
     /// Java half with `InMemoryDexClassLoader`).
     pub android_min_api: u32,
@@ -176,6 +191,39 @@ fn windows_replaces(t: &toml::Table) -> Result<Option<Replaces>, String> {
 }
 
 /// `[linux] glibc`: a version such as `2.28` (digits and one or two dots).
+/// A list of strings under `[section] key`; empty when the key is absent.
+fn strings(t: &toml::Table, section: &str, key: &str) -> Result<Vec<String>, String> {
+    let Some(v) = t.get(section).and_then(|s| s.get(key)) else { return Ok(Vec::new()) };
+    let bad = || format!("remedy.toml: [{section}] {key} must be a list of strings");
+    v.as_array()
+        .ok_or_else(bad)?
+        .iter()
+        .map(|i| i.as_str().map(str::to_owned).ok_or_else(bad))
+        .collect()
+}
+
+/// Names the installer may delete from its own folder: plain names, nothing that leaves it
+/// or means more than one thing to Inno Setup.
+fn removable(names: Vec<String>) -> Result<Vec<String>, String> {
+    let plain = |n: &String| {
+        !n.is_empty() && n != "." && n != ".." && !n.contains(['\\', '/', ':', '*', '?', '"', '{', '}'])
+    };
+    if names.iter().all(plain) {
+        Ok(names)
+    } else {
+        Err("remedy.toml: [windows] remove takes plain file and folder names".into())
+    }
+}
+
+fn android_targets(t: &toml::Table) -> Result<Vec<String>, String> {
+    let list = strings(t, "android", "targets")?;
+    Ok(if list.is_empty() {
+        vec![string(t, "android", "target").unwrap_or_else(|| "aarch64-linux-android".into())]
+    } else {
+        list
+    })
+}
+
 fn linux_glibc(t: &toml::Table) -> Result<Option<String>, String> {
     let Some(v) = string(t, "linux", "glibc") else { return Ok(None) };
     let parts: Vec<&str> = v.split('.').collect();
@@ -366,11 +414,15 @@ impl Project {
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
             windows_autostart: string(&remedy, "windows", "autostart_args"),
             windows_replaces: windows_replaces(&remedy)?,
+            windows_files: strings(&remedy, "windows", "files")?.iter().map(|f| root.join(f)).collect(),
+            windows_app_id: string(&remedy, "windows", "app_id"),
+            windows_remove: removable(strings(&remedy, "windows", "remove")?)?,
+            linux_files: strings(&remedy, "linux", "files")?.iter().map(|f| root.join(f)).collect(),
             linux_glibc: linux_glibc(&remedy)?,
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
-            android_target: string(&remedy, "android", "target")
-                .unwrap_or_else(|| "aarch64-linux-android".into()),
+            android_targets: android_targets(&remedy)?,
+            android_libs: strings(&remedy, "android", "libs")?,
             android_min_api: number(&remedy, "android", "min_api").unwrap_or(26),
             android_target_api: number(&remedy, "android", "target_api").unwrap_or(35),
             android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
@@ -456,7 +508,12 @@ pub(crate) mod tests {
             windows_replaces: None,
             linux_glibc: None,
             timestamp_url: String::new(),
-            android_target: "aarch64-linux-android".into(),
+            android_targets: vec!["aarch64-linux-android".into()],
+            windows_files: Vec::new(),
+            windows_app_id: None,
+            windows_remove: Vec::new(),
+            linux_files: Vec::new(),
+            android_libs: Vec::new(),
             android_min_api: 26,
             android_target_api: 35,
             android_keystore: None,

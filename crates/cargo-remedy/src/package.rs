@@ -131,6 +131,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             extras.push(f);
         }
     }
+    extras.extend(p.windows_files.iter().cloned());
     write_zip(&zip_path, &staged, &extras)?;
     artifacts.push(zip_path);
 
@@ -335,6 +336,62 @@ begin
         .replace("@NAME@", &p.name.replace('\'', "''"))
 }
 
+/// Every file under `path` (itself, or a folder's contents), with the name it has beside the
+/// program: a folder keeps its name.
+pub fn beside(path: &Path) -> Result<Vec<(PathBuf, String)>, String> {
+    let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("bad file name");
+    let first = name(path)?;
+    let mut found = Vec::new();
+    let mut waiting = vec![(path.to_path_buf(), first)];
+    while let Some((path, as_name)) = waiting.pop() {
+        if path.is_dir() {
+            let entries = std::fs::read_dir(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            for entry in entries {
+                let child = entry.map_err(|e| e.to_string())?.path();
+                let inner = format!("{as_name}/{}", name(&child)?);
+                waiting.push((child, inner));
+            }
+        } else if path.is_file() {
+            found.push((path, as_name));
+        } else {
+            return Err(format!("{} is missing", path.display()));
+        }
+    }
+    found.sort_by(|a, b| a.1.cmp(&b.1));
+    Ok(found)
+}
+
+/// `[Files]` lines for `[windows] files`.
+fn extra_files(p: &Project) -> String {
+    p.windows_files
+        .iter()
+        .map(|f| {
+            let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if f.is_dir() {
+                format!(
+                    "Source: \"{}\\*\"; DestDir: \"{{app}}\\{name}\"; Flags: ignoreversion recursesubdirs createallsubdirs\n",
+                    f.display()
+                )
+            } else {
+                format!("Source: \"{}\"; DestDir: \"{{app}}\"; Flags: ignoreversion\n", f.display())
+            }
+        })
+        .collect()
+}
+
+/// `[InstallDelete]` for `[windows] remove`.
+fn removed_files(p: &Project) -> String {
+    if p.windows_remove.is_empty() {
+        return String::new();
+    }
+    let lines: String = p
+        .windows_remove
+        .iter()
+        .map(|n| format!("Type: filesandordirs; Name: \"{{app}}\\{n}\"\n"))
+        .collect();
+    format!("[InstallDelete]\n{lines}\n")
+}
+
 /// The Inno Setup script: a per-user install with a Start menu entry and an uninstaller.
 pub fn inno_script(p: &Project, exe: &Path, ico: &Path, out: &Path, base: &str) -> String {
     let exe_name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -365,7 +422,8 @@ Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: 
 
 [Files]
 Source: "{exe}"; DestDir: "{{app}}"; Flags: ignoreversion
-
+{extra_files}
+{removed_files}
 [Icons]
 Name: "{{autoprograms}}\{name}"; Filename: "{{app}}\{exe_name}"
 Name: "{{autodesktop}}\{name}"; Filename: "{{app}}\{exe_name}"; Tasks: desktopicon
@@ -378,8 +436,14 @@ Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; 
         replaces_code = replaces_code(p),
         autostart_task = autostart_task(p),
         autostart_entries = autostart_entries(p, &exe_name),
-        // Inno takes AppId literally; braces would start a constant.
-        id = p.id.replace(['{', '}'], ""),
+        extra_files = extra_files(p),
+        removed_files = removed_files(p),
+        // Inno reads a brace as the start of a constant: doubled, it is a brace. The app's
+        // own id never has one; an earlier installer's often does.
+        id = match &p.windows_app_id {
+            Some(id) => id.replace('{', "{{"),
+            None => p.id.replace(['{', '}'], ""),
+        },
         name = iss_string(&p.name),
         name_esc = p.name.replace(',', "%2c").replace('}', "%7d"),
         version = iss_string(&p.version),
@@ -395,8 +459,11 @@ fn write_zip(path: &Path, exe: &Path, extras: &[PathBuf]) -> Result<(), String> 
     let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut zip = zip::ZipWriter::new(file);
     let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut files = Vec::new();
     for f in std::iter::once(exe.to_path_buf()).chain(extras.iter().cloned()) {
-        let name = f.file_name().map(|n| n.to_string_lossy().to_string()).ok_or("bad file name")?;
+        files.extend(beside(&f)?);
+    }
+    for (f, name) in files {
         let data = std::fs::read(&f).map_err(|e| format!("{}: {e}", f.display()))?;
         zip.start_file(name, opts).map_err(|e| e.to_string())?;
         zip.write_all(&data).map_err(|e| e.to_string())?;
@@ -446,6 +513,29 @@ fn find_iscc() -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn extra_files_an_old_installers_id_and_clean_up_reach_the_installer() {
+        let folder = std::env::temp_dir().join(format!("cargo-remedy-extras-{}", std::process::id()));
+        let licences = folder.join("licenses");
+        std::fs::create_dir_all(licences.join("inner")).unwrap_or_default();
+        std::fs::write(folder.join("engine.dll"), b"x").unwrap_or_default();
+        std::fs::write(licences.join("inner").join("a.txt"), b"y").unwrap_or_default();
+        let mut p = project();
+        p.windows_files = vec![folder.join("engine.dll"), licences.clone()];
+        p.windows_app_id = Some("{B7E2C4A1-0000-0000-0000-000000000000}".into());
+        p.windows_remove = vec!["_internal".into()];
+        let iss = inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        assert!(iss.contains("AppId={{B7E2C4A1-0000-0000-0000-000000000000}\n"), "{iss}");
+        assert!(iss.contains("engine.dll\"; DestDir: \"{app}\"; Flags: ignoreversion"), "{iss}");
+        assert!(iss.contains("DestDir: \"{app}\\licenses\"; Flags: ignoreversion recursesubdirs"), "{iss}");
+        assert!(iss.contains("[InstallDelete]\nType: filesandordirs; Name: \"{app}\\_internal\""), "{iss}");
+        let names: Vec<String> =
+            beside(&licences).unwrap_or_default().into_iter().map(|(_, name)| name).collect();
+        assert_eq!(names, ["licenses/inner/a.txt"]);
+        assert!(beside(&folder.join("missing")).is_err());
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
     fn project() -> Project {
         Project {
             root: PathBuf::from("."),
@@ -468,7 +558,12 @@ mod tests {
             linux_glibc: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
-            android_target: "aarch64-linux-android".into(),
+            android_targets: vec!["aarch64-linux-android".into()],
+            windows_files: Vec::new(),
+            windows_app_id: None,
+            windows_remove: Vec::new(),
+            linux_files: Vec::new(),
+            android_libs: Vec::new(),
             android_min_api: 26,
             android_target_api: 35,
             android_keystore: None,
