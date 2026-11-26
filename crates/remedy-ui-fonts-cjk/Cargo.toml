@@ -23,7 +23,7 @@ jp = []
 embed = ["remedy-ui-fonts/embed"]
 
 [dependencies]
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", default-features = false }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.2", default-features = false }
 
 [dev-dependencies]
 read-fonts = { version = "=0.47.0", default-features = false, features = ["std"] }

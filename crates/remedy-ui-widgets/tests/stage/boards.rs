@@ -106,7 +106,12 @@ fn a_page_sharing_the_oldest_time_still_asks_for_the_next() {
     // the count, and the next page is still asked for.
     let ui = ui();
     let clock = Clock::manual();
-    let items = Signal::new((50..100).map(|i| (0.0, i)).chain((100..150).map(|i| (f64::from(i as u32), i))).collect::<Vec<Item>>());
+    let items = Signal::new(
+        (50..100)
+            .map(|i| (0.0, i))
+            .chain((100..150).map(|i| (f64::from(i as u32), i)))
+            .collect::<Vec<Item>>(),
+    );
     let asked = Rc::new(Cell::new(0));
     let a2 = asked.clone();
     let t = track(&ui, items, &clock, NewestAt::Right).on_near_oldest(move || a2.set(a2.get() + 1));

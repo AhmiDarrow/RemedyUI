@@ -253,7 +253,8 @@ impl FontCollection {
         if names.iter().any(|n| n == BUNDLED_EMOJI) {
             let emoji = parley::fontique::GenericFamily::Emoji;
             if let Some(own) = self.fcx.collection.family_id(BUNDLED_EMOJI) {
-                let rest: Vec<_> = self.fcx.collection.generic_families(emoji).filter(|f| *f != own).collect();
+                let rest: Vec<_> =
+                    self.fcx.collection.generic_families(emoji).filter(|f| *f != own).collect();
                 self.fcx.collection.set_generic_families(emoji, std::iter::once(own).chain(rest));
             }
         }
