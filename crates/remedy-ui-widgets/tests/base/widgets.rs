@@ -1401,3 +1401,56 @@ fn a_split_moves_once_for_a_key_pressed_and_let_go() {
     t.ui.key(&KeyEvent::release(Key::ArrowRight));
     assert!((f.get() - 0.52).abs() < 1e-4, "one step, not one for the release too: {}", f.get());
 }
+
+/// The tooltips in every layer of the window, by their words.
+fn tooltip_words(ui: &Ui) -> Vec<String> {
+    let mut out = Vec::new();
+    for layer in ui.layers() {
+        let mut stack = vec![layer];
+        while let Some(e) = stack.pop() {
+            if e.info().is_some_and(|i| i.widget == "tooltip") {
+                out.push(e.text_content().unwrap_or_default());
+            }
+            stack.extend(e.child_elements());
+        }
+    }
+    out
+}
+
+#[test]
+fn automatic_tooltips_name_what_has_none_and_never_double_one() {
+    let mut t = T::new();
+    w::auto_tooltips(&t.ui, w::auto_tooltip_text);
+    let save = w::button(&t.ui, "Save", || {});
+    let ptt = w::button(&t.ui, "PTT", || {}).semantics(
+        remedy_ui_core::a11y::Semantics::new(remedy_ui_core::a11y::Role::Button)
+            .label("PTT")
+            .description("Push to talk: hold the key to speak"),
+    );
+    let gear = w::button(&t.ui, "Gear", || {});
+    w::tooltip(&gear, "Settings");
+    let words = w::text(&t.ui, "Just words");
+    t.ui.root().child(
+        w::column(&t.ui).child(save.clone()).child(ptt.clone()).child(gear.clone()).child(words.clone()),
+    );
+    t.frame();
+    let mut rest_on = |el: &El| {
+        let c = el.bounds().unwrap_or_default().center();
+        t.ui.pointer(&ptr(PointerPhase::Move, c, Buttons::default()));
+        t.frame();
+        t.fire();
+        t.frame();
+        tooltip_words(&t.ui)
+    };
+    assert_eq!(rest_on(&save), vec!["Save".to_owned()], "a button without a tooltip says its name");
+    assert_eq!(
+        rest_on(&ptt),
+        vec!["Push to talk: hold the key to speak".to_owned()],
+        "a description wins over the name"
+    );
+    assert_eq!(rest_on(&gear), vec!["Settings".to_owned()], "its own tooltip shows, alone");
+    assert!(rest_on(&words).is_empty(), "plain words show none");
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(390.0, 290.0), Buttons::default()));
+    t.frame();
+    assert!(tooltip_words(&t.ui).is_empty(), "and it goes when the pointer leaves");
+}

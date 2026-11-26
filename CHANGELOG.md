@@ -8,13 +8,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
-### Changed
-
-- **A new window fits its screen.** On Windows, macOS and X11 a window asked for at a size larger than its screen (1080 × 760 at 150% on a 1080p display) is shrunk to the screen, less a strip for the taskbar, and moved onto it before it is shown.
-
 ### Added
 
 - `TestApp::at_scale`: a test app on a headless display of a given scale, for pictures of an app at 125% to 200% without changing a display.
+- **Automatic tooltips.** `widgets::auto_tooltips(ui, text_for)` gives everything in a window that can be pressed, typed in or moved a tooltip when it has none of its own: its accessible description, else its name (`widgets::auto_tooltip_text`), or whatever `text_for` returns. An element with its own `tooltip` keeps it, and nothing doubles. Underneath, `Ui::set_hover_watch` hears the hovered chain change, `Ui::hovered` returns it, and `El::set_has_tooltip` and `ElementInfo::has_tooltip` mark an element that shows its own.
+
+### Changed
+
+- **A new window fits its screen.** On Windows, macOS and X11 a window asked for at a size larger than its screen (1080 × 760 at 150% on a 1080p display) is shrunk to the screen, less a strip for the taskbar, and moved onto it before it is shown.
 
 ## [1.0.0-rc.2] - 2026-11-26
 

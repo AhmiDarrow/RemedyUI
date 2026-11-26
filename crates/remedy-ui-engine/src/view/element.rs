@@ -515,6 +515,9 @@ pub struct ElementInfo {
     pub clips: bool,
     /// A link inside a sentence of text ([`El::on_link`]): its size is the line's.
     pub inline_link: bool,
+    /// Shows a tooltip of its own ([`El::set_has_tooltip`]), so automatic tooltips leave
+    /// it and everything inside it alone.
+    pub has_tooltip: bool,
 }
 
 pub(crate) struct ElData {
@@ -614,6 +617,8 @@ pub(crate) struct ElData {
     pub(crate) inert: bool,
     /// Clicks go through it to what is below ([`El::pass_through`]).
     pub(crate) pass_through: bool,
+    /// Shows a tooltip of its own ([`El::set_has_tooltip`]).
+    pub(crate) has_tooltip: bool,
     /// Playing its way out ([`crate::view::play_exit`]): takes no input until it is removed.
     pub(crate) leaving: bool,
     /// Lays out as nothing, like `hidden`, but set by the engine (a [`crate::view::show`] with
@@ -778,6 +783,8 @@ pub(crate) struct Inner {
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
+    /// Told the hovered chain each time it changes ([`Ui::set_hover_watch`]).
+    pub(crate) hover_watch: Option<HoverWatch>,
     /// What hears the window's menu keys before anything focused ([`Ui::add_menu_keys`]),
     /// newest first.
     pub(crate) menu_keys: Vec<(u64, crate::view::events::MenuKeyHandler)>,
@@ -855,6 +862,9 @@ impl Drop for Inner {
         remedy_ui_core::reactive::remove_panic_handler(self.panic_handler);
     }
 }
+
+/// Told the hovered chain, innermost first, each time it changes (see [`Ui::set_hover_watch`]).
+pub type HoverWatch = Rc<dyn Fn(&[ElementId])>;
 
 /// One window's UI. Cloning gives another handle to the same UI.
 #[derive(Clone)]
@@ -1053,6 +1063,7 @@ impl Ui {
             content: root,
             overlays: root,
             interceptor: None,
+            hover_watch: None,
             menu_keys: Vec::new(),
             alt_tap: false,
             alt_held: remedy_ui_core::reactive::Signal::new(false),
@@ -1638,6 +1649,18 @@ impl Ui {
         self.0.borrow_mut().interceptor = f;
     }
 
+    /// Calls `f` with the hovered elements, innermost first up to the root, each time that
+    /// chain changes (empty when the pointer leaves or a finger lifts). For window-wide
+    /// hover helpers such as automatic tooltips; `None` removes it.
+    pub fn set_hover_watch(&self, f: Option<HoverWatch>) {
+        self.0.borrow_mut().hover_watch = f;
+    }
+
+    /// The hovered elements, innermost first up to the root.
+    pub fn hovered(&self) -> Vec<ElementId> {
+        self.0.borrow().hovered.clone()
+    }
+
     /// A handle to an existing element.
     pub fn element(&self, id: ElementId) -> El {
         El { ui: self.clone(), id }
@@ -2062,6 +2085,7 @@ impl ElData {
             hidden: false,
             inert: false,
             pass_through: false,
+            has_tooltip: false,
             leaving: false,
             collapsed: false,
             removed: Vec::new(),
@@ -2829,6 +2853,20 @@ impl El {
         self
     }
 
+    /// Marks it as showing a tooltip of its own (the tooltip widget does this), so automatic
+    /// tooltips leave it and everything inside it alone.
+    pub fn set_has_tooltip(self, on: bool) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.has_tooltip = on;
+        }
+        self
+    }
+
+    /// Whether it shows a tooltip of its own ([`El::set_has_tooltip`]).
+    pub fn has_tooltip(&self) -> bool {
+        self.ui.0.borrow().els.get(&self.id).is_some_and(|d| d.has_tooltip)
+    }
+
     /// Calls `f(true)` when the pointer comes over the element and `f(false)` when it leaves.
     /// An element may have several: each is called, in the order they were set.
     pub fn on_hover(self, f: impl Fn(bool) + 'static) -> Self {
@@ -3310,6 +3348,7 @@ impl El {
             hidden: d.hidden,
             clips: d.clip || d.scroll,
             inline_link: d.inline_link.is_some(),
+            has_tooltip: d.has_tooltip,
         })
     }
 
