@@ -61,6 +61,9 @@ pub const DEFAULT_SYMBOL_FALLBACKS: &[&str] = &[
     "emoji",
 ];
 
+/// The bundled color emoji family (`remedy-ui-fonts`), first in the `emoji` generic family.
+const BUNDLED_EMOJI: &str = "Remedy Emoji";
+
 /// The fonts a [`TextEngine`] can use. Starts empty; apps add their bundled fonts (for
 /// example from `remedy-ui-fonts`, or their brand's own as TrueType, OpenType, WOFF or
 /// WOFF2) and, with the `system-fonts` feature, may let fallback reach the system's fonts.
@@ -243,6 +246,16 @@ impl FontCollection {
         for (name, attrs) in faces {
             let family = target.clone().unwrap_or(name);
             self.own.entry(family.to_lowercase()).or_default().push(attrs);
+        }
+        // Emoji are shaped from the `emoji` generic family before any fallback list, so the
+        // bundled face goes first there; the system's stay after it for what it lacks
+        // (flags and other sequences). `set_generic_family("emoji", …)` changes the order.
+        if names.iter().any(|n| n == BUNDLED_EMOJI) {
+            let emoji = parley::fontique::GenericFamily::Emoji;
+            if let Some(own) = self.fcx.collection.family_id(BUNDLED_EMOJI) {
+                let rest: Vec<_> = self.fcx.collection.generic_families(emoji).filter(|f| *f != own).collect();
+                self.fcx.collection.set_generic_families(emoji, std::iter::once(own).chain(rest));
+            }
         }
         Ok(names)
     }
