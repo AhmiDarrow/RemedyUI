@@ -1686,6 +1686,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A timeline (`stage::timeline`) asks for older history again after a page whose items share the oldest time, such as messages sent within the same second. It used to ask once and then never again.
 - A drawer (`nav::drawer`, `nav::sheet`) shows its content every time it opens. Closing it used to remove the content with the panel, so a drawer opened a second time came up empty.
 - A split-flap or LED board reads in its own text's direction: a Latin name keeps its letters in order in a right-to-left window, and an Arabic name reads from the right in a left-to-right one. A split-flap board used to mirror its flaps with the window.
 - Layout no longer slows with depth. A growing container (`grow`) in a row takes the width left and has no automatic minimum width; working one out measured everything inside again at every level (a text twelve rows deep was measured over a thousand times, now nine at any depth). It also stays inside its parent when its content is wider than the room, where it used to push the row past it. A measured leaf (text, a picture) and a minimum the app sets are as before. Markdown nests 64 deep again.
