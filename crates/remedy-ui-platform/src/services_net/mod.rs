@@ -64,6 +64,9 @@ use serde::de::DeserializeOwned;
 mod cookies;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub use native::root_certs;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
