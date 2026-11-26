@@ -20,6 +20,10 @@ Scripted widgets run on [RemedyLua](https://github.com/AhmiDarrow/RemedyLua), a 
 
 <table>
 <tr>
+<td width="50%"><img src="docs/images/remedyai-grove.jpg" alt="RemedyAI: Grove, the home view"><br><sub><b>RemedyAI</b> · Grove, the home view</sub></td>
+<td width="50%"><img src="docs/images/remedyai-studio.jpg" alt="RemedyAI: Studio, chat and build"><br><sub><b>RemedyAI</b> · Studio, chat and build</sub></td>
+</tr>
+<tr>
 <td width="50%"><img src="docs/images/hearth.jpg" alt="Hearth: file sharing, light theme"><br><sub><b>Hearth</b> · file sharing, light theme</sub></td>
 <td width="50%"><img src="docs/images/craft-calc.jpg" alt="Alex's Craft Calc: the built-in craft wiki"><br><sub><b>Alex's Craft Calc</b> · the built-in craft wiki</sub></td>
 </tr>
