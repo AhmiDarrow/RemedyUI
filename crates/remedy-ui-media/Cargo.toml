@@ -41,9 +41,9 @@ image = { version = "=0.25.10", default-features = false, optional = true }
 image-webp = { version = "=0.2.4", optional = true }
 moxcms = { version = "=0.8.1", optional = true }
 png = { version = "=0.18.1", optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.1", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.2", optional = true }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.0.0-rc.2", optional = true }
 resvg = { version = "=0.50.0", default-features = false, optional = true }
 
 [dev-dependencies]
@@ -51,16 +51,16 @@ gif = { version = "=0.14.2" }
 image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png"] }
 image-webp = { version = "=0.2.4" }
 png = { version = "=0.18.1" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2" }
 remedy-ui-widgets = { path = "../remedy-ui-widgets", features = ["devtools", "themes"] }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", features = ["compositor", "paint", "render-cpu", "view"] }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans", "remedy-sans-ui"] }
-remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.2", features = ["compositor", "paint", "render-cpu", "view"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.2", features = ["remedy-sans", "remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.2" }
 remedy-ui-media = { path = ".", features = ["media-anim", "media-anim-apng", "media-anim-gif", "media-anim-webp", "media-image", "media-image-bmp", "media-image-gif", "media-image-http", "media-image-ico", "media-image-jpeg", "media-image-png", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz", "media-image-tiff", "media-image-webp", "media-isolated", "media-isolated-anim", "media-video"] }
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
 image = { version = "=0.25.10", default-features = false, features = ["png"], optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.2", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "=0.3.107", optional = true }

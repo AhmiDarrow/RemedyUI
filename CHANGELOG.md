@@ -8,6 +8,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-11-26
+
 ### Security
 
 - **wasmi 2.0.3.** The WebAssembly interpreter behind `script-wasm` moves from 2.0.2, which was withdrawn from crates.io, to 2.0.3, which fixes a memory-unsafe `v128.store8_lane` and `v128.store16_lane`.
