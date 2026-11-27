@@ -130,10 +130,13 @@ unsafe extern "C" {
 #[path = "macos_hls.rs"]
 mod hls;
 
-struct MacHost;
+struct MacHost {
+    /// The last HLS stream's decoders, for the next.
+    spare: crate::hls::Spare,
+}
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
-    Ok(Arc::new(MacHost))
+    Ok(Arc::new(MacHost { spare: crate::hls::Spare::default() }))
 }
 
 impl MediaHost for MacHost {
@@ -145,11 +148,9 @@ impl MediaHost for MacHost {
         // AVAssetReader does not read playlists: the crate's own reader takes HLS apart and
         // VideoToolbox and AudioToolbox decode its streams.
         if crate::hls::is_hls(source) {
-            return crate::hls::open(
-                &source.to_url(),
-                Box::new(hls::UrlFetch::new()),
-                Box::new(hls::ToolboxElementary::default()),
-            );
+            return crate::hls::open(&source.to_url(), Box::new(hls::UrlFetch::new()), &self.spare, || {
+                Ok(Box::new(hls::ToolboxElementary::default()))
+            });
         }
         Ok(Box::new(AvDecoder::open(source)?))
     }

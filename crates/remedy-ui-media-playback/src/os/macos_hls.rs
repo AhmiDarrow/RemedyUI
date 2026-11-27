@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -23,8 +24,8 @@ use objc2_foundation::{
 
 use super::{Asbd, FLOAT_PACKED, LINEAR_PCM, nv12, settings};
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, avcc, esds,
-    file_path, timed_out,
+    AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, avcc, esds, file_path, first_byte, load,
+    quiet, timed_out,
 };
 use crate::host::{MediaError, Picture, Sample};
 
@@ -799,7 +800,7 @@ impl UrlFetch {
         UrlFetch { session: NSURLSession::sessionWithConfiguration(&config) }
     }
 
-    fn fetch(&self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn fetch(&self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         let ns_url = NSURL::URLWithString(&NSString::from_str(url))
             .ok_or_else(|| MediaError::NotFound(format!("{url} is not a URL")))?;
         let request = NSMutableURLRequest::requestWithURL(&ns_url);
@@ -829,8 +830,8 @@ impl UrlFetch {
         };
         let task = task.ok_or_else(|| MediaError::NotFound(format!("{url}: no request could be made")))?;
         task.resume();
-        // No answer for FIRST_BYTE, no byte for QUIET once bytes came, or LOAD in all: the
-        // task is cancelled and the fetch timed out.
+        // No answer for first_byte(), no byte for quiet() once bytes came, or load() in all: the
+        // task is cancelled and the fetch timed out. So is one whose reader is gone (`stop`).
         let started = Instant::now();
         let (mut seen, mut last) = (0i64, started);
         let mut answer = slot.answer.lock().unwrap_or_else(PoisonError::into_inner);
@@ -842,8 +843,13 @@ impl UrlFetch {
             if got != seen {
                 (seen, last) = (got, Instant::now());
             }
-            let quiet = if seen == 0 { FIRST_BYTE } else { QUIET };
-            if last.elapsed() > quiet || started.elapsed() > LOAD {
+            if stop.load(Ordering::Relaxed) {
+                drop(answer);
+                task.cancel();
+                return Err(timed_out(url, "the reader went away"));
+            }
+            let limit = if seen == 0 { first_byte() } else { quiet() };
+            if last.elapsed() > limit || started.elapsed() > load() {
                 drop(answer);
                 task.cancel();
                 let why = if seen == 0 { "no answer, or too long in all" } else { "nothing arrived" };
@@ -865,11 +871,11 @@ impl UrlFetch {
 }
 
 impl Fetch for UrlFetch {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
-        autoreleasepool(|_| self.fetch(url))
+        autoreleasepool(|_| self.fetch(url, stop))
     }
 }
 
