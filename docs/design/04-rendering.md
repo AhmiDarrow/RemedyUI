@@ -232,7 +232,9 @@ a tested tolerance.
    recorded as a hang at once, from the watchdog's thread, so a present that never returns
    still demotes the backend at the next start. When it does return, the device is let go as
    if lost and recovery walks the ladder past the hung backend (another API or adapter, the
-   software rung, or the CPU renderer).
+   software rung, or the CPU renderer). A recorded hang lasts a day (`health::HUNG_RETRY`),
+   then the backend is tested and tried again; time the watchdog's thread itself did not run
+   (sleep, every core busy) is not counted against a present.
 4. **A failure that recovery cannot fix** (no replacement device, a window whose GPU present
    fails) moves the window to the CPU renderer.
 
