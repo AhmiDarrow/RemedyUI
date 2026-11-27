@@ -4,7 +4,18 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** 1.0.0 release candidate.
+**Status:** 1.1.1, on [crates.io](https://crates.io/crates/remedy-ui).
+
+## Built for people and for agents
+
+RemedyUI was designed from the start for two kinds of users: the person in front of the window, and the AI agent working beside them. We know of no other UI engine built that way.
+
+- **One tree for both.** Every element carries its meaning (role, name, value, actions) in one semantics tree. A screen reader, a test and an agent all read the same thing a person sees, so an app that is accessible is already operable.
+- **Agents act with consent.** An agent reads and operates a window only under a grant the person gave in that app, sees no secret input, and every change it makes can be undone.
+- **Agents can build with it too.** `remedy-mcp` gives an agent the same tools `cargo remedy` gives a developer: the docs and widget catalog, markup and effect checks, rendered previews with their accessibility audit, tests, and a running app's devtools. It runs locally and only in the folders you name.
+- **People stay in charge.** Themes, shortcuts, toolbars and layouts are readable files that the person, or an agent they asked, can change, with undo and resets.
+
+See [Tools for people and AI agents](#tools-for-people-and-ai-agents) and [docs/MCP.md](docs/MCP.md).
 
 ## Apps built on RemedyUI
 
