@@ -1,5 +1,11 @@
 # RemedyUI
 
+[![crates.io](https://img.shields.io/crates/v/remedy-ui.svg)](https://crates.io/crates/remedy-ui)
+[![docs.rs](https://img.shields.io/docsrs/remedy-ui)](https://docs.rs/remedy-ui)
+[![license](https://img.shields.io/crates/l/remedy-ui.svg)](#license)
+
+**A fast, stable, secure UI engine for Rust, built for people and for the AI agents working beside them.**
+
 ![RemedyUI: RemedyAI, FreeSpeak, Hearth, SecretFolder, SecretSticky and Craft Calc windows](docs/images/showcase.jpg)
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
