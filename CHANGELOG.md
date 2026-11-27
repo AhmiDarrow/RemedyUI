@@ -8,6 +8,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Fixed
+
+- **One slow frame no longer keeps an app off the graphics card for good.** A present that ran past `PRESENT_HANG` was recorded as a hang with no end, so every later start drew on the software adapter (on Windows, WARP on every core: fifteen cores busy for a window the graphics card draws with a tenth of one). A recorded hang now carries its time and is passed over for `render_gpu::health::HUNG_RETRY` (a day); after that, and for a hang recorded by an earlier version, the backend is tested and tried again. Time the watchdog's own thread did not run (the computer slept, or every core was busy) is no longer counted against the present.
+
 ## [1.1.1] - 2026-11-26
 
 ### Added

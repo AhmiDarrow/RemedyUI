@@ -2,7 +2,8 @@
 //! self-test, which drew wrong, and which hung presenting. Remembered per adapter, driver and
 //! backend (and engine version), in memory and, once an app names a folder
 //! ([`remember_in`]), on disk: the self-test runs once per driver, and a backend that hung is
-//! skipped from then on, the next start included.
+//! skipped from then on, the next start included, until [`HUNG_RETRY`] has passed: then it is
+//! tested and tried again, so one bad moment never keeps a machine off its graphics card.
 //!
 //! - **The self-test** ([`self_test`]) draws a small scene that exercises what interfaces use
 //!   (fills, rounded edges, gradients, images, a blur, a colour matrix) on the device and on
@@ -13,6 +14,8 @@
 //!   own. A present running past [`PRESENT_HANG`] is recorded as a hang at once (so a hang that
 //!   never returns still demotes the backend at the next start) and the device is treated as
 //!   lost: the compositor's owner rebuilds it from the ladder, which skips the hung rung.
+//!   Time the watchdog's own thread did not run (the computer slept, or every core was busy)
+//!   is not counted against the present.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,6 +29,15 @@ use crate::render_gpu::{GpuContext, GpuError};
 /// ([`GpuLimits::present_hang`](crate::render_gpu::GpuLimits::present_hang)). Windows resets a GPU that
 /// does not answer for two seconds; a present this long is not a slow frame.
 pub const PRESENT_HANG: Duration = Duration::from_secs(3);
+
+/// How long a backend that hung is passed over before it is tried again. A hang is sometimes
+/// the moment and not the driver (another program holding the graphics card), and the rung
+/// below costs far more to draw on.
+pub const HUNG_RETRY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The watchdog's thread looks at least this often; a longer gap between two looks means the
+/// thread itself did not run.
+const WATCH_STALL: Duration = Duration::from_secs(1);
 
 /// What a backend did here.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +88,8 @@ const FILE: &str = "gpu-health.txt";
 
 struct Health {
     verdicts: HashMap<String, Verdict>,
+    /// When each hung backend hung (seconds since 1970), for [`HUNG_RETRY`].
+    hung_at: HashMap<String, u64>,
     dir: Option<PathBuf>,
     tests_run: u64,
 }
@@ -84,7 +98,12 @@ static HEALTH: Mutex<Option<Health>> = Mutex::new(None);
 
 fn with<T>(f: impl FnOnce(&mut Health) -> T) -> T {
     let mut slot = HEALTH.lock().unwrap_or_else(PoisonError::into_inner);
-    let h = slot.get_or_insert_with(|| Health { verdicts: HashMap::new(), dir: None, tests_run: 0 });
+    let h = slot.get_or_insert_with(|| Health {
+        verdicts: HashMap::new(),
+        hung_at: HashMap::new(),
+        dir: None,
+        tests_run: 0,
+    });
     f(h)
 }
 
@@ -123,8 +142,13 @@ pub fn remember_in(dir: impl Into<PathBuf>) {
     let dir = dir.into();
     let read = read_file(&dir);
     with(|h| {
-        for (k, v) in read {
-            h.verdicts.entry(k).or_insert(v);
+        for (k, v, at) in read {
+            if !h.verdicts.contains_key(&k) {
+                if v == Verdict::Hung {
+                    h.hung_at.insert(k.clone(), at);
+                }
+                h.verdicts.insert(k, v);
+            }
         }
         h.dir = Some(dir);
         write_file(h);
@@ -146,6 +170,12 @@ pub fn record(key: &str, verdict: Verdict) {
             let version = concat!(" v", env!("CARGO_PKG_VERSION"));
             let Some(stale) = h.verdicts.keys().find(|k| !k.ends_with(version)).cloned() else { return };
             h.verdicts.remove(&stale);
+            h.hung_at.remove(&stale);
+        }
+        if verdict == Verdict::Hung {
+            h.hung_at.insert(key.to_string(), unix_now());
+        } else {
+            h.hung_at.remove(key);
         }
         h.verdicts.insert(key.to_string(), verdict);
         write_file(h);
@@ -157,6 +187,7 @@ pub fn record(key: &str, verdict: Verdict) {
 pub fn forget(key: &str) {
     with(|h| {
         h.verdicts.remove(key);
+        h.hung_at.remove(key);
         write_file(h);
     });
 }
@@ -166,14 +197,29 @@ pub fn self_tests_run() -> u64 {
     with(|h| h.tests_run)
 }
 
-fn read_file(dir: &std::path::Path) -> Vec<(String, Verdict)> {
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// The file's verdicts, each with when it hung (0 unless hung). A hang older than
+/// [`HUNG_RETRY`], or with no time (written before hangs were dated), is left out: the
+/// backend is then unknown again, and tested and tried at this start.
+fn read_file(dir: &std::path::Path) -> Vec<(String, Verdict, u64)> {
     let Ok(text) = std::fs::read_to_string(dir.join(FILE)) else { return Vec::new() };
     let limits = crate::render_gpu::gpu_limits();
     text.lines()
         .filter(|l| l.len() <= limits.health_line)
         .filter_map(|l| {
             let (k, v) = l.split_once('\t')?;
-            Some((k.to_string(), Verdict::parse(v)?))
+            let verdict = Verdict::parse(v)?;
+            let mut at = 0;
+            if verdict == Verdict::Hung {
+                at = v.strip_prefix("hung ")?.trim().parse().ok()?;
+                if unix_now().saturating_sub(at) > HUNG_RETRY.as_secs() {
+                    return None;
+                }
+            }
+            Some((k.to_string(), verdict, at))
         })
         .take(limits.health_entries)
         .collect()
@@ -188,6 +234,9 @@ fn write_file(h: &Health) {
         .iter()
         .map(|(k, v)| {
             let mut line = format!("{k}\t{}", v.word());
+            if let Some(at) = h.hung_at.get(k) {
+                line.push_str(&format!(" {at}"));
+            }
             while line.len() > most {
                 line.pop();
             }
@@ -331,6 +380,8 @@ struct Watch {
     started: AtomicU64,
     /// The hang threshold, in nanoseconds.
     hang: AtomicU64,
+    /// When the watchdog's thread last looked (nanoseconds on the watchdog's clock).
+    looked: AtomicU64,
     hung: AtomicBool,
     epoch: remedy_ui_core::time::Instant,
 }
@@ -352,12 +403,34 @@ impl Watch {
         if started == 0 || self.hung.load(Ordering::Acquire) {
             return false;
         }
-        if self.now().saturating_sub(started) > self.hang.load(Ordering::Relaxed) {
+        let now = self.now();
+        if self.forgive_stall(started, now) {
+            return false;
+        }
+        if now.saturating_sub(started) > self.hang.load(Ordering::Relaxed) {
             self.hung.store(true, Ordering::Release);
             record(&self.key, Verdict::Hung);
             return true;
         }
         false
+    }
+
+    /// True when the watchdog's thread has not looked for [`WATCH_STALL`]: the computer slept
+    /// or had no core free, and that time is not the present's. The present running (the one
+    /// that began at `started`) is then timed from now.
+    fn forgive_stall(&self, started: u64, now: u64) -> bool {
+        let stall = u64::try_from(WATCH_STALL.as_nanos()).unwrap_or(u64::MAX);
+        if now.saturating_sub(self.looked.load(Ordering::Acquire)) <= stall {
+            return false;
+        }
+        let _ = self.started.compare_exchange(started, now, Ordering::AcqRel, Ordering::Acquire);
+        true
+    }
+
+    /// One look from the watchdog's thread.
+    fn look(&self) {
+        self.check();
+        self.looked.store(self.now(), Ordering::Release);
     }
 }
 
@@ -373,6 +446,7 @@ impl PresentWatchdog {
             key: key(ctx),
             started: AtomicU64::new(0),
             hang: AtomicU64::new(u64::try_from(hang.as_nanos()).unwrap_or(u64::MAX)),
+            looked: AtomicU64::new(1),
             hung: AtomicBool::new(false),
             epoch: remedy_ui_core::time::Instant::now(),
         });
@@ -384,7 +458,7 @@ impl PresentWatchdog {
                 while let Some(w) = weak.upgrade() {
                     let step = Duration::from_nanos(w.hang.load(Ordering::Relaxed) / 4)
                         .clamp(Duration::from_millis(1), Duration::from_millis(250));
-                    w.check();
+                    w.look();
                     drop(w);
                     std::thread::sleep(step);
                 }
@@ -447,7 +521,7 @@ mod tests {
             h.dir = was;
         });
         let read = read_file(&dir);
-        assert!(read.iter().any(|(k, v)| *k == here(0) && matches!(v, Verdict::Failed(_))), "{read:?}");
+        assert!(read.iter().any(|(k, v, _)| *k == here(0) && matches!(v, Verdict::Failed(_))), "{read:?}");
         let _ = std::fs::remove_dir_all(&dir);
         for i in 0..most {
             forget(&here(i));
@@ -457,13 +531,37 @@ mod tests {
         let long = "x".repeat(crate::render_gpu::MAX_HEALTH_LINE * 2);
         let _ = std::fs::write(
             dir.join(FILE),
-            format!("good\tpassed\nbad\tnonsense\nnotab\n{long}\thung\nslow\thung\nwrong\tfailed garbage\n"),
+            format!(
+                "good\tpassed\nbad\tnonsense\nnotab\n{long}\thung\nslow\thung {now}\nundated\thung\nlong ago\thung {old}\nwrong\tfailed garbage\n",
+                now = unix_now(),
+                old = unix_now() - HUNG_RETRY.as_secs() - 60,
+            ),
         );
+        // A hang is kept only while it is recent: an old or undated one is tried again.
         let read = read_file(&dir);
         assert_eq!(read.len(), 3, "{read:?}");
-        assert!(read.contains(&("slow".into(), Verdict::Hung)));
-        assert!(read.contains(&("wrong".into(), Verdict::Failed("garbage".into()))));
+        assert!(read.iter().any(|(k, v, at)| k == "slow" && *v == Verdict::Hung && *at > 0), "{read:?}");
+        assert!(read.iter().any(|(k, v, _)| k == "wrong" && *v == Verdict::Failed("garbage".into())));
         let _ = std::fs::remove_dir_all(&dir);
+        // A hang is written with its time, and time the watchdog's thread did not run (sleep,
+        // every core busy) is not the present's: the present is timed from the next look.
+        record("dated", Verdict::Hung);
+        assert!(with(|h| h.hung_at.get("dated").is_some_and(|at| *at > 0)));
+        forget("dated");
+        let watch = Watch {
+            key: "stalled".into(),
+            started: AtomicU64::new(1),
+            hang: AtomicU64::new(1),
+            looked: AtomicU64::new(1),
+            hung: AtomicBool::new(false),
+            epoch: remedy_ui_core::time::Instant::now(),
+        };
+        std::thread::sleep(WATCH_STALL + Duration::from_millis(50));
+        assert!(!watch.check(), "the watchdog itself did not run: no hang");
+        assert!(watch.started.load(Ordering::Acquire) > 1, "the present is timed from now");
+        watch.looked.store(watch.now(), Ordering::Release);
+        assert!(watch.check(), "watched, and past the threshold: a hang");
+        forget("stalled");
         assert!(compare(&[0; 8], &[0; 4]).worst == 255, "a frame of the wrong size is wrong");
         // The reference scene against a black frame (what a broken driver often gives).
         let Ok(want) =
