@@ -69,6 +69,22 @@ fn the_qr_code_is_drawn_dark_on_light_from_the_theme() {
 }
 
 #[test]
+fn a_qr_code_wider_than_its_place_shrinks_to_fit_and_stays_square() {
+    use remedy_ui_core::layout::Length;
+    let ui = ui();
+    let data = Signal::new("x".repeat(400));
+    let el = qr_code(&ui, "Pairing code", data, QrOptions::default());
+    // A narrow panel: the code's own size is several times this.
+    let panel = ui.el("panel").layout(|l| l.width = Length::Px(180.0)).child(el.clone());
+    let _ = ui.root().child(panel.clone());
+    let _ = frame(&ui);
+    let (code, place) = (el.bounds().unwrap_or_default(), panel.bounds().unwrap_or_default());
+    assert!(code.width() <= place.width() + 0.5, "the code is {} wide in a {} panel", code.width(), place.width());
+    assert!((code.width() - code.height()).abs() < 0.5, "not square: {} x {}", code.width(), code.height());
+    assert!(code.width() > 100.0, "it should fill the panel, not collapse: {}", code.width());
+}
+
+#[test]
 fn the_qr_code_follows_its_signal_and_grows_with_the_data() {
     let ui = ui();
     let data = Signal::new("short".to_owned());
