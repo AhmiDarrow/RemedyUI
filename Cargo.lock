@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-remedy"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "base64",
  "bytes",
@@ -3973,7 +3973,7 @@ checksum = "05f62ebc12920bf41b9edfbc6256f2b79ec5c970b593b7e6f9d8dbf2aa40c1a2"
 
 [[package]]
 name = "remedy-ui"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "js-sys",
  "png",
@@ -4001,7 +4001,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-bridge-web"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "js-sys",
  "remedy-ui",
@@ -4014,11 +4014,11 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-build"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 
 [[package]]
 name = "remedy-ui-core"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
@@ -4037,7 +4037,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-engine"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "ash",
  "fluent-bundle",
@@ -4072,14 +4072,14 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-fonts"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "read-fonts 0.47.0",
 ]
 
 [[package]]
 name = "remedy-ui-fonts-cjk"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "read-fonts 0.47.0",
  "remedy-ui-fonts",
@@ -4088,7 +4088,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-macros"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-media"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "gif",
  "image",
@@ -4127,7 +4127,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-media-playback"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "js-sys",
  "libloading",
@@ -4156,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-platform"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "accesskit_android",
  "accesskit_winit",
@@ -4216,7 +4216,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-text"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "fontique",
  "icu_normalizer",
@@ -4238,7 +4238,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-widgets"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "base64",
  "encoding_rs",
@@ -4277,7 +4277,7 @@ dependencies = [
 
 [[package]]
 name = "remedy-ui-widgets-term"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "base64",
  "remedy-ui-core",
@@ -6840,7 +6840,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.0.0-rc.2"
+version = "1.1.1"
 dependencies = [
  "flate2",
  "serde_json",

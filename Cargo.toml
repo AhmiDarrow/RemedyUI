@@ -4,7 +4,7 @@ members = ["crates/*", "xtask"]
 exclude = ["vendor/vello_cpu"]
 
 [workspace.package]
-version = "1.0.0-rc.2"
+version = "1.1.1"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"

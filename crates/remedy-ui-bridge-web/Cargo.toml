@@ -14,7 +14,7 @@ categories.workspace = true
 # What every platform builds: the platform-neutral parts (keys, wheel units, ARIA roles,
 # pixels, settings, the file store), so they are tested on any machine.
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1" }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "=0.2.130" }

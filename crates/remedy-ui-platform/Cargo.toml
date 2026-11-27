@@ -37,8 +37,8 @@ icu_datetime = { version = "=2.3.0", default-features = false, features = ["comp
 icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data", "unstable"], optional = true }
 icu_locale_core = { version = "=2.4.0", default-features = false, optional = true }
 intl-memoizer = { version = "=0.5.3", optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.2", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", optional = true }
 serde = { version = "=1.0.229", optional = true }
 serde_json = { version = "=1.0.154", optional = true }
 snap = { version = "=1.1.2", optional = true }
@@ -48,10 +48,10 @@ winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", 
 
 [dev-dependencies]
 remedy-ui = { path = "../remedy-ui" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2" }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.0.0-rc.2", features = ["compositor", "paint", "render-cpu"] }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.2", features = ["remedy-sans-ui"] }
-remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.2" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", features = ["compositor", "paint", "render-cpu"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.1.1", features = ["remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.1.1" }
 remedy-ui-widgets = { path = "../remedy-ui-widgets", features = ["themes"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 remedy-ui-platform = { path = ".", features = ["bridge-android", "bridge-headless", "bridge-linux", "bridge-macos", "bridge-windows", "bridge-winit", "embed-gpu", "embed-webview", "services-desktop", "services-i18n", "services-i18n-language-names", "services-net", "services-webstorage"] }
@@ -65,7 +65,7 @@ web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag", "Url", 
 arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"], optional = true }
 futures-core = { version = "=0.3.34", optional = true }
 libc = { version = "=0.2.191", optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 wayland-backend = { version = "=0.3.17", features = ["client_system"], optional = true }
 wayland-client = { version = "=0.31.15", optional = true }
@@ -98,12 +98,12 @@ objc2 = { version = "=0.6.5", optional = true }
 objc2-app-kit = { version = "=0.3.2", optional = true }
 objc2-foundation = { version = "=0.3.2", optional = true }
 objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "bitflags", "UNError", "UNNotification", "UNNotificationAttachment", "UNNotificationAction", "UNNotificationCategory", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"], optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1", optional = true }
 rfd = { version = "=0.18.0", default-features = false, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 png = { version = "=0.18.1", optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.2", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1", optional = true }
 rfd = { version = "=0.18.0", default-features = false, optional = true }
 webview2-com = { version = "=0.39.1", optional = true }
 windows = { version = "=0.62.2", features = ["ApplicationModel_DataTransfer", "Data_Xml_Dom", "Foundation", "Gaming_Input", "Media", "Media_Playback", "Storage", "Storage_Streams", "UI_Notifications", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_EnhancedStorage", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Registry", "Win32_System_SystemServices", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_TextServices", "Win32_UI_WindowsAndMessaging"], optional = true }

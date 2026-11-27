@@ -8,6 +8,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-26
+
 ### Added
 
 - `TestApp::at_scale`: a test app on a headless display of a given scale, for pictures of an app at 125% to 200% without changing a display.
