@@ -12,11 +12,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1" }
-remedy-ui-media = { path = "../remedy-ui-media", version = "1.1.1", features = ["media-video"] }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", features = ["paint", "view"] }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.1", features = ["base"] }
-remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.1.1", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.2" }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.1.2", features = ["media-video"] }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.2", features = ["paint", "view"] }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.2", features = ["base"] }
+remedy-ui-platform = { path = "../remedy-ui-platform", version = "1.1.2", optional = true }
 
 [features]
 ## `Player::now_playing`: the player in the system's media controls (SMTC, a browser's
@@ -59,7 +59,7 @@ libloading = { version = "=0.8.9" }
 # A browser page: its WebCodecs decoders and WebAudio, and the web bridge's file store for
 # files the person picked or dropped.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "1.1.1" }
+remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "1.1.2" }
 wasm-bindgen = { version = "=0.2.130" }
 wasm-bindgen-futures = { version = "=0.4.80" }
 js-sys = { version = "=0.3.107" }
@@ -95,7 +95,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dev-dependencies]
 # Pictures on the GPU drawn by the GPU renderer: tests/gpu_frames.rs (Windows, Android) and
 # the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", features = ["render-gpu"] }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.2", features = ["render-gpu"] }
 
 # The keep-awake test on Linux serves a stand-in for the session's screen saver
 # (org.freedesktop.ScreenSaver) on the session bus it runs under (dbus-run-session).
@@ -103,11 +103,11 @@ remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", features =
 zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
 
 [dev-dependencies]
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", features = ["compositor", "render-cpu"] }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.1", features = ["devtools", "themes"] }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.1.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-pixel"] }
-remedy-ui-media = { path = "../remedy-ui-media", version = "1.1.1", features = ["media-image", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz"] }
-remedy-ui-text = { path = "../remedy-ui-text", version = "1.1.1" }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.2", features = ["compositor", "render-cpu"] }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.2", features = ["devtools", "themes"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.1.2", features = ["remedy-sans-ui", "remedy-sans", "ahmi-pixel"] }
+remedy-ui-media = { path = "../remedy-ui-media", version = "1.1.2", features = ["media-image", "media-image-svg", "media-image-svg-raster-images", "media-image-svg-text", "media-image-svgz"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.1.2" }
 
 # The browser tests (tests/web.rs, tests/web_gpu.rs, tests/web_cursor.rs): a player in a page through the facade's
 # web bridge, drawn by the CPU renderer and by the GPU renderer.

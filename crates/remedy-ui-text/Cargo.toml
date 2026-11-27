@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.2" }
 parley = { version = "=0.13.0", default-features = false, features = ["std"] }
 # The analysis parley runs before shaping (bidi levels by UAX #9) and the character table it
 # reads bidi classes from, used on their own so a huge paragraph can be laid out in pieces
@@ -48,8 +48,8 @@ system-fonts = ["parley/system", "dep:fontique", "fontique/fontconfig-dlopen"]
 complex-scripts = ["parley/complex-scripts"]
 
 [dev-dependencies]
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.1.1", features = ["remedy-sans-ui", "ahmi-print", "remedy-symbols", "scripts", "remedy-emoji"] }
-remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.1.1" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.1.2", features = ["remedy-sans-ui", "ahmi-print", "remedy-symbols", "scripts", "remedy-emoji"] }
+remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.1.2" }
 
 [[bench]]
 name = "huge_paragraph"

@@ -10,7 +10,7 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat, documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** 1.1.1, on [crates.io](https://crates.io/crates/remedy-ui).
+**Status:** 1.1.2, on [crates.io](https://crates.io/crates/remedy-ui).
 
 ## Built for people and for agents
 

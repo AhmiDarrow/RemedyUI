@@ -54,10 +54,10 @@ base64 = { version = "=0.23.1", optional = true }
 minisign = { version = "=0.10.0", optional = true }
 png = { version = "=0.18.1", optional = true }
 proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"], optional = true }
-remedy-ui-build = { path = "../remedy-ui-build", version = "1.1.1", optional = true }
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1", optional = true }
-remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.1", optional = true }
-remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.1", optional = true }
+remedy-ui-build = { path = "../remedy-ui-build", version = "1.1.2", optional = true }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.2", optional = true }
+remedy-ui-engine = { path = "../remedy-ui-engine", version = "1.1.2", optional = true }
+remedy-ui-widgets = { path = "../remedy-ui-widgets", version = "1.1.2", optional = true }
 rmcp = { version = "=3.11.0", default-features = false, features = ["server", "macros", "transport-io"], optional = true }
 schemars = { version = "=1.2.3", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
@@ -70,7 +70,7 @@ zip = { version = "=9.6.1", default-features = false, features = ["deflate"], op
 
 [dev-dependencies]
 png = { version = "=0.18.1" }
-remedy-ui = { path = "../remedy-ui", version = "1.1.1", default-features = false, features = ["agents", "devtools", "headless", "nav", "widgets"] }
+remedy-ui = { path = "../remedy-ui", version = "1.1.2", default-features = false, features = ["agents", "devtools", "headless", "nav", "widgets"] }
 rmcp = { version = "=3.11.0", default-features = false, features = ["client", "transport-child-process"] }
 cargo-remedy = { path = ".", features = ["cli", "devkit", "devkit-devtools", "devkit-docs", "devkit-effects", "devkit-full", "devkit-live", "devkit-markup", "devkit-preview", "devkit-scaffold", "devkit-schema", "devkit-testing", "mcp", "mcp-devtools", "mcp-docs", "mcp-effects", "mcp-full", "mcp-http", "mcp-live", "mcp-markup", "mcp-preview", "mcp-scaffold", "mcp-testing", "templates"] }
 

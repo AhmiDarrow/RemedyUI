@@ -8,9 +8,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-26
+
 ### Fixed
 
 - **One slow frame no longer keeps an app off the graphics card for good.** A present that ran past `PRESENT_HANG` was recorded as a hang with no end, so every later start drew on the software adapter (on Windows, WARP on every core: fifteen cores busy for a window the graphics card draws with a tenth of one). A recorded hang now carries its time and is passed over for `render_gpu::health::HUNG_RETRY` (a day); after that, and for a hang recorded by an earlier version, the backend is tested and tried again. Time the watchdog's own thread did not run (the computer slept, or every core was busy) is no longer counted against the present.
+- **The media playback crate builds for macOS again.** Its macOS reader had fallen behind the shared HLS reader, so `remedy-ui-media-playback` 1.1.1 did not compile there.
+- **A QR code never draws wider than its place.** In a panel narrower than the code's own size it ran past the edge and lost a corner marker, so it could not be scanned. It now shrinks to fit and stays square.
 
 ## [1.1.1] - 2026-11-26
 

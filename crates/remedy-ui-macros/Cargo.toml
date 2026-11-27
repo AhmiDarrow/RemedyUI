@@ -21,7 +21,7 @@ quote = { version = "=1.0.47", default-features = false, features = ["proc-macro
 syn = { version = "=2.0.119", default-features = false, features = ["clone-impls", "derive", "full", "parsing", "printing", "proc-macro"] }
 
 [dev-dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.1.2" }
 
 [lints]
 workspace = true
