@@ -54,6 +54,12 @@ locally, from the repository root:
    `cargo publish --manifest-path vendor/vello_cpu/Cargo.toml`), then the workspace in
    dependency order with `cargo publish -p <crate>` (Cargo orders a workspace publish itself
    from 1.90: `cargo publish --workspace`), then tag the release `vX.Y.Z`.
+   Published one at a time, the order that works is: `remedy-ui-build`, `remedy-ui-core`,
+   `remedy-ui-fonts`, `remedy-ui-macros`, `remedy-ui-bridge-web`, `remedy-ui-fonts-cjk`,
+   `remedy-ui-text`, `remedy-ui-engine`, `remedy-ui-platform`, `remedy-ui-media`,
+   `remedy-ui-widgets`, `remedy-ui-widgets-term`, `remedy-ui-media-playback`, `remedy-ui`,
+   `cargo-remedy`. crates.io lets five new crates through at once and then one every ten
+   minutes; new versions of existing crates are not held back that way.
 
 ## Editions
 

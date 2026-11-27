@@ -79,7 +79,12 @@ fn a_qr_code_wider_than_its_place_shrinks_to_fit_and_stays_square() {
     let _ = ui.root().child(panel.clone());
     let _ = frame(&ui);
     let (code, place) = (el.bounds().unwrap_or_default(), panel.bounds().unwrap_or_default());
-    assert!(code.width() <= place.width() + 0.5, "the code is {} wide in a {} panel", code.width(), place.width());
+    assert!(
+        code.width() <= place.width() + 0.5,
+        "the code is {} wide in a {} panel",
+        code.width(),
+        place.width()
+    );
     assert!((code.width() - code.height()).abs() < 0.5, "not square: {} x {}", code.width(), code.height());
     assert!(code.width() > 100.0, "it should fill the panel, not collapse: {}", code.width());
 }
