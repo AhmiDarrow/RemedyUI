@@ -183,9 +183,14 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
             ),
         };
         let _ = bound.clone().semantics(sem);
+        // Its own size, but never wider than the place it is put: a code cut off at the edge
+        // of a narrow panel cannot be scanned. It stays square and is drawn to fit.
         let _ = bound.clone().layout(|l| {
             l.width = Length::Px(side);
-            l.height = Length::Px(side);
+            l.height = Length::Auto;
+            l.max_width = Length::Percent(1.0);
+            l.aspect_ratio = Some(1.0);
+            l.shrink = 1.0;
         });
         bound.repaint();
     })
