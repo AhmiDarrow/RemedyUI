@@ -269,6 +269,16 @@ public final class Foreground extends Service {
         end();
     }
 
+    /**
+     * The person swiped the app away from recents: the work belongs to the app they closed, so
+     * it ends with the process (the activity's destroy may not come while the service holds it).
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        end();
+        android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
     @Override
     public void onDestroy() {
         synchronized (LOCK) {

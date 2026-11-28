@@ -8,6 +8,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swiping an Android app away from recents ends it, and its foreground work with it.** The activity's destroy waited for the app's event loop, which does not end for a destroy the app did not ask for, so with foreground work running (a call holding the microphone) the process lived on with its threads and the microphone open. The activity now ends the process unless the app itself asked it to finish, and the foreground service ends its work and the process in `onTaskRemoved`.
+
 ## [1.1.2] - 2026-11-26
 
 ### Fixed
